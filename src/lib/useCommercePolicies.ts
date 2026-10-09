@@ -77,7 +77,7 @@ export function useCommercePolicies() {
       .from('commerce_policy_settings')
       .upsert({
         organization_id: organization.id,
-        customer_prices_hidden: next.customer_prices_hidden,
+        customer_prices_hidden: true,
         require_quantity_approval: next.require_quantity_approval,
         payment_request_after_approval: next.payment_request_after_approval,
         quantity_input_tone: next.quantity_input_tone,
@@ -90,7 +90,7 @@ export function useCommercePolicies() {
       setError(saveError.message)
       return false
     }
-    setPolicies(next)
+    setPolicies({ ...next, customer_prices_hidden: true })
     return true
   }, [organization?.id])
 
