@@ -64,6 +64,15 @@ CREATE TABLE IF NOT EXISTS commerce_policy_settings (
 ALTER TABLE commerce_policy_settings DROP CONSTRAINT IF EXISTS commerce_policy_prices_hidden;
 ALTER TABLE commerce_policy_settings
   ADD CONSTRAINT commerce_policy_prices_hidden CHECK (customer_prices_hidden = true);
+ALTER TABLE commerce_policy_settings DROP CONSTRAINT IF EXISTS commerce_policy_mandatory_workflow;
+ALTER TABLE commerce_policy_settings ADD CONSTRAINT commerce_policy_mandatory_workflow CHECK (
+  customer_prices_hidden = true
+  AND require_quantity_approval = true
+  AND payment_request_after_approval = true
+  AND offline_orders_disabled = true
+  AND ai_external_data_requires_consent = true
+  AND ai_rule_based_fallback = true
+);
 
 
 -- Policy registry values are scoped to the organization and constrained at the database boundary.
@@ -89,7 +98,7 @@ ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_external_data_r
 ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_rule_based_fallback boolean NOT NULL DEFAULT true;
 ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS offline_orders_disabled boolean NOT NULL DEFAULT true;
 
-DO $
+DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'commerce_policy_limits_check') THEN
     ALTER TABLE commerce_policy_settings ADD CONSTRAINT commerce_policy_limits_check CHECK (
@@ -117,7 +126,7 @@ BEGIN
     );
   END IF;
 END;
-$;
+$$;
 
 ALTER TABLE commerce_policy_settings ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS commerce_policy_settings_read_member ON commerce_policy_settings;
