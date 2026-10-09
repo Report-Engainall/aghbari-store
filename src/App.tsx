@@ -4,6 +4,7 @@ import { ToastProvider } from '@/components/ui/Toast'
 import { StorefrontShell } from '@/components/storefront/StorefrontShell'
 import { AdminShell } from '@/components/admin/AdminShell'
 import { ProtectedRoute, AdminRoute, PublicOnlyRoute } from '@/components/guards/RouteGuards'
+import PolicyCenter from '@/pages/admin/PolicyCenter'
 
 // Storefront pages
 import Landing from '@/pages/storefront/Landing'
@@ -124,6 +125,7 @@ export default function App() {
             <Route path="notifications" element={<AdminNotifications />} />
             <Route path="health" element={<AdminHealth />} />
             <Route path="settings" element={<AdminSettings />} />
+            <Route path="policy-center" element={<PolicyCenter />} />
             <Route path="workspace" element={<AdminCustomers />} />
             <Route path="devices" element={<AdminCustomers />} />
             <Route path="engines" element={<AdminDataCenter />} />
