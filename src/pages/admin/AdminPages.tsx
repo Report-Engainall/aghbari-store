@@ -320,6 +320,7 @@ export function Import() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [progress, setProgress] = useState<CsvImportProgress | null>(null)
+  const [duplicate, setDuplicate] = useState<{ fileHash: string; profileId: string } | null>(null)
 
   const load = async () => {
     if (!organization?.id) return
@@ -357,6 +358,38 @@ export function Import() {
     return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
   }
 
+  const createProfileVersion = async () => {
+    if (!organization?.id || !isAdmin || !duplicate) return
+    const current = profiles.find(entry => String(entry.id) === duplicate.profileId)
+    if (!current) { setMessage('ملف التعريف الأصلي غير موجود.'); return }
+    setBusy(true)
+    try {
+      const name = String(current.profile_name || 'استيراد عام')
+      const nextVersion = Math.max(0, ...profiles.filter(entry => String(entry.profile_name) === name).map(entry => Number(entry.version) || 0)) + 1
+      const { data: authData } = await supabase.auth.getUser()
+      if (!authData.user) throw new Error('انتهت الجلسة. سجّل الدخول ثم أعد المحاولة.')
+      const { data, error } = await supabase.from('import_profiles').insert({
+        organization_id: organization.id, profile_name: name,
+        report_type: current.report_type, source: current.source, version: nextVersion,
+        required_columns: current.required_columns, optional_columns: current.optional_columns,
+        ignored_columns: current.ignored_columns, synonyms: current.synonyms,
+        transformation_rules: current.transformation_rules, validation_rules: current.validation_rules,
+        matching_key: current.matching_key, merge_strategy: current.merge_strategy,
+        date_rules: current.date_rules, status: 'active', created_by: authData.user.id,
+      }).select('*').single()
+      if (error) throw error
+      setProfiles(previous => [...previous, data as Record<string, unknown>])
+      setProfileId(String(data.id))
+      setDuplicate(null)
+      setMessage('تم إنشاء إصدار v' + nextVersion + '. أعد فحص الملف لتسجيل نسخة مستقلة بهذا الإصدار.')
+      show('success', 'تم إنشاء إصدار جديد لملف التعريف', 'لم يتم دمج بيانات الملف أو استبدال النسخة السابقة.')
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'تعذر إنشاء إصدار جديد.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const stage = async () => {
     if (!file || !organization?.id || !profileId) { setMessage('اختر ملفاً وملف تعريف أولاً.'); return }
     if (file.size <= 0 || file.size > 100 * 1024 * 1024) { setMessage('حجم الملف يجب ألا يتجاوز 100 ميجابايت وأن يكون أكبر من صفر.'); return }
@@ -371,7 +404,7 @@ export function Import() {
         .eq('organization_id', organization.id).eq('profile_id', profileId).eq('file_hash', fileHash)
         .is('period_start', null).is('period_end', null).maybeSingle()
       if (checkError) throw checkError
-      if (existing) { setMessage(`الملف مكرر بالبصمة نفسها: ${existing.file_name}. لم يتم إنشاء عملية جديدة.`); return }
+      if (existing) { setDuplicate({ fileHash, profileId }); setMessage('الملف مكرر بالبصمة نفسها: ' + existing.file_name + '. اختر تجاهله أو إنشاء نسخة جديدة من ملف التعريف.'); return }
 
       if (ext === 'csv') {
         const result = await processCsvToSnapshot({
