@@ -61,19 +61,7 @@ UPDATE invoices SET invoice_kind = 'sales' WHERE invoice_kind IS NULL;
 ALTER TABLE invoices ALTER COLUMN invoice_kind SET DEFAULT 'sales';
 ALTER TABLE invoices ALTER COLUMN invoice_kind SET NOT NULL;
 
-DO $$
-DECLARE constraint_row record;
-BEGIN
-  FOR constraint_row IN
-    SELECT conname FROM pg_constraint
-    WHERE conrelid = 'public.invoices'::regclass
-      AND contype = 'c'
-      AND pg_get_constraintdef(oid) ILIKE '%status%'
-  LOOP
-    EXECUTE format('ALTER TABLE public.invoices DROP CONSTRAINT %I', constraint_row.conname);
-  END LOOP;
-END;
-$$;
+ALTER TABLE public.invoices DROP CONSTRAINT IF EXISTS invoices_status_check;
 
 ALTER TABLE invoices ADD CONSTRAINT invoices_status_check
 CHECK (status IN ('draft','issued','partial','paid','overdue','cancelled'));
@@ -551,13 +539,17 @@ BEGIN
   RETURNING id INTO v_order_id;
 
   FOR item IN
-    SELECT ci.*, p.sku, p.item_code, p.name, p.name_ar, p.unit, p.base_price,
+    SELECT ci.*, p.organization_id AS product_organization_id,
+           p.sku, p.item_code, p.name, p.name_ar, p.unit, p.base_price,
            p.price, p.bulk_price, p.retail_price, p.wholesale_price, p.stock_quantity,
            p.min_order_qty, p.box_quantity, p.carton_quantity
     FROM cart_items ci JOIN products p ON p.id = ci.product_id
     WHERE ci.user_id = v_user_id
     FOR UPDATE OF p
   LOOP
+    IF item.product_organization_id IS DISTINCT FROM v_org_id THEN
+      RAISE EXCEPTION 'cross_organization_cart_product';
+    END IF;
     IF item.quantity < item.min_order_qty THEN
       RAISE EXCEPTION 'invalid_quantity';
     END IF;
