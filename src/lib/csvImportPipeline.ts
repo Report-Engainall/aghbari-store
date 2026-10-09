@@ -194,7 +194,8 @@ export async function processCsvToSnapshot(args: {
     report('اكتشاف بنية CSV', 0)
     const iterator = csvRows(file)
     const first = await iterator.next()
-    headers = (first.value || []).map((header, index) => index === 0 ? header.replace(/^\uFEFF/, '') : header)
+    const firstRow = (first.value || []) as string[]
+    headers = firstRow.map((header: string, index: number) => index === 0 ? header.replace(/^\uFEFF/, '') : header)
     if (first.done || !headers.length || (headers.length === 1 && !headers[0].trim())) {
       throw new Error('CSV_HEADER_MISSING')
     }
@@ -325,7 +326,7 @@ export async function processCsvToSnapshot(args: {
     await setUpload(uploadId, { status: 'snapshotted' })
     const manifest = {
       manifest_version: 1, file_name: file.name, file_type: 'csv', file_size: file.size,
-      file_hash: fileHash, profile_id: profile.id, profile_version: (profile as JsonRecord).version ?? null,
+      file_hash: fileHash, profile_id: profile.id, profile_version: (profile as unknown as JsonRecord).version ?? null,
       headers, column_mapping: mapping, total_rows: totalRows,
       accepted_rows: acceptedRows,
       warning_rows: qualityScore >= 75 && qualityScore < 90 ? acceptedRows : 0,
