@@ -328,7 +328,7 @@ BEGIN
 
   SELECT md5(COALESCE(string_agg(
     ci.product_id::text || ':' || ci.quantity::text || ':' || COALESCE(ci.unit_type, 'piece'),
-    '|' ORDER BY ci.product_id::text, ci.unit_type
+    '|' ORDER BY ci.product_id::text, ci.unit_type, ci.id
   ), 'empty-cart'))
   INTO v_cart_hash
   FROM cart_items ci WHERE ci.user_id = v_user_id;
