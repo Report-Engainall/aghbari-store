@@ -309,10 +309,94 @@ export function Pricing() {
   </AdminPage>
 }
 export function DataCenter() { return <AdminPage title="مركز البيانات" description="مصادر البيانات وجودتها" icon={Database}><div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{[['الكتالوج', 'products'], ['الطلبات', 'orders'], ['المستخدمون', 'organization_members']].map(([label, table]) => <div className="card p-5" key={table}><Database className="h-6 w-6 text-primary-600" /><h3 className="font-bold mt-3">{label}</h3><p className="text-sm text-neutral-500 mt-1">متصل بقاعدة البيانات</p></div>)}</div></AdminPage> }
-export function Import() { const { show } = useToast(); const [file, setFile] = useState<File | null>(null); const [uploading, setUploading] = useState(false); const [progress, setProgress] = useState(0); const [stage, setStage] = useState(''); const [uploads, setUploads] = useState<Record<string, unknown>[]>([]); const loadUploads = () => { supabase.from('import_uploads').select('*').order('created_at', { ascending: false }).limit(10).then(({ data }) => setUploads(data || [])) }; useEffect(() => { loadUploads() }, []); const stages = ['قراءة الملف', 'اكتشاف نوع التقرير', 'توحيد الأعمدة', 'التحقق والجودة', 'دمج البيانات', 'إجراء التحليل الحسابي', 'صياغة التوصيات']; const submit = async () => { if (!file) return; setUploading(true); setProgress(0); for (let i = 0; i < stages.length; i++) { setStage(stages[i]); setProgress(Math.round(((i + 1) / stages.length) * 100)); await new Promise(r => setTimeout(r, 400)) }; const { error } = await supabase.from('import_uploads').insert({ file_name: file.name, file_type: file.name.split('.').pop() || '', file_size: file.size, status: 'completed', total_rows: 0, success_rows: 0, failed_rows: 0 }); setUploading(false); setStage(''); setProgress(0); setFile(null); if (error) show('error', 'تعذر حفظ السجل', error.message); else { show('success', 'تم استيراد الملف بنجاح'); loadUploads() } }; return <AdminPage title="استيراد البيانات" description="محرك الاستيراد الموحد - رفع ملفات Excel و CSV لمعالجتها" icon={Upload}><div className="card p-6 max-w-xl mb-5"><label className="label">ملف CSV أو Excel</label><input type="file" accept=".csv,.xlsx,.xls" onChange={event => setFile(event.target.files?.[0] || null)} className="input" /><p className="text-xs text-neutral-500 mt-3">الحد الأقصى: 100 ميجابايت، 100,000 صف. لا تُحفظ الملفات الخام بشكل دائم.</p><button disabled={!file || uploading} onClick={submit} className="btn-primary mt-5">{uploading ? 'جاري المعالجة...' : 'بدء الاستيراد'}</button></div>
-    {uploading && <div className="card p-5 mb-5"><div className="flex justify-between mb-2"><span className="text-sm font-medium">{stage}</span><span className="text-sm text-neutral-500">{progress}%</span></div><div className="w-full bg-neutral-100 rounded-full h-2"><div className="bg-primary-600 h-2 rounded-full transition-all" style={{ width: `${progress}%` }} /></div></div>}
-    {uploads.length > 0 && <div><h2 className="font-bold mb-3">آخر عمليات الاستيراد</h2><Table headers={['الملف', 'الحالة', 'التاريخ']}>{uploads.map(row => <tr key={String(row.id)} className="border-t border-neutral-100"><td className="p-4">{String(row.file_name || '—')}</td><td className="p-4"><StatusBadge status={String(row.status)} /></td><td className="p-4 text-neutral-500">{row.created_at ? formatDate(String(row.created_at)) : '—'}</td></tr>)}</Table></div>}
-  </AdminPage> }
+export function Import() {
+  const { organization, isAdmin } = useAuth()
+  const { show } = useToast()
+  const [file, setFile] = useState<File | null>(null)
+  const [profiles, setProfiles] = useState<Record<string, unknown>[]>([])
+  const [profileId, setProfileId] = useState('')
+  const [uploads, setUploads] = useState<Record<string, unknown>[]>([])
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const load = async () => {
+    if (!organization?.id) return
+    const [p, u] = await Promise.all([
+      supabase.from('import_profiles').select('*').eq('organization_id', organization.id).eq('status', 'active').order('profile_name'),
+      supabase.from('import_uploads').select('*').eq('organization_id', organization.id).order('uploaded_at', { ascending: false }).limit(10),
+    ])
+    if (p.error) setMessage(p.error.message)
+    else {
+      const list = p.data as Record<string, unknown>[] || []
+      setProfiles(list)
+      if (!profileId && list.length) setProfileId(String(list[0].id))
+    }
+    if (u.error) setMessage(u.error.message)
+    else setUploads(u.data as Record<string, unknown>[] || [])
+  }
+  useEffect(() => { void load() }, [organization?.id])
+
+  const createProfile = async () => {
+    if (!organization?.id || !isAdmin) return
+    const { data, error } = await supabase.from('import_profiles').insert({
+      organization_id: organization.id, profile_name: 'استيراد عام', report_type: 'generic_catalog',
+      source: 'manual', version: 1, required_columns: ['item_code'],
+      optional_columns: ['name', 'name_ar', 'base_price', 'retail_price', 'wholesale_price', 'stock_quantity'],
+      ignored_columns: [], synonyms: { item_code: ['sku', 'رمز الصنف', 'كود الصنف'] },
+      transformation_rules: {}, validation_rules: { item_code: 'required_string' },
+      matching_key: 'item_code', merge_strategy: 'manual_review', date_rules: {}, status: 'active',
+    }).select('*').single()
+    if (error) setMessage(error.message)
+    else { setProfiles([data as Record<string, unknown>]); setProfileId(String(data.id)); show('success', 'تم إنشاء ملف التعريف') }
+  }
+
+  const hashFile = async (selected: File) => {
+    const digest = await crypto.subtle.digest('SHA-256', await selected.arrayBuffer())
+    return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
+  }
+
+  const stage = async () => {
+    if (!file || !organization?.id || !profileId) { setMessage('اختر ملفاً وملف تعريف أولاً.'); return }
+    if (file.size <= 0 || file.size > 100 * 1024 * 1024) { setMessage('حجم الملف يجب ألا يتجاوز 100 ميجابايت وأن يكون أكبر من صفر.'); return }
+    const ext = file.name.split('.').pop()?.toLowerCase() || ''
+    if (!['csv', 'xlsx', 'xls', 'pdf'].includes(ext)) { setMessage('الأنواع المسموحة: CSV وExcel وPDF.'); return }
+    setBusy(true); setMessage('')
+    try {
+      const fileHash = await hashFile(file)
+      const { data: existing, error: checkError } = await supabase.from('import_uploads').select('id, file_name')
+        .eq('organization_id', organization.id).eq('profile_id', profileId).eq('file_hash', fileHash)
+        .is('period_start', null).is('period_end', null).maybeSingle()
+      if (checkError) throw checkError
+      if (existing) { setMessage(`ملف مكرر: ${existing.file_name}. لم يتم تسجيل نسخة أخرى.`); return }
+      const { error } = await supabase.from('import_uploads').insert({
+        organization_id: organization.id, profile_id: profileId,
+        file_name: file.name, file_type: ext, file_size: file.size, file_hash: fileHash,
+        status: ext === 'pdf' ? 'manual_review' : 'staged',
+        error_code: ext === 'pdf' ? 'MANUAL_MAPPING_REQUIRED' : null,
+        error_message: ext === 'pdf' ? 'لم يعمل استخراج PDF بعد؛ لم يتم توليد بيانات مفترضة.' : null,
+      })
+      if (error) throw error
+      setFile(null)
+      show('success', 'تم تسجيل الملف كمسودة', 'لم يتم إعلان الاستيراد مكتملاً؛ المحتوى الخام لم يُرفع إلى التخزين الدائم.')
+      await load()
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'تعذر تسجيل المسودة.'
+      setMessage(reason); show('error', 'تعذر تسجيل الملف', reason)
+    } finally { setBusy(false) }
+  }
+
+  return <AdminPage title="محرك الاستيراد الموحد" description="تسجيل آمن لبصمة الملف وبياناته الوصفية دون ادعاء اكتمال المعالجة" icon={Upload}>
+    <div className="card mb-5 max-w-2xl p-6">
+      <div className="mb-4 rounded-xl border border-warning-200 bg-warning-50 p-4"><p className="font-bold text-warning-900">تسجيل مسودة فقط</p><p className="mt-1 text-sm leading-6 text-warning-800">عامل استخراج CSV/Excel/PDF والدمج غير مربوط بعد. لن نعرض تقدماً وهمياً أو نضع الحالة «مكتمل». تسجّل هذه الشاشة البصمة والبيانات الوصفية فقط ولا ترفع الملف إلى Storage.</p></div>
+      {profiles.length ? <div className="mb-4"><label className="label">ملف تعريف الاستيراد</label><select className="input" value={profileId} onChange={e => setProfileId(e.target.value)}>{profiles.map(p => <option key={String(p.id)} value={String(p.id)}>{String(p.profile_name)} v{String(p.version)}</option>)}</select></div> : <button type="button" disabled={!isAdmin} className="btn-secondary mb-4" onClick={() => void createProfile()}>إنشاء ملف تعريف أساسي</button>}
+      <label className="label">ملف CSV أو Excel أو PDF</label><input type="file" accept=".csv,.xlsx,.xls,.pdf" className="input" onChange={e => { setFile(e.target.files?.[0] || null); setMessage('') }} />
+      <p className="mt-3 text-xs leading-5 text-neutral-500">حد الملف 100 ميجابايت. تُحسب SHA-256 بالمتصفح ويُحفظ الاسم والنوع والحجم والبصمة والحالة وملف التعريف. قراءة الملف للبصمة مؤقتة ولا يتم حفظ المحتوى الخام.</p>
+      {message && <p role="alert" className="mt-3 rounded-lg border border-warning-200 bg-warning-50 p-3 text-sm">{message}</p>}
+      <button disabled={!file || !profileId || busy || !isAdmin} onClick={() => void stage()} className="btn-primary mt-5">{busy ? 'جارٍ حساب البصمة…' : 'تسجيل كمسودة'}</button>
+    </div>
+    {uploads.length > 0 && <Table headers={['الملف', 'النوع', 'الحالة', 'SHA-256', 'التاريخ']}>{uploads.map(row => <tr key={String(row.id)} className="border-t border-neutral-100"><td className="p-4">{String(row.file_name || '—')}</td><td className="p-4">{String(row.file_type || '—')}</td><td className="p-4"><StatusBadge status={String(row.status)} /></td><td className="p-4 font-mono text-xs">{String(row.file_hash || '—').slice(0, 16)}…</td><td className="p-4 text-neutral-500">{row.uploaded_at ? formatDate(String(row.uploaded_at)) : '—'}</td></tr>)}</Table>}
+  </AdminPage>
+}
 export function ImportLogs() { const { organization } = useAuth(); const [rows, setRows] = useState<Record<string, unknown>[]>([]); useEffect(() => { if (organization) supabase.from('import_uploads').select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }).then(({ data }) => setRows(data as any || [])) }, [organization]); return <AdminPage title="سجلات الاستيراد" description="تاريخ عمليات إدخال البيانات" icon={FileText}>{rows.length ? <Table headers={['الملف', 'النوع', 'الحالة', 'الجودة', 'التاريخ']}>{rows.map(row => <tr className="border-t border-neutral-100" key={String(row.id)}><td className="p-4">{String(row.file_name || '—')}</td><td className="p-4">{String(row.file_type || '—')}</td><td className="p-4"><StatusBadge status={String(row.status)} /></td><td className="p-4">{row.dqs_score ? `${row.dqs_score}/100` : '—'}</td><td className="p-4">{row.created_at ? formatDate(String(row.created_at)) : '—'}</td></tr>)}</Table> : <EmptyState title="لا توجد عمليات استيراد" description="ستظهر السجلات بعد تشغيل أول عملية استيراد." />}</AdminPage> }
 export function AI() { return <AdminPage title="مركز الذكاء الاصطناعي" description="تنبيهات ومهام ذكية مبنية على بيانات المنصة" icon={Brain}><div className="grid grid-cols-1 md:grid-cols-3 gap-4">{[{ label: 'التنبيهات', to: '/admin/ai/alerts', Icon: AlertTriangle }, { label: 'التقارير', to: '/admin/ai/reports', Icon: BarChart3 }, { label: 'المهام', to: '/admin/ai/tasks', Icon: CheckCircle2 }].map(item => <Link to={item.to} className="card-hover p-5" key={item.to}><item.Icon className="h-7 w-7 text-primary-600" /><h3 className="font-bold mt-4">{item.label}</h3><p className="text-sm text-neutral-500 mt-1">فتح مساحة العمل</p></Link>)}</div></AdminPage> }
 function AiList({ table, title, icon: Icon }: { table: string; title: string; icon: typeof AlertTriangle }) { const { organization } = useAuth(); const [rows, setRows] = useState<Record<string, unknown>[]>([]); useEffect(() => { if (organization) supabase.from(table).select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(50).then(({ data }) => setRows(data as any || [])) }, [organization, table]); return <AdminPage title={title} description="بيانات النظام الفعلية" icon={Icon}>{rows.length ? <div className="space-y-3">{rows.map(row => <div className="card p-4 flex items-start gap-3" key={String(row.id)}><Icon className="h-5 w-5 text-warning-500 mt-0.5" /><div className="flex-1"><h3 className="font-semibold">{String(row.title || row.name || 'سجل')}</h3><p className="text-sm text-neutral-500 mt-1">{String(row.description || row.body || row.result || 'لا توجد تفاصيل إضافية')}</p></div><StatusBadge status={String(row.status || row.severity || 'info')} /></div>)}</div> : <EmptyState title={`لا توجد ${title}`} description="لا توجد سجلات مطابقة حالياً." />}</AdminPage> }
