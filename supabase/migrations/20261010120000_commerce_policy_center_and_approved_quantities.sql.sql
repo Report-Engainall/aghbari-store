@@ -123,6 +123,62 @@ USING (EXISTS (
     AND om.user_id = auth.uid() AND om.status = 'active' AND om.role IN ('owner','admin')
 ));
 
+CREATE OR REPLACE FUNCTION public.calculate_commerce_price(
+  p_product_id uuid,
+  p_quantity integer,
+  p_price_level text
+)
+RETURNS numeric
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, private
+AS $
+DECLARE
+  v_org_id uuid;
+  v_base numeric(14,4);
+  v_method text;
+  v_value numeric(14,4);
+  v_price numeric(14,4);
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'authentication_required'; END IF;
+  IF p_quantity IS NULL OR p_quantity < 1 OR p_price_level NOT IN ('retail','wholesale') THEN
+    RAISE EXCEPTION 'invalid_price_request';
+  END IF;
+
+  SELECT p.organization_id, COALESCE(p.base_price, p.price, 0)
+    INTO v_org_id, v_base
+  FROM public.products p WHERE p.id = p_product_id;
+  IF v_org_id IS NULL THEN RAISE EXCEPTION 'product_not_found'; END IF;
+  IF NOT private.is_org_member(v_org_id) THEN RAISE EXCEPTION 'organization_forbidden'; END IF;
+
+  SELECT r.calculation_method, r.value INTO v_method, v_value
+  FROM public.pricing_rules r
+  WHERE r.organization_id = v_org_id
+    AND r.active = true
+    AND COALESCE(r.min_quantity, 1) <= p_quantity
+    AND r.price_level IN (p_price_level, 'both')
+  ORDER BY CASE WHEN r.price_level = p_price_level THEN 0 ELSE 1 END,
+           r.priority ASC, r.created_at DESC, r.id
+  LIMIT 1;
+
+  IF v_method IS NULL THEN RETURN GREATEST(v_base, 0); END IF;
+  CASE v_method
+    WHEN 'markup_percent' THEN v_price := v_base * (1 + (v_value / 100));
+    WHEN 'margin_percent' THEN
+      IF v_value < 0 OR v_value >= 100 THEN RAISE EXCEPTION 'invalid_margin_percent'; END IF;
+      v_price := v_base / NULLIF(1 - (v_value / 100), 0);
+    WHEN 'fixed_price' THEN v_price := v_value;
+    WHEN 'amount_adjustment' THEN v_price := v_base + v_value;
+    ELSE RAISE EXCEPTION 'unsupported_pricing_method';
+  END CASE;
+  RETURN ROUND(GREATEST(COALESCE(v_price, v_base), 0), 2);
+END;
+$;
+
+REVOKE ALL ON FUNCTION public.calculate_commerce_price(uuid, integer, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.calculate_commerce_price(uuid, integer, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.calculate_commerce_price(uuid, integer, text) TO authenticated;
+
 CREATE OR REPLACE FUNCTION public.recalculate_organization_product_prices(p_organization_id uuid)
 RETURNS void
 LANGUAGE sql
@@ -142,7 +198,8 @@ AS $$
         FROM pricing_rules r
         WHERE r.organization_id = p.organization_id AND r.active = true
           AND r.price_level IN ('retail','both')
-        ORDER BY r.priority ASC, r.created_at DESC, r.id
+          AND COALESCE(r.min_quantity, 1) <= 1
+        ORDER BY CASE WHEN r.price_level = 'retail' THEN 0 ELSE 1 END, r.priority ASC, r.created_at DESC, r.id
         LIMIT 1
       ), p.base_price, 0)::numeric(12,2) AS retail_price,
       COALESCE((
@@ -156,7 +213,8 @@ AS $$
         FROM pricing_rules r
         WHERE r.organization_id = p.organization_id AND r.active = true
           AND r.price_level IN ('wholesale','both')
-        ORDER BY r.priority ASC, r.created_at DESC, r.id
+          AND COALESCE(r.min_quantity, 1) <= 1
+        ORDER BY CASE WHEN r.price_level = 'wholesale' THEN 0 ELSE 1 END, r.priority ASC, r.created_at DESC, r.id
         LIMIT 1
       ), p.base_price, 0)::numeric(12,2) AS wholesale_price
     FROM products p WHERE p.organization_id = p_organization_id
