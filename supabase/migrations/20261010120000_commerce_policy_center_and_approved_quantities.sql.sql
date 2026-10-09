@@ -10,6 +10,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_import_uploads_hash_without_period
 ON import_uploads (organization_id, profile_id, file_hash)
 WHERE period_start IS NULL AND period_end IS NULL;
 
+-- Align legacy category records with the current slug-based catalog UI.
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS slug text;
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS icon text;
+UPDATE public.categories
+SET slug = COALESCE(
+  NULLIF(trim(slug), ''),
+  COALESCE(NULLIF(regexp_replace(lower(COALESCE(code, name, '')), '[^a-z0-9]+', '-', 'g'), ''), 'category')
+    || '-' || substr(id::text, 1, 8)
+)
+WHERE slug IS NULL OR trim(slug) = '';
+ALTER TABLE public.categories ALTER COLUMN slug SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_organization_slug
+  ON public.categories(organization_id, slug);
+
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS approved_quantity numeric(15,3);
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_items integer NOT NULL DEFAULT 0;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_amount numeric(15,2) NOT NULL DEFAULT 0;
