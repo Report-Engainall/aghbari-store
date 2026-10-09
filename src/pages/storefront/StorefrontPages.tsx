@@ -26,7 +26,7 @@ export function SearchPage() {
 
 export function Cart() {
   const { user } = useAuth(); const { show } = useToast(); const navigate = useNavigate(); const [items, setItems] = useState<CartItem[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState('')
-  const load = async () => { if (!user) return; setLoading(true); const { data, error: dbError } = await supabase.from('cart_items').select('id,user_id,product_id,quantity,unit_type,created_at,product:products(id,name,name_ar,sku,image_url,unit)').eq('user_id', user.id).order('created_at'); if (dbError) setError(dbError.message); else setItems(data as CartItem[] || []); setLoading(false) }
+  const load = async () => { if (!user) return; setLoading(true); const { data, error: dbError } = await supabase.from('cart_items').select('id,user_id,product_id,variant_id,quantity,unit_type,created_at,product:products(id,name,name_ar,sku,image_url,unit)').eq('user_id', user.id).order('created_at'); if (dbError) setError(dbError.message); else setItems(data as CartItem[] || []); setLoading(false) }
   useEffect(() => { load() }, [user])
   const itemCount = items.length
   const updateQuantity = async (item: CartItem, quantity: number) => { if (quantity <= 0) { await supabase.from('cart_items').delete().eq('id', item.id) } else { await supabase.from('cart_items').update({ quantity }).eq('id', item.id) }; await load() }
@@ -36,7 +36,7 @@ export function Cart() {
 
 export function Checkout() {
   const { user } = useAuth(); const { show } = useToast(); const navigate = useNavigate(); const [items, setItems] = useState<CartItem[]>([]); const [address, setAddress] = useState(''); const [notes, setNotes] = useState(''); const [submitting, setSubmitting] = useState(false); const [error, setError] = useState('')
-  useEffect(() => { if (user) supabase.from('cart_items').select('id,user_id,product_id,quantity,unit_type,created_at,product:products(id,name,name_ar,sku,image_url,unit)').eq('user_id', user.id).then(({ data }) => setItems(data as CartItem[] || [])) }, [user])
+  useEffect(() => { if (user) supabase.from('cart_items').select('id,user_id,product_id,variant_id,quantity,unit_type,created_at,product:products(id,name,name_ar,sku,image_url,unit)').eq('user_id', user.id).then(({ data }) => setItems(data as CartItem[] || [])) }, [user])
   const submit = async (event: FormEvent) => { event.preventDefault(); if (!items.length) { setError('السلة فارغة'); return }; setSubmitting(true); setError(''); const { orderId, error: orderError } = await createOrderFromCart({ shippingAddress: { address }, billingAddress: { address }, notes, idempotencyKey: generateIdempotencyKey() }); if (orderError || !orderId) { setError(orderError || 'تعذر إنشاء الطلب'); setSubmitting(false); return }; setSubmitting(false); show('success', 'تم إرسال الطلب للمراجعة'); navigate(`/order-success/${orderId}`) }
   return <div className="max-w-5xl mx-auto px-4 py-6"><PageHeader title="إتمام الطلب" description="أدخل معلومات التوصيل وأرسل الطلب للمراجعة" icon={ShoppingCart} />{!items.length ? <EmptyState title="لا توجد منتجات للطلب" action={<Link to="/store" className="btn-primary">العودة للمتجر</Link>} /> : <form onSubmit={submit} className="grid grid-cols-1 lg:grid-cols-3 gap-6"><div className="lg:col-span-2 card p-6 space-y-4"><div><label className="label">عنوان التوصيل</label><textarea required value={address} onChange={event => setAddress(event.target.value)} className="input min-h-24" placeholder="المدينة، الحي، الشارع، وأي تفاصيل مساعدة" /></div><div><label className="label">ملاحظات الطلب</label><textarea value={notes} onChange={event => setNotes(event.target.value)} className="input min-h-24" placeholder="ملاحظات اختيارية" /></div>{error && <PageError message={error} />}<button type="submit" disabled={submitting} className="btn-primary">{submitting ? 'جاري إرسال الطلب...' : 'تأكيد وإرسال الطلب'}</button></div><aside className="card p-5 h-fit"><h2 className="font-bold mb-4">ملخص الطلب</h2>{items.map(item => <div key={item.id} className="flex justify-between gap-3 text-sm py-2 border-b border-neutral-100"><span className="truncate">{item.product?.name_ar || item.product?.name}</span><span>{item.quantity}</span></div>)}<p className="text-sm text-neutral-500 pt-4">{formatCustomerAmount()}</p></aside></form>}</div>
 }
@@ -360,7 +360,7 @@ export function CheckoutReview() {
   const { user, organization } = useAuth()
   const [items, setItems] = useState<CartItem[]>([])
   const [loading, setLoading] = useState(true)
-  useEffect(() => { if (user) supabase.from('cart_items').select('id,user_id,product_id,quantity,unit_type,created_at,product:products(id,name,name_ar,sku,image_url,unit)').eq('user_id', user.id).then(({ data }) => { setItems(data as CartItem[] || []); setLoading(false) }) }, [user])
+  useEffect(() => { if (user) supabase.from('cart_items').select('id,user_id,product_id,variant_id,quantity,unit_type,created_at,product:products(id,name,name_ar,sku,image_url,unit)').eq('user_id', user.id).then(({ data }) => { setItems(data as CartItem[] || []); setLoading(false) }) }, [user])
   if (loading) return <LoadingOverlay />
   return <div className="max-w-4xl mx-auto px-4 py-6"><PageHeader title="مراجعة الطلب" description="راجع الطلب قبل التأكيد النهائي" icon={ShoppingCart} />
     <div className="card p-6 mb-4"><h2 className="font-bold mb-4">المنتجات</h2>{items.map(item => <div key={item.id} className="flex justify-between py-2 border-b border-neutral-100 text-sm"><span className="truncate">{item.product?.name_ar || item.product?.name} × {item.quantity}</span></div>)}
@@ -373,7 +373,7 @@ export function CheckoutReview() {
 export function CheckoutConfirm() {
   const { user } = useAuth(); const { show } = useToast(); const navigate = useNavigate()
   const [items, setItems] = useState<CartItem[]>([]); const [submitting, setSubmitting] = useState(false); const [error, setError] = useState('')
-  useEffect(() => { if (user) supabase.from('cart_items').select('id,user_id,product_id,quantity,unit_type,created_at,product:products(id,name,name_ar,sku,image_url,unit)').eq('user_id', user.id).then(({ data }) => setItems(data as CartItem[] || [])) }, [user])
+  useEffect(() => { if (user) supabase.from('cart_items').select('id,user_id,product_id,variant_id,quantity,unit_type,created_at,product:products(id,name,name_ar,sku,image_url,unit)').eq('user_id', user.id).then(({ data }) => setItems(data as CartItem[] || [])) }, [user])
   const confirm = async () => {
     if (!items.length) { setError('السلة فارغة'); return }
     setSubmitting(true); setError('')
@@ -388,7 +388,7 @@ export function CheckoutConfirm() {
 }
 
 export function ReorderList() {
-  const { user } = useAuth(); const [orders, setOrders] = useState<Order[]>([]); const [loading, setLoading] = useState(true)
+  const { user } = useAuth(); const { show } = useToast(); const [orders, setOrders] = useState<Order[]>([]); const [loading, setLoading] = useState(true)
   useEffect(() => {
     if (!user) { setOrders([]); setLoading(false); return }
     supabase.from('customer_order_summaries')
@@ -560,7 +560,7 @@ export function PaymentDetail() {
 }
 
 export function Receivables() {
-  const { organization } = useAuth(); const [rows, setRows] = useState<Invoice[]>([]); const [loading, setLoading] = useState(true)
+  const { organization } = useAuth(); const { show } = useToast(); const [rows, setRows] = useState<Invoice[]>([]); const [loading, setLoading] = useState(true)
   useEffect(() => { if (organization) supabase.from('customer_sales_invoice_summaries').select('id,order_id,organization_id,invoice_number,status,issue_date,due_date,created_at').eq('organization_id', organization.id).in('status', ['issued', 'partial', 'overdue']).order('created_at', { ascending: false }).then(({ data, error }) => { if (error) show('error', 'تعذر تحميل المستحقات', error.message); setRows((data || []) as unknown as Invoice[]); setLoading(false) }) }, [organization?.id])
   return <div className="max-w-5xl mx-auto px-4 py-6"><PageHeader title="المستحقات" description="الفواتير غير المدفوعة بالكامل" icon={Wallet} />
     <div className="card p-5 mb-4"><p className="text-sm text-neutral-500">عدد الفواتير المستحقة</p><p className="text-3xl font-bold text-error-600">{rows.length}</p></div>
@@ -571,7 +571,7 @@ export function Receivables() {
 }
 
 export function FinancialDocuments() {
-  const { organization } = useAuth(); const [invoices, setInvoices] = useState<Invoice[]>([]); const [statements, setStatements] = useState<Statement[]>([]); const [loading, setLoading] = useState(true)
+  const { organization } = useAuth(); const { show } = useToast(); const [invoices, setInvoices] = useState<Invoice[]>([]); const [statements, setStatements] = useState<Statement[]>([]); const [loading, setLoading] = useState(true)
   useEffect(() => {
     if (!organization) { setInvoices([]); setStatements([]); setLoading(false); return }
     Promise.all([
