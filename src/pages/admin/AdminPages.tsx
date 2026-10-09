@@ -366,7 +366,32 @@ export function Import() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [progress, setProgress] = useState<CsvImportProgress | null>(null)
-  const [duplicate, setDuplicate] = useState<{ fileHash: string; profileId: string } | null>(null)
+  const [duplicate, setDuplicate] = useState<{ fileHash: string; profileId: string; uploadId?: string; status?: string } | null>(null)
+  const [paused, setPaused] = useState(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const pausedRef = useRef(false)
+  const resumeRef = useRef<(() => void) | null>(null)
+  const waitIfPaused = async () => {
+    while (pausedRef.current && !abortControllerRef.current?.signal.aborted) {
+      await new Promise<void>(resolve => { resumeRef.current = resolve })
+    }
+  }
+  const togglePause = () => {
+    const next = !pausedRef.current
+    pausedRef.current = next
+    setPaused(next)
+    if (!next) {
+      resumeRef.current?.()
+      resumeRef.current = null
+    }
+  }
+  const cancelImport = () => {
+    pausedRef.current = false
+    setPaused(false)
+    resumeRef.current?.()
+    resumeRef.current = null
+    abortControllerRef.current?.abort()
+  }
 
   const load = async () => {
     if (!organization?.id) return
