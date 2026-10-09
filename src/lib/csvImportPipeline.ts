@@ -17,6 +17,18 @@ export interface CsvImportProgress {
   processedRows: number
 }
 
+export interface CsvImportPolicies {
+  max_file_size_mb: number
+  max_import_rows: number
+  max_import_columns: number
+  max_cell_length: number
+  processing_chunk_size: number
+  dqs_excellent_min: number
+  dqs_acceptable_min: number
+  dqs_warning_min: number
+  import_retention_days: number
+}
+
 export interface CsvImportResult {
   uploadId: string
   status: 'snapshotted' | 'manual_review' | 'rejected'
@@ -155,20 +167,47 @@ export async function processCsvToSnapshot(args: {
   organizationId: string
   profile: CsvImportProfile
   fileHash: string
+  policies?: Partial<CsvImportPolicies>
+  signal?: AbortSignal
+  waitIfPaused?: () => Promise<void>
+  existingUploadId?: string
   onProgress?: (progress: CsvImportProgress) => void
 }): Promise<CsvImportResult> {
-  const { file, organizationId, profile, fileHash, onProgress } = args
-  const { data: upload, error: createError } = await supabase.from('import_uploads').insert({
-    organization_id: organizationId,
-    profile_id: profile.id,
-    file_name: file.name,
-    file_type: 'csv',
-    file_size: file.size,
-    file_hash: fileHash,
-    status: 'detecting',
-  }).select('id').single()
-  if (createError) throw createError
-  const uploadId = String(upload.id)
+  const { file, organizationId, profile, fileHash, policies = {}, signal, waitIfPaused, existingUploadId, onProgress } = args
+  const limits = {
+    maxFileSizeMb: policies.max_file_size_mb ?? 100,
+    maxRows: policies.max_import_rows ?? MAX_ROWS,
+    maxColumns: policies.max_import_columns ?? MAX_COLUMNS,
+    maxCellLength: policies.max_cell_length ?? MAX_CELL_LENGTH,
+    batchSize: policies.processing_chunk_size ?? PROCESSING_BATCH_SIZE,
+    dqsExcellentMin: policies.dqs_excellent_min ?? 90,
+    dqsAcceptableMin: policies.dqs_acceptable_min ?? 75,
+    dqsWarningMin: policies.dqs_warning_min ?? 50,
+    retentionDays: policies.import_retention_days ?? 30,
+  }
+  if (file.size > limits.maxFileSizeMb * 1024 * 1024) throw new Error('MAX_FILE_SIZE_EXCEEDED')
+  if (signal?.aborted) throw new Error('IMPORT_CANCELLED')
+  let uploadId: string
+  if (existingUploadId) {
+    const { error: clearError } = await supabase.from('import_records').delete().eq('upload_id', existingUploadId)
+    if (clearError) throw clearError
+    const { error: retryError } = await supabase.from('import_uploads').update({
+      status: 'detecting', error_code: null, error_message: null, snapshot: null,
+      quality_score: null, quality_breakdown: {}, completed_at: null,
+      expires_at: new Date(Date.now() + limits.retentionDays * 86400000).toISOString(),
+    }).eq('id', existingUploadId)
+    if (retryError) throw retryError
+    uploadId = existingUploadId
+  } else {
+    const { data: upload, error: createError } = await supabase.from('import_uploads').insert({
+      organization_id: organizationId, profile_id: profile.id,
+      file_name: file.name, file_type: 'csv', file_size: file.size,
+      file_hash: fileHash, status: 'detecting',
+      expires_at: new Date(Date.now() + limits.retentionDays * 86400000).toISOString(),
+    }).select('id').single()
+    if (createError) throw createError
+    uploadId = String(upload.id)
+  }
   const report = (stage: string, processedRows: number) => onProgress?.({ stage, processedRows })
 
   let totalRows = 0
@@ -199,7 +238,7 @@ export async function processCsvToSnapshot(args: {
     if (first.done || !headers.length || (headers.length === 1 && !headers[0].trim())) {
       throw new Error('CSV_HEADER_MISSING')
     }
-    if (headers.length > MAX_COLUMNS) throw new Error('MAX_COLUMNS_EXCEEDED')
+    if (headers.length > limits.maxColumns) throw new Error('MAX_COLUMNS_EXCEEDED')
 
     await setUpload(uploadId, { status: 'mapping' })
     mapping = buildMapping(headers, profile)
@@ -228,7 +267,7 @@ export async function processCsvToSnapshot(args: {
     const consume = async (cells: string[]) => {
       if (cells.every(cell => !cell.trim())) return
       totalRows++
-      if (totalRows > MAX_ROWS) throw new Error('MAX_ROWS_EXCEEDED')
+      if (totalRows > limits.maxRows) throw new Error('MAX_ROWS_EXCEEDED')
       let rowConsistent = cells.length === headers.length
       const errors: string[] = []
       const warnings: string[] = []
@@ -237,8 +276,8 @@ export async function processCsvToSnapshot(args: {
       for (const [field, index] of Object.entries(mapping)) {
         const raw = cells[index] ?? ''
         const value = normalizeCell(raw)
-        normalized[field] = value.length > MAX_CELL_LENGTH ? value.slice(0, MAX_CELL_LENGTH) : value
-        if (value.length > MAX_CELL_LENGTH) errors.push(`الحقل ${field} يتجاوز ${MAX_CELL_LENGTH} حرفاً`)
+        normalized[field] = value.length > limits.maxCellLength ? value.slice(0, limits.maxCellLength) : value
+        if (value.length > limits.maxCellLength) errors.push(`الحقل ${field} يتجاوز ${limits.maxCellLength} حرفاً`)
         if (required.includes(field)) {
           requiredCells++
           if (value) completenessCells++
@@ -277,11 +316,16 @@ export async function processCsvToSnapshot(args: {
         validation_warnings: warnings,
         status,
       })
-      if (batch.length >= PROCESSING_BATCH_SIZE) await flush()
+      if (batch.length >= limits.batchSize) await flush()
     }
 
     await setUpload(uploadId, { status: 'normalizing' })
-    for await (const row of iterator) await consume(row)
+    for await (const row of iterator) {
+      if (signal?.aborted) throw new Error('IMPORT_CANCELLED')
+      if (waitIfPaused) await waitIfPaused()
+      if (signal?.aborted) throw new Error('IMPORT_CANCELLED')
+      await consume(row)
+    }
     await flush()
 
     if (totalRows === 0) throw new Error('CSV_HAS_NO_DATA_ROWS')
@@ -308,16 +352,16 @@ export async function processCsvToSnapshot(args: {
     }
 
     await setUpload(uploadId, { status: 'chunking' })
-    let status: CsvImportResult['status'] = qualityScore >= 50 ? 'snapshotted' : 'rejected'
+    let status: CsvImportResult['status'] = qualityScore >= limits.dqsWarningMin ? 'snapshotted' : 'rejected'
     let message = 'تم توحيد السجلات والتحقق منها وحفظ بيان Snapshot؛ لم تُدمج البيانات في قاعدة التشغيل.'
-    if (qualityScore >= 75 && qualityScore < 90) {
+    if (qualityScore >= limits.dqsAcceptableMin && qualityScore < limits.dqsExcellentMin) {
       const { error: warningError } = await supabase.from('import_records').update({ status: 'warning' }).eq('upload_id', uploadId).eq('status', 'accepted')
       if (warningError) throw warningError
       message = 'تم حفظ Snapshot مع تحذير جودة؛ لم تُدمج البيانات في قاعدة التشغيل.'
-    } else if (qualityScore >= 50 && qualityScore < 75) {
+    } else if (qualityScore >= limits.dqsWarningMin && qualityScore < limits.dqsAcceptableMin) {
       status = 'manual_review'
       message = 'جودة البيانات تتطلب مراجعة بشرية قبل أي اعتماد.'
-    } else if (qualityScore < 50) {
+    } else if (qualityScore < limits.dqsWarningMin) {
       const { error: rejectError } = await supabase.from('import_records').update({ status: 'rejected' }).eq('upload_id', uploadId)
       if (rejectError) throw rejectError
       message = 'رُفضت الدفعة لأن جودة البيانات أقل من 50؛ لم تُدمج أي بيانات.'
@@ -329,7 +373,7 @@ export async function processCsvToSnapshot(args: {
       file_hash: fileHash, profile_id: profile.id, profile_version: (profile as unknown as JsonRecord).version ?? null,
       headers, column_mapping: mapping, total_rows: totalRows,
       accepted_rows: acceptedRows,
-      warning_rows: qualityScore >= 75 && qualityScore < 90 ? acceptedRows : 0,
+      warning_rows: qualityScore >= limits.dqsAcceptableMin && qualityScore < limits.dqsExcellentMin ? acceptedRows : 0,
       rejected_rows: rejectedRows, duplicate_rows: duplicateRows, dqs: qualityBreakdown,
       snapshot_at: new Date().toISOString(), raw_file_persisted: false,
       live_data_merged: false,
@@ -338,13 +382,13 @@ export async function processCsvToSnapshot(args: {
       status,
       quality_score: qualityScore,
       quality_breakdown: qualityBreakdown,
-      error_code: qualityScore < 75 ? 'DQS_REVIEW_REQUIRED' : qualityScore < 90 ? 'DQS_WARNINGS' : null,
-      error_message: qualityScore < 75 ? message : null,
+      error_code: qualityScore < limits.dqsAcceptableMin ? 'DQS_REVIEW_REQUIRED' : qualityScore < limits.dqsExcellentMin ? 'DQS_WARNINGS' : null,
+      error_message: qualityScore < limits.dqsAcceptableMin ? message : null,
       snapshot: manifest,
     })
     return {
       uploadId, status, totalRows, acceptedRows,
-      warningRows: qualityScore >= 75 && qualityScore < 90 ? acceptedRows : 0,
+      warningRows: qualityScore >= limits.dqsAcceptableMin && qualityScore < limits.dqsExcellentMin ? acceptedRows : 0,
       rejectedRows, duplicateRows, qualityScore, message,
     }
   } catch (error) {
