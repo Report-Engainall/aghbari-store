@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { LayoutDashboard, ShoppingCart, Users, Package, Database, Brain, ChartBar as BarChart3, Settings, Shield, LogOut, Menu, X, Bell, Search, FileText, Warehouse, ChevronLeft, Wrench, ArrowRight } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, Users, Package, Database, Brain, ChartBar as BarChart3, Settings, Shield, LogOut, Menu, X, Bell, Search, FileText, Warehouse, ChevronLeft, Wrench, ArrowRight, SlidersHorizontal } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
 
@@ -54,6 +54,7 @@ const adminNav: { section: string; items: { to: string; label: string; icon: typ
     section: 'الإعدادات',
     items: [
       { to: '/admin/settings', label: 'الإعدادات', icon: Settings },
+      { to: '/admin/policy-center', label: 'مركز السياسات', icon: SlidersHorizontal },
     ],
   },
 ]
