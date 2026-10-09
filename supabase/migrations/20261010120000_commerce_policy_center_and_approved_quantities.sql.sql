@@ -27,7 +27,7 @@ UPDATE invoices SET invoice_kind = 'sales' WHERE invoice_kind IS NULL;
 ALTER TABLE invoices ALTER COLUMN invoice_kind SET DEFAULT 'sales';
 ALTER TABLE invoices ALTER COLUMN invoice_kind SET NOT NULL;
 
-DO $
+DO $$
 DECLARE constraint_row record;
 BEGIN
   FOR constraint_row IN
@@ -39,7 +39,7 @@ BEGIN
     EXECUTE format('ALTER TABLE public.invoices DROP CONSTRAINT %I', constraint_row.conname);
   END LOOP;
 END;
-$;
+$$;
 
 ALTER TABLE invoices ADD CONSTRAINT invoices_status_check
 CHECK (status IN ('draft','issued','partial','paid','overdue','cancelled'));
@@ -317,7 +317,7 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, private
-AS $
+AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
     NEW.base_price := COALESCE(NULLIF(NEW.base_price, 0), NEW.price, 0);
@@ -329,7 +329,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS keep_product_base_price_canonical_before_write ON products;
 CREATE TRIGGER keep_product_base_price_canonical_before_write
