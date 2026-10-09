@@ -906,9 +906,12 @@ REVOKE ALL ON FUNCTION public.admin_set_order_adjustment_note(uuid, text) FROM P
 REVOKE ALL ON FUNCTION public.admin_set_order_adjustment_note(uuid, text) FROM anon;
 GRANT EXECUTE ON FUNCTION public.admin_set_order_adjustment_note(uuid, text) TO authenticated;
 
+DROP FUNCTION IF EXISTS public.submit_order_payment(uuid, numeric, text, text, text);
+
 CREATE OR REPLACE FUNCTION public.submit_order_payment(
   p_order_id uuid,
   p_amount numeric,
+  p_idempotency_key text,
   p_method text DEFAULT 'transfer',
   p_reference text DEFAULT NULL,
   p_notes text DEFAULT NULL
@@ -925,11 +928,20 @@ DECLARE
   v_order_status text;
   v_invoice_id uuid;
   v_invoice_kind text;
+  v_invoice_total numeric(14,2);
+  v_reserved_amount numeric(14,2);
   v_payment_id uuid;
   v_payment_number text := 'PAY-' || to_char(now(), 'YYYYMMDDHH24MISS') || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 6);
+  v_request_hash text;
+  v_idempotency_id uuid;
+  v_existing_reference uuid;
+  v_existing_hash text;
+  v_existing_status text;
+  v_claimed boolean := false;
 BEGIN
   IF v_user_id IS NULL THEN RAISE EXCEPTION 'authentication_required'; END IF;
   IF p_amount IS NULL OR p_amount <= 0 OR p_amount > 100000000000 THEN RAISE EXCEPTION 'invalid_payment_amount'; END IF;
+  IF p_idempotency_key IS NULL OR length(trim(p_idempotency_key)) < 8 THEN RAISE EXCEPTION 'invalid_idempotency_key'; END IF;
   IF p_method NOT IN ('transfer','cash','check','card','wallet') THEN RAISE EXCEPTION 'invalid_payment_method'; END IF;
   IF length(COALESCE(p_reference,'')) > 300 OR length(COALESCE(p_notes,'')) > 2000 THEN
     RAISE EXCEPTION 'payment_metadata_too_long';
@@ -940,13 +952,65 @@ BEGIN
   FROM public.orders WHERE id=p_order_id FOR UPDATE;
   IF v_org_id IS NULL THEN RAISE EXCEPTION 'order_not_found'; END IF;
   IF v_owner_id IS DISTINCT FROM v_user_id THEN RAISE EXCEPTION 'order_not_owned'; END IF;
+
+  v_request_hash := md5(
+    p_order_id::text || '|' || p_amount::text || '|' || COALESCE(p_method,'transfer') || '|' ||
+    COALESCE(NULLIF(trim(p_reference),''),'') || '|' || COALESCE(NULLIF(trim(p_notes),''),'')
+  );
+
+  INSERT INTO public.idempotency_keys
+    (organization_id,idempotency_key,request_hash,operation_type,status,created_at,expires_at)
+  VALUES (
+    v_org_id,p_idempotency_key,v_request_hash,'submit_payment','processing',now(),
+    now() + make_interval(hours => COALESCE((
+      SELECT cps.idempotency_ttl_hours FROM public.commerce_policy_settings cps WHERE cps.organization_id=v_org_id
+    ),24))
+  )
+  ON CONFLICT (organization_id,idempotency_key,operation_type) DO UPDATE
+    SET request_hash = EXCLUDED.request_hash,
+        response_reference = NULL,
+        status = 'processing',
+        created_at = now(),
+        expires_at = now() + make_interval(hours => COALESCE((
+          SELECT cps.idempotency_ttl_hours FROM public.commerce_policy_settings cps WHERE cps.organization_id=v_org_id
+        ),24))
+    WHERE public.idempotency_keys.expires_at <= now()
+       OR (public.idempotency_keys.status = 'failed' AND public.idempotency_keys.request_hash = EXCLUDED.request_hash)
+  RETURNING id INTO v_idempotency_id;
+
+  IF FOUND THEN
+    v_claimed := true;
+  ELSE
+    SELECT response_reference, request_hash, status
+      INTO v_existing_reference, v_existing_hash, v_existing_status
+    FROM public.idempotency_keys
+    WHERE organization_id=v_org_id
+      AND idempotency_key=p_idempotency_key
+      AND operation_type='submit_payment';
+
+    IF v_existing_hash IS DISTINCT FROM v_request_hash THEN
+      RAISE EXCEPTION 'idempotency_key_reused_with_different_request';
+    END IF;
+    IF v_existing_reference IS NOT NULL THEN RETURN v_existing_reference; END IF;
+    IF v_existing_status='processing' THEN RAISE EXCEPTION 'idempotent_request_in_progress'; END IF;
+    RAISE EXCEPTION 'idempotent_request_not_reusable';
+  END IF;
+
   IF v_order_status <> 'approved' THEN RAISE EXCEPTION 'order_not_approved_for_payment'; END IF;
 
-  SELECT id, invoice_kind INTO v_invoice_id, v_invoice_kind
+  SELECT id, invoice_kind, total
+    INTO v_invoice_id, v_invoice_kind, v_invoice_total
   FROM public.invoices
   WHERE order_id=p_order_id AND organization_id=v_org_id
   ORDER BY created_at DESC LIMIT 1 FOR UPDATE;
   IF v_invoice_id IS NULL OR v_invoice_kind <> 'proforma' THEN RAISE EXCEPTION 'proforma_invoice_not_available'; END IF;
+
+  SELECT COALESCE(SUM(amount),0) INTO v_reserved_amount
+  FROM public.payments
+  WHERE invoice_id=v_invoice_id AND status IN ('pending','confirmed');
+  IF p_amount > GREATEST(v_invoice_total - v_reserved_amount,0) + 0.009 THEN
+    RAISE EXCEPTION 'payment_exceeds_remaining_balance';
+  END IF;
 
   INSERT INTO public.payments (payment_number, invoice_id, organization_id, amount, method, status, reference, notes)
   VALUES (v_payment_number, v_invoice_id, v_org_id, p_amount, p_method, 'pending',
@@ -958,13 +1022,23 @@ BEGIN
           jsonb_build_object('payment_id',v_payment_id,'order_id',p_order_id,'submitted_by',v_user_id),
           'pending',now());
 
+  UPDATE public.idempotency_keys
+  SET response_reference=v_payment_id,status='completed'
+  WHERE id=v_idempotency_id;
+
   RETURN v_payment_id;
+EXCEPTION WHEN OTHERS THEN
+  IF v_claimed AND v_idempotency_id IS NOT NULL THEN
+    UPDATE public.idempotency_keys SET status='failed'
+    WHERE id=v_idempotency_id AND response_reference IS NULL;
+  END IF;
+  RAISE;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.submit_order_payment(uuid, numeric, text, text, text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.submit_order_payment(uuid, numeric, text, text, text) FROM anon;
-GRANT EXECUTE ON FUNCTION public.submit_order_payment(uuid, numeric, text, text, text) TO authenticated;
+REVOKE ALL ON FUNCTION public.submit_order_payment(uuid, numeric, text, text, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.submit_order_payment(uuid, numeric, text, text, text, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.submit_order_payment(uuid, numeric, text, text, text, text) TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.confirm_order_payment(
   p_payment_id uuid,
