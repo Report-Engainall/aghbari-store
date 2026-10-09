@@ -43,7 +43,27 @@ export function Checkout() {
 
 export function OrderSuccess() { const { id } = useParams(); return <div className="max-w-xl mx-auto px-4 py-16 text-center"><div className="card p-10"><CheckCircle2 className="h-16 w-16 text-success-500 mx-auto mb-4" /><h1 className="text-2xl font-bold text-neutral-900">تم استلام طلبك</h1><p className="text-neutral-500 mt-2">سيتم مراجعة الطلب والتواصل معك عند تحديث حالته.</p><div className="flex gap-3 justify-center mt-8"><Link to={`/orders/${id}`} className="btn-primary">عرض الطلب</Link><Link to="/store" className="btn-secondary">متابعة التسوق</Link></div></div></div> }
 
-export function Orders() { const { user } = useAuth(); const [orders, setOrders] = useState<Order[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); useEffect(() => { if (user) supabase.from('orders').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).then(({ data, error: dbError }) => { if (dbError) setError(dbError.message); else setOrders(data as Order[] || []); setLoading(false) }) }, [user]); return <div className="max-w-5xl mx-auto px-4 py-6"><PageHeader title="طلباتي" description="متابعة كل طلبات شركتك" icon={Package} />{loading ? <LoadingOverlay /> : error ? <PageError message={error} /> : !orders.length ? <EmptyState icon={<Package />} title="لا توجد طلبات بعد" action={<Link to="/store" className="btn-primary">ابدأ التسوق</Link>} /> : <div className="card overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm text-right"><thead className="bg-neutral-50 text-neutral-500"><tr><th className="p-4">رقم الطلب</th><th className="p-4">التاريخ</th><th className="p-4">عدد الأصناف</th><th className="p-4">الحالة</th><th className="p-4" /></tr></thead><tbody>{orders.map(order => <tr key={order.id} className="border-t border-neutral-100 hover:bg-neutral-50"><td className="p-4 font-semibold">{order.order_number}</td><td className="p-4 text-neutral-500">{formatDate(order.created_at)}</td><td className="p-4">{order.items?.length || '—'}</td><td className="p-4"><StatusBadge status={order.status} /></td><td className="p-4"><Link to={`/orders/${order.id}`} className="text-primary-600 hover:underline">التفاصيل</Link></td></tr>)}</tbody></table></div></div>}</div> }
+export function Orders() {
+  const { user } = useAuth()
+  const [orders, setOrders] = useState<Order[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let active = true
+    if (!user) { setOrders([]); setLoading(false); return }
+    supabase.from('customer_order_summaries')
+      .select('id,organization_id,user_id,order_number,status,payment_status,total_items,notes,customer_adjustment_note,created_at,updated_at')
+      .eq('user_id', user.id).order('created_at', { ascending: false })
+      .then(({ data, error: dbError }) => {
+        if (!active) return
+        if (dbError) setError(dbError.message)
+        else setOrders((data || []) as unknown as Order[])
+        setLoading(false)
+      })
+    return () => { active = false }
+  }, [user?.id])
+  return <div className="max-w-5xl mx-auto px-4 py-6"><PageHeader title="طلباتي" description="متابعة الطلبات دون كشف الأسعار أو الإجماليات" icon={Package} />{loading ? <LoadingOverlay /> : error ? <PageError message={error} /> : !orders.length ? <EmptyState icon={<Package />} title="لا توجد طلبات بعد" action={<Link to="/store" className="btn-primary">ابدأ التسوق</Link>} /> : <div className="card overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm text-right"><thead className="bg-neutral-50 text-neutral-500"><tr><th className="p-4">رقم الطلب</th><th className="p-4">التاريخ</th><th className="p-4">عدد الأصناف</th><th className="p-4">الحالة</th><th className="p-4" /></tr></thead><tbody>{orders.map(order => <tr key={order.id} className="border-t border-neutral-100 hover:bg-neutral-50"><td className="p-4 font-semibold">{order.order_number}</td><td className="p-4 text-neutral-500">{formatDate(order.created_at)}</td><td className="p-4">{order.total_items ?? '—'}</td><td className="p-4"><StatusBadge status={order.status} /></td><td className="p-4"><Link to={`/orders/${order.id}`} className="text-primary-600 hover:underline">التفاصيل</Link></td></tr>)}</tbody></table></div></div>}</div>
+}
 
 export function OrderDetail() {
   const { id } = useParams()
@@ -64,26 +84,32 @@ export function OrderDetail() {
     if (!id || !user) { setLoading(false); return }
     let mounted = true
     const load = async () => {
-      const { data, error: dbError } = await supabase.from('orders')
-        .select('*, items:order_items(*)')
-        .eq('id', id)
-        .eq('user_id', user.id)
-        .maybeSingle()
+      const { data, error: dbError } = await supabase.from('customer_order_summaries')
+        .select('id,organization_id,user_id,order_number,status,payment_status,total_items,notes,customer_adjustment_note,created_at,updated_at')
+        .eq('id', id).eq('user_id', user.id).maybeSingle()
       if (!mounted) return
-      if (dbError) setError(dbError.message)
-      setOrder(data as Order || null)
+      if (dbError) { setError(dbError.message); setLoading(false); return }
+      if (!data) { setOrder(null); setLoading(false); return }
+      const { data: itemRows, error: itemsError } = await supabase.from('customer_order_item_summaries')
+        .select('id,order_id,organization_id,product_id,product_name,item_code,unit_snapshot,quantity,approved_quantity')
+        .eq('order_id', id)
+      if (!mounted) return
+      if (itemsError) { setError(itemsError.message); setLoading(false); return }
+      const safeItems = (itemRows || []).map(item => ({
+        id: item.id, order_id: item.order_id, product_id: item.product_id,
+        name: item.product_name, product_name_snapshot: item.product_name,
+        sku: item.item_code, item_code: item.item_code, unit_snapshot: item.unit_snapshot,
+        unit_type: item.unit_snapshot, quantity: item.quantity, approved_quantity: item.approved_quantity,
+      }))
+      setOrder({ ...data, items: safeItems } as unknown as Order)
       setLoading(false)
     }
     void load()
-    const channel = supabase.channel(`customer-order-${id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `id=eq.${id}` }, () => { void load() })
-      .subscribe()
-    // Polling is a safe fallback for delayed WebSocket delivery; the server remains the source of truth.
+    // Poll only the customer-safe view; raw realtime order rows include financial columns.
     const pollId = window.setInterval(() => { void load() }, 15000)
     return () => {
       mounted = false
       window.clearInterval(pollId)
-      void supabase.removeChannel(channel)
     }
   }, [id, user?.id])
 
@@ -183,7 +209,7 @@ function RecordsPage({ title, icon, table, columns }: { title: string; icon: typ
       setLoading(true)
       setError('')
       let request = supabase.from(table).select('*').eq('organization_id', organization.id)
-      if (table === 'invoices') request = request.eq('invoice_kind', 'sales')
+      // Customer record views intentionally omit numeric monetary columns.
       const { data, error: dbError } = await request.order('created_at', { ascending: false })
       if (!active) return
       if (dbError) {
@@ -195,10 +221,10 @@ function RecordsPage({ title, icon, table, columns }: { title: string; icon: typ
       }
       const nextRows = data as Record<string, unknown>[] || []
       setRows(nextRows)
-      if (table === 'invoices') {
+      if (table === 'customer_sales_invoice_summaries') {
         const orderIds = [...new Set(nextRows.map(row => String(row.order_id || '')).filter(Boolean))]
         if (orderIds.length) {
-          const { data: ordersData, error: ordersError } = await supabase.from('orders')
+          const { data: ordersData, error: ordersError } = await supabase.from('customer_order_summaries')
             .select('id, status')
             .eq('organization_id', organization.id)
             .in('id', orderIds)
@@ -223,7 +249,7 @@ function RecordsPage({ title, icon, table, columns }: { title: string; icon: typ
           <td className="p-4"><StatusBadge status={String(row.status || 'issued')} /></td>
           <td className="p-4 text-neutral-500">{row.created_at ? formatDate(String(row.created_at)) : '—'}</td>
         </tr>
-        {table === 'invoices' && policies.payment_request_after_approval && approvedOrders[String(row.order_id)] && <tr className="border-t border-primary-100 bg-primary-50"><td colSpan={columns.length} className="px-4 py-3"><p className="font-bold text-primary-900">تم اعتماد الطلب من الإدارة.</p><p className="mt-1 text-sm text-primary-800">يرجى إرسال المبلغ وفق آلية الدفع المتفق عليها لإتمام الاعتماد النهائي وتحويل الطلب إلى فاتورة بيع.</p></td></tr>}
+        {table === 'customer_sales_invoice_summaries' && policies.payment_request_after_approval && approvedOrders[String(row.order_id)] && <tr className="border-t border-primary-100 bg-primary-50"><td colSpan={columns.length} className="px-4 py-3"><p className="font-bold text-primary-900">تم اعتماد الطلب من الإدارة.</p><p className="mt-1 text-sm text-primary-800">يرجى إرسال المبلغ وفق آلية الدفع المتفق عليها لإتمام الاعتماد النهائي وتحويل الطلب إلى فاتورة بيع.</p></td></tr>}
       </Fragment>)}</tbody>
     </table></div>}
   </div>
