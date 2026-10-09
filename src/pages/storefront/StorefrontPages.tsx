@@ -179,9 +179,9 @@ function RecordsPage({ title, icon, table, columns }: { title: string; icon: typ
       if (!organization) { setRows([]); setApprovedOrders({}); setLoading(false); return }
       setLoading(true)
       setError('')
-      const { data, error: dbError } = await supabase.from(table).select('*')
-        .eq('organization_id', organization.id)
-        .order('created_at', { ascending: false })
+      let request = supabase.from(table).select('*').eq('organization_id', organization.id)
+      if (table === 'invoices') request = request.eq('invoice_kind', 'sales')
+      const { data, error: dbError } = await request.order('created_at', { ascending: false })
       if (!active) return
       if (dbError) {
         setError(dbError.message)
