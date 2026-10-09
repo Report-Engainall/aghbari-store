@@ -1,5 +1,7 @@
 # Aghbari Commerce
 
+[![Open in Bolt](https://bolt.new/static/open-in-bolt.svg)](https://bolt.new/~/sb1-b5g7dtki)
+
 Arabic-first, RTL-friendly B2B commerce application built with React, TypeScript, Vite, and Supabase.
 
 ## Run locally
@@ -26,6 +28,7 @@ Do not commit `.env` files or live environment values. Configure deployment vari
 - `src/`: customer storefront, admin pages, shared components, API/data layer.
 - `public/`: static assets.
 - `supabase/migrations/`: ordered SQL migrations.
+- `docs/ui-reference/`: imported historical screenshots retained as design references, not runtime assets.
 - `package.json` / `package-lock.json`: single canonical dependency and script definition at repository root.
 
 Run `npm run build` before merging changes. GitHub Actions runs the same build check on pushes and pull requests.

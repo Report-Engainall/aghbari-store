@@ -1,0 +1,32 @@
+name: One-time dev branch cleanup
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  delete-obsolete-dev:
+    if: github.event.head_commit.message == 'Consolidate dev assets and remove obsolete dev branch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify the exact dev ref before deletion
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_DEV_SHA: 95c1a5b5a1ede3db5a2ba05c7e151bc473668783
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" --jq '.object.sha')"
+          if [[ "$actual" != "$EXPECTED_DEV_SHA" ]]; then
+            echo "::error::The dev ref changed; refusing to delete it."
+            exit 1
+          fi
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/dev"
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" >/dev/null 2>&1; then
+            echo "::error::The dev ref still exists after the delete request."
+            exit 1
+          fi
+          echo "Verified: dev branch deleted; its commit remains reachable from the merge commit."
