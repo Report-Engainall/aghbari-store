@@ -18,6 +18,36 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS total numeric(14,2) NOT NULL DEFAULT
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_adjustment_note text;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
 
+-- Existing invoices remain sales invoices. New orders receive a pro-forma invoice only;
+-- an official sales invoice is created/finalized only after an administrator confirms payment.
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS invoice_kind text;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS finalized_at timestamptz;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS finalized_by uuid REFERENCES auth.users(id) ON DELETE SET NULL;
+UPDATE invoices SET invoice_kind = 'sales' WHERE invoice_kind IS NULL;
+ALTER TABLE invoices ALTER COLUMN invoice_kind SET DEFAULT 'sales';
+ALTER TABLE invoices ALTER COLUMN invoice_kind SET NOT NULL;
+
+DO $
+DECLARE constraint_row record;
+BEGIN
+  FOR constraint_row IN
+    SELECT conname FROM pg_constraint
+    WHERE conrelid = 'public.invoices'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%status%'
+  LOOP
+    EXECUTE format('ALTER TABLE public.invoices DROP CONSTRAINT %I', constraint_row.conname);
+  END LOOP;
+END;
+$;
+
+ALTER TABLE invoices ADD CONSTRAINT invoices_status_check
+CHECK (status IN ('draft','issued','partial','paid','overdue','cancelled'));
+
+ALTER TABLE invoices ADD CONSTRAINT invoices_kind_check
+CHECK (invoice_kind IN ('proforma','sales'));
+
+
 CREATE TABLE IF NOT EXISTS commerce_policy_settings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid NOT NULL UNIQUE REFERENCES organizations(id) ON DELETE CASCADE,
@@ -313,7 +343,7 @@ DECLARE
   v_cart_hash text;
   v_request_hash text;
   v_order_number text := 'ORD-' || to_char(now(), 'YYYYMMDDHH24MISS') || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 6);
-  v_invoice_number text := 'INV-' || to_char(now(), 'YYYYMMDDHH24MISS') || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 6);
+  v_invoice_number text := 'PRO-' || to_char(now(), 'YYYYMMDDHH24MISS') || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 6);
   v_subtotal numeric(14,2) := 0;
   v_line_total numeric(14,2);
   v_unit_price numeric(12,2);
@@ -420,8 +450,8 @@ BEGIN
       updated_at = now()
   WHERE id = v_order_id;
 
-  INSERT INTO invoices (invoice_number, order_id, organization_id, subtotal, total, status, customer_name_snapshot, main_description)
-  SELECT v_invoice_number, v_order_id, v_org_id, v_subtotal, v_subtotal, 'issued', o.name, 'طلب شراء من منصة الأغبري'
+  INSERT INTO invoices (invoice_number, order_id, organization_id, subtotal, total, status, invoice_kind, customer_name_snapshot, main_description)
+  SELECT v_invoice_number, v_order_id, v_org_id, v_subtotal, v_subtotal, 'draft', 'proforma', o.name, 'طلب شراء من منصة الأغبري'
   FROM organizations o WHERE o.id = v_org_id;
   SELECT id INTO v_invoice_id FROM invoices WHERE order_id = v_order_id;
 
