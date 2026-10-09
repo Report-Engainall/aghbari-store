@@ -239,13 +239,14 @@ export function OrderDetail() {
                 onChange={event => setEditingItems(previous => ({ ...previous, [item.id]: event.target.value === '' ? 0 : Number(event.target.value) }))}
                 onKeyDown={event => handleItemEnter(event, item.id, itemIds)}
                 aria-label={`الكمية المعتمدة للصنف ${item.product_name_snapshot || item.name}`}
-                className={`input quantity-input ${toneClass} w-24 py-1 text-center`} /></td>
+                disabled={!["pending", "review"].includes(order.status)}
+                className={`input quantity-input ${toneClass} w-24 py-1 text-center disabled:opacity-60`} /></td>
               <td className="p-3 tabular-nums">{formatCurrency(item.unit_price_snapshot || item.unit_price)}</td>
             </tr>
           })}</tbody></table></div>
         <div className="mt-4 rounded-lg border border-sky-100 bg-sky-50 p-3"><p className="text-sm font-medium text-sky-900">التغييرات لا تُحفظ عند الخروج من الحقل. استخدم زر «اعتماد الكميات» لتسجيلها خادمياً.</p><p className="mt-1 text-xs text-sky-800">زر Enter ينقلك إلى الصف التالي. عند وجود تغييرات غير معتمدة، يمنع النظام التنقل حتى حفظها أو إلغاء التغييرات.</p></div>
         {dirty && <div className="mt-4 flex flex-wrap gap-2"><button disabled={saving} onClick={() => void approveQuantities()} className="btn-primary"><CheckCircle2 className="h-4 w-4" />{saving ? 'جارٍ الاعتماد…' : 'اعتماد الكميات وحفظها'}</button><button disabled={saving} onClick={() => setEditingItems({})} className="btn-secondary">إلغاء التعديلات المعلقة</button></div>}
-        {!dirty && <button disabled={saving || !order.items?.length} onClick={() => void approveQuantities()} className="btn-primary mt-4"><CheckCircle2 className="h-4 w-4" />{saving ? 'جارٍ الاعتماد…' : 'تسجيل اعتماد الكميات'}</button>}
+        {!dirty && <button disabled={saving || !order.items?.length || !["pending", "review"].includes(order.status)} onClick={() => void approveQuantities()} className="btn-primary mt-4"><CheckCircle2 className="h-4 w-4" />{saving ? 'جارٍ الاعتماد…' : 'تسجيل اعتماد الكميات'}</button>}
         <div className="mt-6 space-y-2"><label className="label">تنبيه تعديل الأصناف (يظهر للعميل)</label><textarea value={adjustmentNote} onChange={event => setAdjustmentNote(event.target.value)} className="input min-h-20" placeholder="تنبيه: تم تعديل الأصناف/الكميات بحسب الكميات المتوفرة." /><button onClick={() => void saveAdjustment()} disabled={saving || !adjustmentNote.trim()} className="btn-secondary btn-sm">حفظ التنبيه</button></div>
         {invoice && <section className="mt-6 border-t border-neutral-100 pt-5">
           <div className="mb-3 flex items-center gap-2"><CreditCard className="h-5 w-5 text-primary-700" /><h3 className="font-bold">الدفعات والفاتورة</h3></div>
