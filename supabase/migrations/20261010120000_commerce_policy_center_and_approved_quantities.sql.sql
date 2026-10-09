@@ -137,7 +137,7 @@ RETURNS numeric
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, private
-AS $
+AS $$
 DECLARE
   v_org_id uuid;
   v_base numeric(14,4);
@@ -178,7 +178,7 @@ BEGIN
   END CASE;
   RETURN ROUND(GREATEST(COALESCE(v_price, v_base), 0), 2);
 END;
-$;
+$$;
 
 REVOKE ALL ON FUNCTION public.calculate_commerce_price(uuid, integer, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.calculate_commerce_price(uuid, integer, text) FROM anon;
@@ -266,12 +266,12 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, private
-AS $
+AS $$
 BEGIN
   PERFORM public.recalculate_organization_product_prices(NEW.organization_id);
   RETURN NEW;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS sync_product_prices_after_base_change ON products;
 CREATE TRIGGER sync_product_prices_after_base_change
@@ -299,7 +299,7 @@ RETURNS uuid
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, private
-AS $
+AS $$
 DECLARE
   v_user_id uuid := auth.uid();
   v_org_id uuid;
@@ -442,7 +442,7 @@ EXCEPTION WHEN OTHERS THEN
   END IF;
   RAISE;
 END;
-$;
+$$;
 
 REVOKE ALL ON FUNCTION public.create_order_from_cart(jsonb, jsonb, text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.create_order_from_cart(jsonb, jsonb, text, text) FROM anon;
