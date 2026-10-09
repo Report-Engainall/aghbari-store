@@ -254,7 +254,7 @@ export async function processCsvToSnapshot(args: {
         if (seenKeys.has(normalizedKey)) isDuplicate = true
         else seenKeys.add(normalizedKey)
       }
-      if (isDuplicate) { duplicateRows++; warnings.push(`مفتاح مكرر داخل الملف: ${key}`) }
+      if (isDuplicate) warnings.push(`مفتاح مكرر داخل الملف: ${key}`)
       for (const field of dateFields) {
         const value = normalized[field] || ''
         if (value) {
@@ -265,7 +265,8 @@ export async function processCsvToSnapshot(args: {
       }
       const status = errors.length ? 'rejected' : isDuplicate ? 'duplicate' : 'accepted'
       if (status === 'accepted') acceptedRows++
-      if (errors.length) rejectedRows++
+      if (status === 'duplicate') duplicateRows++
+      if (status === 'rejected') rejectedRows++
       batch.push({
         upload_id: uploadId,
         row_number: totalRows,
@@ -309,13 +310,15 @@ export async function processCsvToSnapshot(args: {
     let status: CsvImportResult['status'] = qualityScore >= 50 ? 'snapshotted' : 'rejected'
     let message = 'تم توحيد السجلات والتحقق منها وحفظ بيان Snapshot؛ لم تُدمج البيانات في قاعدة التشغيل.'
     if (qualityScore >= 75 && qualityScore < 90) {
-      await supabase.from('import_records').update({ status: 'warning' }).eq('upload_id', uploadId).eq('status', 'accepted')
+      const { error: warningError } = await supabase.from('import_records').update({ status: 'warning' }).eq('upload_id', uploadId).eq('status', 'accepted')
+      if (warningError) throw warningError
       message = 'تم حفظ Snapshot مع تحذير جودة؛ لم تُدمج البيانات في قاعدة التشغيل.'
     } else if (qualityScore >= 50 && qualityScore < 75) {
       status = 'manual_review'
       message = 'جودة البيانات تتطلب مراجعة بشرية قبل أي اعتماد.'
     } else if (qualityScore < 50) {
-      await supabase.from('import_records').update({ status: 'rejected' }).eq('upload_id', uploadId)
+      const { error: rejectError } = await supabase.from('import_records').update({ status: 'rejected' }).eq('upload_id', uploadId)
+      if (rejectError) throw rejectError
       message = 'رُفضت الدفعة لأن جودة البيانات أقل من 50؛ لم تُدمج أي بيانات.'
     }
 
