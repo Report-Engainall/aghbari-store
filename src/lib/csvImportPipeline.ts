@@ -236,7 +236,7 @@ export async function processCsvToSnapshot(args: {
       for (const [field, index] of Object.entries(mapping)) {
         const raw = cells[index] ?? ''
         const value = normalizeCell(raw)
-        normalized[field] = value
+        normalized[field] = value.length > MAX_CELL_LENGTH ? value.slice(0, MAX_CELL_LENGTH) : value
         if (value.length > MAX_CELL_LENGTH) errors.push(`الحقل ${field} يتجاوز ${MAX_CELL_LENGTH} حرفاً`)
         if (required.includes(field)) {
           requiredCells++
@@ -289,19 +289,20 @@ export async function processCsvToSnapshot(args: {
     const validity = safeRatio(validRows, totalRows)
     const uniqueness = safeRatio(totalRows - duplicateRows, totalRows)
     const consistency = safeRatio(consistentRows, totalRows)
-    const temporalIntegrity = temporalApplicable ? safeRatio(temporalValid, temporalTotal) : 100
-    const referentialIntegrity = safeRatio(nonEmptyKeys, totalRows)
-    const qualityScore = Math.round((
-      completeness * 0.25 + validity * 0.25 + uniqueness * 0.20 +
-      consistency * 0.10 + temporalIntegrity * 0.10 + referentialIntegrity * 0.10
-    ) * 100) / 100
+    const temporalIntegrity = temporalTotal > 0 ? safeRatio(temporalValid, temporalTotal) : 100
+    const temporalHasEvidence = temporalApplicable && temporalTotal > 0
+    const matchingKeyCoverage = safeRatio(nonEmptyKeys, totalRows)
+    const activeWeight = 0.25 + 0.25 + 0.20 + 0.10 + 0.10 + (temporalHasEvidence ? 0.10 : 0)
+    const weightedScore = completeness * 0.25 + validity * 0.25 + uniqueness * 0.20 + consistency * 0.10 + matchingKeyCoverage * 0.10 + (temporalHasEvidence ? temporalIntegrity * 0.10 : 0)
+    const qualityScore = Math.round((weightedScore / activeWeight) * 100) / 100
 
     const qualityBreakdown = {
       score: qualityScore,
       completeness, validity, uniqueness, consistency,
-      temporal_integrity: { score: temporalIntegrity, applicable: temporalApplicable, checked_values: temporalTotal },
-      referential_integrity: { score: referentialIntegrity, definition: 'مفاتيح المطابقة غير الفارغة؛ لم تُعدّل قاعدة البيانات التشغيلية.' },
-      weights: { completeness: 0.25, validity: 0.25, uniqueness: 0.2, consistency: 0.1, temporal_integrity: 0.1, referential_integrity: 0.1 },
+      matching_key_coverage: matchingKeyCoverage,
+      temporal_integrity: { score: temporalIntegrity, applicable: temporalHasEvidence, checked_values: temporalTotal },
+      referential_integrity: { score: null, applicable: false, reason: 'التحقق من العلاقات المرجعية بين الجداول يُجرى قبل الدمج؛ لم يُنفذ في مرحلة Snapshot.' },
+      weights: { completeness: 0.25, validity: 0.25, uniqueness: 0.2, consistency: 0.1, matching_key_coverage: 0.1, temporal_integrity: temporalHasEvidence ? 0.1 : 0 },
     }
 
     await setUpload(uploadId, { status: 'chunking' })
