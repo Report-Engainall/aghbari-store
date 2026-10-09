@@ -52,6 +52,12 @@ export function OrderDetail() {
   const [order, setOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [paymentAmount, setPaymentAmount] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('transfer')
+  const [paymentReference, setPaymentReference] = useState('')
+  const [paymentNotes, setPaymentNotes] = useState('')
+  const [submittingPayment, setSubmittingPayment] = useState(false)
+  const [paymentSubmitted, setPaymentSubmitted] = useState(false)
 
   useEffect(() => {
     if (!id || !user) { setLoading(false); return }
@@ -76,6 +82,35 @@ export function OrderDetail() {
       void supabase.removeChannel(channel)
     }
   }, [id, user?.id])
+
+  const submitPayment = async () => {
+    if (!id || !paymentAmount.trim()) { setError('أدخل المبلغ الذي أرسلته'); return }
+    const amount = Number(paymentAmount)
+    if (!Number.isFinite(amount) || amount <= 0) { setError('أدخل مبلغاً صحيحاً أكبر من صفر.'); return }
+    setSubmittingPayment(true)
+    setError('')
+    const { data, error: paymentError } = await supabase.rpc('submit_order_payment', {
+      p_order_id: id,
+      p_amount: amount,
+      p_method: paymentMethod,
+      p_reference: paymentReference.trim() || null,
+      p_notes: paymentNotes.trim() || null,
+    })
+    setSubmittingPayment(false)
+    if (paymentError) {
+      const friendly = paymentError.message.includes('order_not_approved_for_payment')
+        ? 'لا يمكن تسجيل الدفع قبل اعتماد الطلب من الإدارة.'
+        : paymentError.message.includes('order_not_owned') ? 'لا تملك صلاحية تسجيل دفع لهذا الطلب.'
+        : paymentError.message.includes('proforma_invoice_not_available') ? 'لا توجد فاتورة أولية متاحة لهذا الطلب.'
+        : paymentError.message
+      setError(friendly)
+      return
+    }
+    setPaymentSubmitted(true)
+    setPaymentAmount('')
+    setPaymentReference('')
+    setPaymentNotes('')
+  }
 
   if (loading) return <LoadingOverlay />
   if (error) return <ErrorState title="تعذر تحميل الطلب" description={error} onRetry={() => window.location.reload()} />
@@ -110,7 +145,19 @@ export function OrderDetail() {
       {order.items?.map(item => <div key={item.id} className="flex justify-between gap-3 py-2 border-b border-neutral-100 text-sm"><span className="min-w-0">{item.product_name_snapshot || item.name}</span><span className="shrink-0 text-neutral-600">× {item.approved_quantity ?? item.quantity}</span></div>)}
       {showTotal ? <div className="flex justify-between font-bold pt-4 mt-2"><span>الإجمالي</span><span className="text-primary-700">{formatCurrency(order.total)}</span></div> : <p className="text-sm text-neutral-500 pt-4 mt-2">يُحدد المبلغ بعد مراجعة واعتماد الطلب.</p>}
       <p className="text-sm text-neutral-600 mt-4">{order.notes || 'لا توجد ملاحظات على الطلب.'}</p>
-      {policies.payment_request_after_approval && order.status === 'approved' && <div className="mt-5 rounded-xl border border-primary-200 bg-primary-50 p-4"><p className="font-bold text-primary-900">تم اعتماد طلبك من الإدارة.</p><p className="mt-1 text-sm leading-6 text-primary-800">يرجى إرسال المبلغ وفق آلية الدفع المتفق عليها لإتمام الاعتماد النهائي وتحويل الطلب إلى فاتورة بيع.</p></div>}
+      {policies.payment_request_after_approval && order.status === 'approved' && <div className="mt-5 rounded-xl border border-primary-200 bg-primary-50 p-4">
+        <p className="font-bold text-primary-900">تم اعتماد طلبك من الإدارة.</p>
+        <p className="mt-1 text-sm leading-6 text-primary-800">يرجى إرسال المبلغ المتفق عليه، ثم تسجيل مرجع التحويل أدناه. لا تُعرض الأسعار أو الإجماليات الرقمية في هذه الشاشة. ستبقى الفاتورة أولية حتى تتحقق الإدارة من الدفعات.</p>
+        {paymentSubmitted && <p role="status" className="mt-3 rounded-lg border border-success-200 bg-success-50 p-3 text-sm font-semibold text-success-800">تم تسجيل طلب تأكيد الدفع. حالة الدفعة: قيد المراجعة.</p>}
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div><label className="label">المبلغ الذي أرسلته</label><input className="input" type="number" min="0.01" step="0.01" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} placeholder="أدخل المبلغ" /></div>
+          <div><label className="label">طريقة الدفع</label><select className="input" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}><option value="transfer">تحويل بنكي</option><option value="cash">نقداً</option><option value="check">شيك</option><option value="card">بطاقة</option><option value="wallet">محفظة</option></select></div>
+          <div className="sm:col-span-2"><label className="label">رقم المرجع / رقم التحويل (اختياري)</label><input className="input" value={paymentReference} onChange={e => setPaymentReference(e.target.value)} maxLength={300} placeholder="رقم العملية أو مرجع الحوالة" /></div>
+          <div className="sm:col-span-2"><label className="label">ملاحظة (اختياري)</label><textarea className="input min-h-20" value={paymentNotes} onChange={e => setPaymentNotes(e.target.value)} maxLength={2000} placeholder="تفاصيل إضافية تساعد الإدارة في التحقق" /></div>
+        </div>
+        {error && <p role="alert" className="mt-3 text-sm font-medium text-error-700">{error}</p>}
+        <button type="button" disabled={submittingPayment || !paymentAmount.trim()} onClick={() => void submitPayment()} className="btn-primary mt-4">{submittingPayment ? 'جارٍ تسجيل الدفعة…' : 'إرسال بيانات الدفع للمراجعة'}</button>
+      </div>}
     </div>
   </div>
 }
