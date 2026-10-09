@@ -10,6 +10,7 @@ import { EmptyState, ErrorState, LoadingOverlay } from '@/components/ui/Loader'
 import type { Order, Product } from '@/types'
 import { useCommercePolicies } from '@/lib/useCommercePolicies'
 import { processCsvToSnapshot, type CsvImportProgress, type CsvImportProfile } from '@/lib/csvImportPipeline'
+import { sha256File } from '@/lib/sha256File'
 
 function AdminPage({ title, description, icon: Icon, children, action }: { title: string; description: string; icon: typeof Activity; children: ReactNode; action?: ReactNode }) { return <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto"><div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6"><div className="flex items-start gap-3"><div className="h-11 w-11 shrink-0 rounded-xl bg-primary-50 text-primary-600 flex items-center justify-center"><Icon className="h-5 w-5" /></div><div><h1 className="text-2xl font-bold text-neutral-900">{title}</h1><p className="text-sm text-neutral-500 mt-1">{description}</p></div></div>{action}</div>{children}</div> }
 function Notice({ message }: { message: string }) { return <div className="card p-5 text-center text-neutral-600">{message}</div> }
@@ -424,10 +425,7 @@ export function Import() {
     else { setProfiles([data as Record<string, unknown>]); setProfileId(String(data.id)); show('success', 'تم إنشاء ملف التعريف') }
   }
 
-  const hashFile = async (selected: File) => {
-    const digest = await crypto.subtle.digest('SHA-256', await selected.arrayBuffer())
-    return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
-  }
+  const hashFile = async (selected: File) => sha256File(selected)
 
   const createProfileVersion = async () => {
     if (!organization?.id || !isAdmin || !duplicate) return
