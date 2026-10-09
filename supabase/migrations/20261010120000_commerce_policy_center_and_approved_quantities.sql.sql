@@ -61,6 +61,10 @@ CREATE TABLE IF NOT EXISTS commerce_policy_settings (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE commerce_policy_settings DROP CONSTRAINT IF EXISTS commerce_policy_prices_hidden;
+ALTER TABLE commerce_policy_settings
+  ADD CONSTRAINT commerce_policy_prices_hidden CHECK (customer_prices_hidden = true);
+
 ALTER TABLE commerce_policy_settings ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS commerce_policy_settings_read_member ON commerce_policy_settings;
 CREATE POLICY commerce_policy_settings_read_member
@@ -307,6 +311,31 @@ DROP TRIGGER IF EXISTS sync_product_prices_after_base_change ON products;
 CREATE TRIGGER sync_product_prices_after_base_change
 AFTER INSERT OR UPDATE OF base_price ON products
 FOR EACH ROW EXECUTE FUNCTION public.sync_prices_after_product_base_change();
+
+CREATE OR REPLACE FUNCTION public.keep_product_base_price_canonical()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, private
+AS $
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    NEW.base_price := COALESCE(NULLIF(NEW.base_price, 0), NEW.price, 0);
+    NEW.price := COALESCE(NEW.base_price, 0);
+  ELSIF NEW.base_price IS DISTINCT FROM OLD.base_price THEN
+    NEW.price := COALESCE(NEW.base_price, 0);
+  ELSIF NEW.price IS DISTINCT FROM OLD.price THEN
+    NEW.base_price := COALESCE(NEW.price, 0);
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS keep_product_base_price_canonical_before_write ON products;
+CREATE TRIGGER keep_product_base_price_canonical_before_write
+BEFORE INSERT OR UPDATE OF base_price, price ON products
+FOR EACH ROW EXECUTE FUNCTION public.keep_product_base_price_canonical();
+
 
 -- Historical rows with no active pricing rule always resolve to the immutable base_price.
 DO $$
