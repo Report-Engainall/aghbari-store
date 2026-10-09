@@ -26,7 +26,7 @@ export function SearchPage() {
 
 export function Cart() {
   const { user } = useAuth(); const { show } = useToast(); const navigate = useNavigate(); const [items, setItems] = useState<CartItem[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState('')
-  const load = async () => { if (!user) return; setLoading(true); const { data, error: dbError } = await supabase.from('cart_items').select('id,user_id,product_id,variant_id,quantity,unit_type,created_at,product:products(id,name,name_ar,sku,image_url,unit)').eq('user_id', user.id).order('created_at'); if (dbError) setError(dbError.message); else setItems(data as CartItem[] || []); setLoading(false) }
+  const load = async () => { if (!user) return; setLoading(true); const { data, error: dbError } = await supabase.from('cart_items').select('id,user_id,product_id,variant_id,quantity,unit_type,created_at,product:products(id,name,name_ar,sku,image_url,unit)').eq('user_id', user.id).order('created_at'); if (dbError) setError(dbError.message); else setItems((data || []) as unknown as CartItem[]); setLoading(false) }
   useEffect(() => { load() }, [user])
   const itemCount = items.length
   const updateQuantity = async (item: CartItem, quantity: number) => { if (quantity <= 0) { await supabase.from('cart_items').delete().eq('id', item.id) } else { await supabase.from('cart_items').update({ quantity }).eq('id', item.id) }; await load() }
