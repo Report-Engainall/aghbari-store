@@ -4,11 +4,12 @@ import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/components/ui/Toast'
 import { useCommercePolicies, type CommercePolicies, type QuantityInputTone } from '@/lib/useCommercePolicies'
 
-function PolicyToggle({ checked, onChange, title, description }: {
+function PolicyToggle({ checked, onChange, title, description, disabled = false }: {
   checked: boolean
   onChange: (value: boolean) => void
   title: string
   description: string
+  disabled?: boolean
 }) {
   return (
     <label className="flex cursor-pointer items-start justify-between gap-4 rounded-xl border border-neutral-200 bg-white p-4 transition hover:border-primary-200">
@@ -75,7 +76,7 @@ export default function PolicyCenter() {
       <section className="card mb-5 p-5 sm:p-6">
         <div className="mb-4 flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-primary-700" /><h2 className="text-lg font-bold">خصوصية الأسعار والعميل</h2></div>
         <div className="space-y-3">
-          <PolicyToggle checked={draft.customer_prices_hidden} onChange={value => change('customer_prices_hidden', value)} title="إخفاء الأسعار عن حسابات العملاء" description="يمنع عرض السعر والإجماليات الرقمية في تفاصيل الطلب ومراحله. اجعل هذا الخيار مفعلاً لإخفاء الأسعار عن العميل افتراضياً." />
+          <PolicyToggle checked={true} onChange={() => undefined} disabled title="إخفاء الأسعار عن حسابات العملاء (سياسة إلزامية)" description="هذا الشرط لا يمكن تعطيله من الواجهة: لا تعرض واجهة العميل أسعاراً أو إجماليات رقمية في الطلب أو الفاتورة قبل الاعتماد أو بعده." />
           <PolicyToggle checked={draft.payment_request_after_approval} onChange={value => change('payment_request_after_approval', value)} title="طلب إرسال المبلغ بعد اعتماد الإدارة" description="بعد انتقال الطلب إلى حالة الاعتماد، يظهر للعميل تنبيه أسفل تفاصيل الطلب لإرسال المبلغ لإتمام الاعتماد النهائي." />
         </div>
       </section>
