@@ -7,7 +7,6 @@ import { CUSTOMER_PRODUCT_SELECT } from '@/lib/customerProductSelect'
 import { ProductCard } from '@/components/storefront/ProductCard'
 import { GridSkeleton, ErrorState, EmptyState } from '@/components/ui/Loader'
 import type { Product, Category, Brand } from '@/types'
-import { previewCategories } from '@/lib/previewData'
 
 export default function Store() {
   const { organization } = useAuth()
@@ -53,7 +52,7 @@ export default function Store() {
   useEffect(() => {
     if (!organization?.id) { setCategories([]); setBrands([]); return }
     supabase.from('categories').select('*').eq('organization_id', organization.id).eq('is_active', true).order('sort_order').then(({ data }) => setCategories(data as Category[] || []))
-    supabase.from('brands').select('*').eq('organization_id', organization.id).eq('is_active', true).then(({ data }) => setBrands(data as any || []))
+    supabase.from('brands').select('id,name,slug,logo_url,description,is_active,created_at').eq('is_active', true).then(({ data }) => setBrands(data as any || []))
   }, [organization?.id])
 
   useEffect(() => { loadProducts() }, [loadProducts])
