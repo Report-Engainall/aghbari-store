@@ -469,7 +469,7 @@ BEGIN
   );
 
   INSERT INTO idempotency_keys (organization_id, idempotency_key, request_hash, operation_type, status, created_at, expires_at)
-  VALUES (v_org_id, p_idempotency_key, v_request_hash, 'create_order', 'processing', now(), now() + interval '24 hours')
+  VALUES (v_org_id, p_idempotency_key, v_request_hash, 'create_order', 'processing', now(), now() + make_interval(hours => COALESCE((SELECT cps.idempotency_ttl_hours FROM public.commerce_policy_settings cps WHERE cps.organization_id = v_org_id), 24)))
   ON CONFLICT (organization_id, idempotency_key, operation_type) DO UPDATE
     SET request_hash = EXCLUDED.request_hash,
         response_reference = NULL,
@@ -982,3 +982,128 @@ $$;
 REVOKE ALL ON FUNCTION public.confirm_order_payment(uuid, boolean, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.confirm_order_payment(uuid, boolean, text) FROM anon;
 GRANT EXECUTE ON FUNCTION public.confirm_order_payment(uuid, boolean, text) TO authenticated;
+
+
+-- Customer-safe views omit every numeric money field. Base table reads remain for trusted staff;
+-- customer app endpoints should read these projections instead of selecting raw financial rows.
+DO $$
+DECLARE policy_row record;
+BEGIN
+  FOR policy_row IN
+    SELECT policyname FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'orders' AND cmd IN ('SELECT','INSERT','UPDATE','DELETE','ALL')
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.orders', policy_row.policyname);
+  END LOOP;
+END;
+$$;
+
+CREATE POLICY orders_read_staff_only ON public.orders
+FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = orders.organization_id AND om.user_id = auth.uid()
+    AND om.status = 'active'
+    AND om.role IN ('owner','admin','manager','warehouse','accountant','sales','developer','system_admin','customer_manager')
+));
+
+CREATE POLICY orders_update_admin_only ON public.orders
+FOR UPDATE TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = orders.organization_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin','system_admin')
+))
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = orders.organization_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin','system_admin')
+));
+
+-- The existing UPDATE/INSERT/DELETE policies on sensitive child tables are also narrowed.
+DO $$
+DECLARE policy_row record;
+BEGIN
+  FOR policy_row IN
+    SELECT policyname FROM pg_policies
+    WHERE schemaname = 'public' AND tablename IN ('order_items','invoices','payments')
+      AND cmd IN ('SELECT','INSERT','UPDATE','DELETE','ALL')
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', policy_row.policyname, policy_row.tablename);
+  END LOOP;
+END;
+$$;
+
+CREATE POLICY order_items_read_staff_only ON public.order_items
+FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.orders o
+  JOIN public.organization_members om ON om.organization_id = o.organization_id
+  WHERE o.id = order_items.order_id AND om.user_id = auth.uid()
+    AND om.status = 'active'
+    AND om.role IN ('owner','admin','manager','warehouse','accountant','sales','developer','system_admin','customer_manager')
+));
+
+CREATE POLICY invoices_read_staff_only ON public.invoices
+FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = invoices.organization_id AND om.user_id = auth.uid()
+    AND om.status = 'active'
+    AND om.role IN ('owner','admin','manager','warehouse','accountant','sales','developer','system_admin','customer_manager')
+));
+
+CREATE POLICY payments_read_staff_only ON public.payments
+FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = payments.organization_id AND om.user_id = auth.uid()
+    AND om.status = 'active'
+    AND om.role IN ('owner','admin','manager','warehouse','accountant','sales','developer','system_admin','customer_manager')
+));
+
+CREATE OR REPLACE VIEW public.customer_order_summaries AS
+SELECT o.id, o.organization_id, o.user_id, o.order_number, o.status,
+       o.payment_status, o.total_items, o.notes, o.customer_adjustment_note,
+       o.created_at, o.updated_at
+FROM public.orders o
+WHERE EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = o.organization_id AND om.user_id = auth.uid() AND om.status = 'active'
+);
+
+CREATE OR REPLACE VIEW public.customer_order_item_summaries AS
+SELECT oi.id, oi.order_id, o.organization_id, oi.product_id,
+       COALESCE(oi.product_name_snapshot, oi.name) AS product_name,
+       COALESCE(oi.item_code, oi.sku) AS item_code,
+       oi.unit_snapshot, oi.quantity, oi.approved_quantity
+FROM public.order_items oi
+JOIN public.orders o ON o.id = oi.order_id
+WHERE EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = o.organization_id AND om.user_id = auth.uid() AND om.status = 'active'
+);
+
+CREATE OR REPLACE VIEW public.customer_sales_invoice_summaries AS
+SELECT i.id, i.order_id, i.organization_id, i.invoice_number, i.status,
+       i.issue_date, i.due_date, i.created_at
+FROM public.invoices i
+WHERE i.invoice_kind = 'sales'
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = i.organization_id AND om.user_id = auth.uid() AND om.status = 'active'
+  );
+
+CREATE OR REPLACE VIEW public.customer_payment_summaries AS
+SELECT p.id, p.invoice_id, p.organization_id, p.payment_number, p.method, p.status, p.created_at
+FROM public.payments p
+WHERE EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = p.organization_id AND om.user_id = auth.uid() AND om.status = 'active'
+);
+
+GRANT SELECT ON public.customer_order_summaries TO authenticated;
+GRANT SELECT ON public.customer_order_item_summaries TO authenticated;
+GRANT SELECT ON public.customer_sales_invoice_summaries TO authenticated;
+GRANT SELECT ON public.customer_payment_summaries TO authenticated;
+
