@@ -8,6 +8,7 @@ import { formatCurrency, formatDate } from '@/lib/utils'
 import { StatusBadge } from '@/components/ui/Badge'
 import { EmptyState, ErrorState, LoadingOverlay } from '@/components/ui/Loader'
 import type { Order, Product } from '@/types'
+import { useCommercePolicies } from '@/lib/useCommercePolicies'
 
 function AdminPage({ title, description, icon: Icon, children, action }: { title: string; description: string; icon: typeof Activity; children: ReactNode; action?: ReactNode }) { return <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto"><div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6"><div className="flex items-start gap-3"><div className="h-11 w-11 shrink-0 rounded-xl bg-primary-50 text-primary-600 flex items-center justify-center"><Icon className="h-5 w-5" /></div><div><h1 className="text-2xl font-bold text-neutral-900">{title}</h1><p className="text-sm text-neutral-500 mt-1">{description}</p></div></div>{action}</div>{children}</div> }
 function Notice({ message }: { message: string }) { return <div className="card p-5 text-center text-neutral-600">{message}</div> }
@@ -60,20 +61,126 @@ export function Dashboard() {
 
 export function Orders() { const { organization } = useAuth(); const [rows, setRows] = useState<Order[]>([]); const [query, setQuery] = useState(''); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const load = () => { if (!organization) return; setLoading(true); supabase.from('orders').select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }).then(({ data, error: dbError }) => { if (dbError) setError(dbError.message); else setRows(data as Order[] || []); setLoading(false) }) }; useEffect(load, [organization]); const filtered = useMemo(() => rows.filter(row => `${row.order_number} ${row.status}`.toLowerCase().includes(query.toLowerCase())), [rows, query]); return <AdminPage title="الطلبات" description="مراجعة الطلبات ومتابعة حالتها" icon={ShoppingCart} action={<button onClick={load} className="btn-secondary btn-sm"><RefreshCw className="h-4 w-4" /> تحديث</button>}><div className="mb-4 relative max-w-sm"><Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" /><input className="input pr-9" value={query} onChange={event => setQuery(event.target.value)} placeholder="بحث برقم الطلب أو الحالة" /></div>{loading ? <LoadingOverlay /> : error ? <ErrorState description={error} onRetry={load} /> : filtered.length ? <Table headers={['رقم الطلب', 'التاريخ', 'الإجمالي', 'الدفع', 'الحالة', '']} >{filtered.map(order => <tr className="border-t border-neutral-100 hover:bg-neutral-50" key={order.id}><td className="p-4 font-semibold">{order.order_number}</td><td className="p-4 text-neutral-500">{formatDate(order.created_at)}</td><td className="p-4">{formatCurrency(order.total)}</td><td className="p-4"><StatusBadge status={order.payment_status} /></td><td className="p-4"><StatusBadge status={order.status} /></td><td className="p-4"><Link className="text-primary-600 hover:underline" to={`/admin/order/${order.id}`}>فتح</Link></td></tr>)}</Table> : <EmptyState title="لا توجد طلبات" description="ستظهر الطلبات الجديدة هنا." />}</AdminPage> }
 export function OrderDetail() {
-  const { id } = useParams(); const { organization } = useAuth(); const { show } = useToast()
-  const [order, setOrder] = useState<Order | null>(null); const [saving, setSaving] = useState(false); const [editingItems, setEditingItems] = useState<Record<string, number>>({}); const [adjustmentNote, setAdjustmentNote] = useState('')
-  const load = () => { if (id && organization) supabase.from('orders').select('*, items:order_items(*)').eq('id', id).eq('organization_id', organization.id).maybeSingle().then(({ data }) => { setOrder(data as Order || null); if (data?.customer_adjustment_note) setAdjustmentNote(data.customer_adjustment_note) }) }
-  useEffect(load, [id, organization])
-  const update = async (status: string) => { if (!id) return; setSaving(true); const { error } = await supabase.from('orders').update({ status }).eq('id', id); setSaving(false); if (error) show('error', 'تعذر تحديث الطلب', error.message); else { show('success', 'تم تحديث حالة الطلب'); load() } }
-  const saveItemQty = async (itemId: string) => { const qty = editingItems[itemId]; if (qty === undefined) return; setSaving(true); const { error } = await supabase.from('order_items').update({ quantity: qty }).eq('id', itemId); setSaving(false); if (error) show('error', 'تعذر تحديث الكمية', error.message); else { show('success', 'تم تحديث الكمية'); setEditingItems(prev => { const next = { ...prev }; delete next[itemId]; return next }); load() } }
-  const saveAdjustment = async () => { if (!id || !adjustmentNote) return; setSaving(true); const { error } = await supabase.from('orders').update({ customer_adjustment_note: adjustmentNote }).eq('id', id); setSaving(false); if (error) show('error', 'تعذر حفظ التنبيه', error.message); else show('success', 'تم حفظ تنبيه التعديل') }
+  const { id } = useParams()
+  const { organization } = useAuth()
+  const { show } = useToast()
+  const { policies } = useCommercePolicies()
+  const [order, setOrder] = useState<Order | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [editingItems, setEditingItems] = useState<Record<string, number>>({})
+  const [adjustmentNote, setAdjustmentNote] = useState('')
   const itemRefs = useRef<Record<string, HTMLInputElement | null>>({})
-  const handleItemEnter = (e: React.KeyboardEvent, itemId: string, itemIds: string[]) => { if (e.key === 'Enter') { e.preventDefault(); saveItemQty(itemId); const idx = itemIds.indexOf(itemId); if (idx < itemIds.length - 1) { const nextId = itemIds[idx + 1]; itemRefs.current[nextId]?.focus() } } }
+  const dirty = Object.keys(editingItems).length > 0
+
+  const load = async () => {
+    if (!id || !organization) return
+    const { data, error } = await supabase.from('orders')
+      .select('*, items:order_items(*)')
+      .eq('id', id).eq('organization_id', organization.id).maybeSingle()
+    if (error) { show('error', 'تعذر تحميل الطلب', error.message); return }
+    setOrder(data as Order || null)
+    if (data?.customer_adjustment_note) setAdjustmentNote(data.customer_adjustment_note)
+  }
+  useEffect(() => { void load() }, [id, organization?.id])
+
+  useEffect(() => {
+    if (!dirty || !policies.require_quantity_approval) return
+    const guardNavigation = (event: MouseEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      const anchor = target.closest('a[href]')
+      if (!anchor) return
+      const href = anchor.getAttribute('href')
+      if (!href || href.startsWith('#') || anchor.getAttribute('target') === '_blank') return
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+      show('warning', 'اعتماد الكميات مطلوب', 'احفظ واعتمد الكميات الحالية قبل الانتقال إلى قسم آخر.')
+    }
+    const guardUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    document.addEventListener('click', guardNavigation, true)
+    window.addEventListener('beforeunload', guardUnload)
+    return () => {
+      document.removeEventListener('click', guardNavigation, true)
+      window.removeEventListener('beforeunload', guardUnload)
+    }
+  }, [dirty, policies.require_quantity_approval, show])
+
+  const update = async (status: string) => {
+    if (!id || !organization) return
+    if (dirty && policies.require_quantity_approval) {
+      show('warning', 'اعتمد الكميات أولاً', 'لا يمكن تغيير حالة الطلب مع وجود كميات غير معتمدة.')
+      return
+    }
+    setSaving(true)
+    const { error } = await supabase.from('orders').update({ status, updated_at: new Date().toISOString() })
+      .eq('id', id).eq('organization_id', organization.id)
+    setSaving(false)
+    if (error) show('error', 'تعذر تحديث الطلب', error.message)
+    else { show('success', 'تم تحديث حالة الطلب'); await load() }
+  }
+
+  const handleItemEnter = (event: React.KeyboardEvent, itemId: string, itemIds: string[]) => {
+    if (event.key !== 'Enter') return
+    event.preventDefault()
+    const idx = itemIds.indexOf(itemId)
+    if (idx >= 0 && idx < itemIds.length - 1) itemRefs.current[itemIds[idx + 1]]?.focus()
+  }
+
+  const approveQuantities = async () => {
+    if (!id || !order || !organization) return
+    const items = order.items || []
+    if (!items.length) { show('warning', 'لا توجد أصناف لاعتمادها'); return }
+    const quantities: Record<string, number> = {}
+    for (const item of items) {
+      const requested = Number(item.quantity)
+      const approved = editingItems[item.id] ?? Number(item.approved_quantity ?? item.quantity)
+      if (!Number.isFinite(approved) || approved < 0 || !Number.isInteger(approved) || approved > requested) {
+        show('warning', 'كمية غير صالحة', 'الكمية المعتمدة يجب أن تكون عدداً صحيحاً من صفر حتى الكمية المطلوبة.')
+        return
+      }
+      quantities[item.id] = approved
+    }
+    setSaving(true)
+    const { data, error } = await supabase.rpc('approve_order_quantities', {
+      p_order_id: id,
+      p_quantities: quantities,
+    })
+    setSaving(false)
+    if (error) {
+      const friendly = error.message.includes('admin_required') ? 'يلزم أن تكون مسؤولاً عن المؤسسة لاعتماد الكميات.'
+        : error.message.includes('approved_quantity_exceeds_requested') ? 'لا يمكن اعتماد كمية أعلى من الكمية المطلوبة.'
+        : error.message.includes('invalid_approved_quantity') ? 'توجد كمية غير صحيحة. راجع القيم ثم أعد المحاولة.'
+        : error.message
+      show('error', 'تعذر اعتماد الكميات', friendly)
+      return
+    }
+    setEditingItems({})
+    show('success', 'تم اعتماد الكميات', typeof data === 'object' && data && 'changed' in data && data.changed ? 'تم تحديث الإجمالي التشغيلي وإشعار العميل بتعديلات الكمية.' : 'تم تسجيل الاعتماد.')
+    await load()
+  }
+
+  const saveAdjustment = async () => {
+    if (!id || !organization || !adjustmentNote.trim()) return
+    setSaving(true)
+    const { error } = await supabase.from('orders').update({ customer_adjustment_note: adjustmentNote.trim() })
+      .eq('id', id).eq('organization_id', organization.id)
+    setSaving(false)
+    if (error) show('error', 'تعذر حفظ التنبيه', error.message)
+    else { show('success', 'تم حفظ تنبيه التعديل'); await load() }
+  }
+
   if (!order) return <AdminPage title="تفاصيل الطلب" description="جاري تحميل البيانات" icon={Package}><LoadingOverlay /></AdminPage>
   const STEPS = [{ key: 'pending', label: 'تم استلام الطلب' }, { key: 'review', label: 'قيد المراجعة' }, { key: 'approved', label: 'تم الاعتماد' }, { key: 'processing', label: 'قيد التجهيز' }, { key: 'dispatched', label: 'تم الشحن' }, { key: 'delivered', label: 'تم التوصيل' }]
-  const currentIdx = STEPS.findIndex(s => s.key === order.status)
+  const currentIdx = STEPS.findIndex(step => step.key === order.status)
   const isCancelled = order.status === 'cancelled' || order.status === 'rejected'
-  const itemIds = order.items?.map(i => i.id) || []
+  const itemIds = order.items?.map(item => item.id) || []
+  const toneClass = policies.quantity_input_tone === 'mint' ? 'quantity-input--mint'
+    : policies.quantity_input_tone === 'slate' ? 'quantity-input--slate' : 'quantity-input--sky'
+
   return <AdminPage title={`الطلب ${order.order_number}`} description="تفاصيل الطلب ومسار المعالجة" icon={Package}>
     <div className="card p-6 mb-5">
       <div className="flex items-center justify-between gap-2 mb-2">
@@ -83,15 +190,33 @@ export function OrderDetail() {
     </div>
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
       <div className="card p-5 lg:col-span-2">
-        <h2 className="font-bold mb-4">أصناف الطلب</h2>
-        <div className="overflow-x-auto"><table className="w-full text-sm text-right"><thead className="bg-neutral-50"><tr><th className="p-3 text-neutral-500">الصنف</th><th className="p-3 text-neutral-500">الكمية المطلوبة</th><th className="p-3 text-neutral-500">الكمية المعتمدة</th><th className="p-3 text-neutral-500">السعر</th></tr></thead>
-          <tbody>{order.items?.map(item => <tr key={item.id} className="border-t border-neutral-100"><td className="p-3 font-medium">{item.product_name_snapshot || item.name}</td><td className="p-3 text-neutral-500">{item.quantity}</td><td className="p-3"><input ref={el => { itemRefs.current[item.id] = el }} type="number" min="0" value={editingItems[item.id] !== undefined ? editingItems[item.id] : item.quantity} onChange={e => setEditingItems(prev => ({ ...prev, [item.id]: parseInt(e.target.value) || 0 }))} onKeyDown={e => handleItemEnter(e, item.id, itemIds)} onBlur={() => saveItemQty(item.id)} className="input w-20 text-center py-1" /></td><td className="p-3">{formatCurrency(item.unit_price_snapshot || item.unit_price)}</td></tr>)}</tbody></table></div>
-        <div className="mt-4 p-3 bg-neutral-50 rounded-lg"><p className="text-xs text-neutral-500 mb-2">اضغط Enter للانتقال للصنف التالي في عمود الكمية المعتمدة</p></div>
-        <div className="mt-4 space-y-2"><label className="label">تنبيه تعديل الأصناف (يظهر للعميل)</label><textarea value={adjustmentNote} onChange={e => setAdjustmentNote(e.target.value)} className="input min-h-20" placeholder="تنبيه: تم تعديل الأصناف/الكميات بحسب الكميات المتوفرة." /><button onClick={saveAdjustment} disabled={saving || !adjustmentNote} className="btn-secondary btn-sm">حفظ التنبيه</button></div>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div><h2 className="font-bold">أصناف الطلب</h2><p className="mt-1 text-xs text-neutral-500">الكمية المطلوبة محفوظة كما أرسلها العميل، والكمية المعتمدة منفصلة عنها.</p></div>
+          {policies.require_quantity_approval && <span className="badge-info">اعتماد صريح مطلوب</span>}
+        </div>
+        <div className="overflow-x-auto"><table className="w-full text-sm text-right"><thead className="bg-neutral-50"><tr><th className="p-3 text-neutral-500">الصنف</th><th className="p-3 text-neutral-500">الكمية المطلوبة</th><th className="p-3 text-neutral-500">الكمية المعتمدة</th><th className="p-3 text-neutral-500">السعر (للإدارة)</th></tr></thead>
+          <tbody>{order.items?.map(item => {
+            const currentApproved = Number(item.approved_quantity ?? item.quantity)
+            const edited = editingItems[item.id] !== undefined
+            return <tr key={item.id} className="border-t border-neutral-100">
+              <td className="p-3 font-medium">{item.product_name_snapshot || item.name}</td>
+              <td className="p-3 text-neutral-500 tabular-nums">{item.quantity}</td>
+              <td className="p-3"><input ref={element => { itemRefs.current[item.id] = element }} type="number" min="0" max={item.quantity} step="1" value={edited ? editingItems[item.id] : currentApproved}
+                onChange={event => setEditingItems(previous => ({ ...previous, [item.id]: event.target.value === '' ? 0 : Number(event.target.value) }))}
+                onKeyDown={event => handleItemEnter(event, item.id, itemIds)}
+                aria-label={`الكمية المعتمدة للصنف ${item.product_name_snapshot || item.name}`}
+                className={`input quantity-input ${toneClass} w-24 py-1 text-center`} /></td>
+              <td className="p-3 tabular-nums">{formatCurrency(item.unit_price_snapshot || item.unit_price)}</td>
+            </tr>
+          })}</tbody></table></div>
+        <div className="mt-4 rounded-lg border border-sky-100 bg-sky-50 p-3"><p className="text-sm font-medium text-sky-900">التغييرات لا تُحفظ عند الخروج من الحقل. استخدم زر «اعتماد الكميات» لتسجيلها خادمياً.</p><p className="mt-1 text-xs text-sky-800">زر Enter ينقلك إلى الصف التالي. عند وجود تغييرات غير معتمدة، يمنع النظام التنقل حتى حفظها أو إلغاء التغييرات.</p></div>
+        {dirty && <div className="mt-4 flex flex-wrap gap-2"><button disabled={saving} onClick={() => void approveQuantities()} className="btn-primary"><CheckCircle2 className="h-4 w-4" />{saving ? 'جارٍ الاعتماد…' : 'اعتماد الكميات وحفظها'}</button><button disabled={saving} onClick={() => setEditingItems({})} className="btn-secondary">إلغاء التعديلات المعلقة</button></div>}
+        {!dirty && <button disabled={saving || !order.items?.length} onClick={() => void approveQuantities()} className="btn-primary mt-4"><CheckCircle2 className="h-4 w-4" />{saving ? 'جارٍ الاعتماد…' : 'تسجيل اعتماد الكميات'}</button>}
+        <div className="mt-6 space-y-2"><label className="label">تنبيه تعديل الأصناف (يظهر للعميل)</label><textarea value={adjustmentNote} onChange={event => setAdjustmentNote(event.target.value)} className="input min-h-20" placeholder="تنبيه: تم تعديل الأصناف/الكميات بحسب الكميات المتوفرة." /><button onClick={() => void saveAdjustment()} disabled={saving || !adjustmentNote.trim()} className="btn-secondary btn-sm">حفظ التنبيه</button></div>
         <h3 className="font-bold mt-6 mb-3">إجراءات الطلب</h3>
-        <div className="flex flex-wrap gap-2">{['review', 'approved', 'processing', 'dispatched', 'delivered', 'cancelled'].map(status => <button key={status} disabled={saving || status === order.status} onClick={() => update(status)} className="btn-secondary btn-sm"><StatusBadge status={status} /></button>)}</div>
+        <div className="flex flex-wrap gap-2">{['review', 'approved', 'processing', 'dispatched', 'delivered', 'cancelled'].map(status => <button key={status} disabled={saving || status === order.status || (dirty && policies.require_quantity_approval)} onClick={() => void update(status)} className="btn-secondary btn-sm"><StatusBadge status={status} /></button>)}</div>
       </div>
-      <div className="card p-5"><h2 className="font-bold mb-3">بيانات الطلب</h2><p className="text-sm text-neutral-500">تاريخ الإنشاء</p><p className="mb-3">{formatDate(order.created_at)}</p><p className="text-sm text-neutral-500">الإجمالي</p><p className="text-xl font-bold text-primary-700 mb-3">{formatCurrency(order.total)}</p><p className="text-sm text-neutral-500">ملاحظات</p><p className="text-sm">{order.notes || 'لا توجد ملاحظات'}</p></div>
+      <div className="card p-5"><h2 className="font-bold mb-3">بيانات الطلب</h2><p className="text-sm text-neutral-500">تاريخ الإنشاء</p><p className="mb-3">{formatDate(order.created_at)}</p><p className="text-sm text-neutral-500">الإجمالي (للإدارة)</p><p className="text-xl font-bold text-primary-700 mb-3">{formatCurrency(order.total ?? order.total_amount)}</p><p className="text-sm text-neutral-500">ملاحظات</p><p className="text-sm">{order.notes || 'لا توجد ملاحظات'}</p></div>
     </div>
   </AdminPage>
 }
