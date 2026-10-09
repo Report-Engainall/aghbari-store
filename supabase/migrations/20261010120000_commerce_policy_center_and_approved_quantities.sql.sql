@@ -23,6 +23,26 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFA
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS invoice_kind text;
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS finalized_at timestamptz;
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS finalized_by uuid REFERENCES auth.users(id) ON DELETE SET NULL;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS customer_code text;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS customer_name_snapshot text;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS main_description text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_id uuid REFERENCES customers(id) ON DELETE SET NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_address jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS billing_address jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS subtotal numeric(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS total numeric(14,2) NOT NULL DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_amount numeric(15,2) NOT NULL DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_items integer NOT NULL DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS idempotency_key text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status text NOT NULL DEFAULT 'unpaid';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_adjustment_note text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE orders ALTER COLUMN customer_id DROP NOT NULL;
+UPDATE orders SET total = COALESCE(total, total_amount, subtotal, 0),
+                  total_amount = COALESCE(total_amount, total, subtotal, 0),
+                  subtotal = COALESCE(subtotal, total, total_amount, 0);
+
 UPDATE invoices SET invoice_kind = 'sales' WHERE invoice_kind IS NULL;
 ALTER TABLE invoices ALTER COLUMN invoice_kind SET DEFAULT 'sales';
 ALTER TABLE invoices ALTER COLUMN invoice_kind SET NOT NULL;
@@ -575,6 +595,35 @@ REVOKE ALL ON FUNCTION public.create_order_from_cart(jsonb, jsonb, text, text) F
 REVOKE ALL ON FUNCTION public.create_order_from_cart(jsonb, jsonb, text, text) FROM anon;
 GRANT EXECUTE ON FUNCTION public.create_order_from_cart(jsonb, jsonb, text, text) TO authenticated;
 
+
+-- Unify the legacy (from_status/to_status) and modern (status) audit schemas without
+-- depending on whether the legacy profile id happens to equal auth.uid().
+ALTER TABLE public.order_status_history ADD COLUMN IF NOT EXISTS status text;
+ALTER TABLE public.order_status_history ADD COLUMN IF NOT EXISTS from_status text;
+ALTER TABLE public.order_status_history ADD COLUMN IF NOT EXISTS to_status text;
+ALTER TABLE public.order_status_history ADD COLUMN IF NOT EXISTS actor_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL;
+UPDATE public.order_status_history
+SET status = COALESCE(status, to_status, from_status, 'legacy'),
+    to_status = COALESCE(to_status, status, from_status, 'legacy');
+ALTER TABLE public.order_status_history ALTER COLUMN to_status DROP NOT NULL;
+
+CREATE OR REPLACE FUNCTION public.sync_order_status_history_aliases()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, private
+AS $$
+BEGIN
+  NEW.status := COALESCE(NEW.status, NEW.to_status, NEW.from_status, 'unknown');
+  NEW.to_status := COALESCE(NEW.to_status, NEW.status);
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS sync_order_status_history_aliases_before_write ON public.order_status_history;
+CREATE TRIGGER sync_order_status_history_aliases_before_write
+BEFORE INSERT OR UPDATE ON public.order_status_history
+FOR EACH ROW EXECUTE FUNCTION public.sync_order_status_history_aliases();
+
 CREATE OR REPLACE FUNCTION public.approve_order_quantities(
   p_order_id uuid,
   p_quantities jsonb
@@ -762,8 +811,8 @@ BEGIN
   UPDATE public.orders SET status = p_status, updated_at = now()
   WHERE id = p_order_id;
 
-  INSERT INTO public.order_status_history (order_id, status, changed_by, notes)
-  VALUES (p_order_id, p_status, v_user_id, 'تحديث خادمي للحالة: ' || v_old_status || ' → ' || p_status);
+  INSERT INTO public.order_status_history (order_id, status, from_status, to_status, actor_user_id, notes)
+  VALUES (p_order_id, p_status, v_old_status, p_status, v_user_id, 'تحديث خادمي للحالة: ' || v_old_status || ' → ' || p_status);
 
   INSERT INTO public.outbox_events (organization_id, event_key, event_type, aggregate_type, aggregate_id, payload, status, available_at)
   VALUES (v_org_id, 'order-status:' || p_order_id::text || ':' || p_status || ':' || gen_random_uuid()::text,
@@ -958,8 +1007,8 @@ BEGIN
     UPDATE public.orders
     SET payment_status='paid', status='processing', updated_at=now()
     WHERE id=v_order_id;
-    INSERT INTO public.order_status_history (order_id,status,changed_by,notes)
-    VALUES (v_order_id,'processing',v_user_id,'تم إصدار فاتورة البيع بعد تأكيد سداد المبلغ.');
+    INSERT INTO public.order_status_history (order_id,status,from_status,to_status,actor_user_id,notes)
+    VALUES (v_order_id,'processing',v_order_status,'processing',v_user_id,'تم إصدار فاتورة البيع بعد تأكيد سداد المبلغ.');
     v_new_status := 'sales_invoice_issued';
   ELSE
     UPDATE public.invoices SET paid_amount=v_paid_total WHERE id=v_invoice_id;
