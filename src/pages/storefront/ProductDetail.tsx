@@ -52,14 +52,15 @@ export default function ProductDetail() {
         setLoading(false)
         return
       }
-      setProduct(data as Product)
-      setQuantity(data.min_order_qty || 1)
+      const loadedProduct = data as unknown as Product
+      setProduct(loadedProduct)
+      setQuantity(loadedProduct.min_order_qty || 1)
 
-      if (data.category_id) {
+      if (loadedProduct.category_id) {
         const { data: relatedProducts } = await supabase.from('products')
           .select(productSelect)
           .eq('organization_id', organization.id)
-          .eq('category_id', data.category_id)
+          .eq('category_id', loadedProduct.category_id)
           .eq('is_active', true)
           .neq('id', id)
           .limit(4)
