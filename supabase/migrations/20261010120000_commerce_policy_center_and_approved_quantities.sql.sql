@@ -372,7 +372,7 @@ $$;
 
 DROP TRIGGER IF EXISTS sync_product_prices_after_base_change ON products;
 CREATE TRIGGER sync_product_prices_after_base_change
-AFTER INSERT OR UPDATE OF base_price ON products
+AFTER INSERT OR UPDATE OF base_price, price ON products
 FOR EACH ROW EXECUTE FUNCTION public.sync_prices_after_product_base_change();
 
 CREATE OR REPLACE FUNCTION public.keep_product_base_price_canonical()
@@ -382,6 +382,8 @@ SECURITY DEFINER
 SET search_path = public, private
 AS $$
 BEGIN
+  -- Product price recalculation runs from AFTER triggers. Do not mistake its derived-price writes for a base-price edit.
+  IF pg_trigger_depth() > 1 THEN RETURN NEW; END IF;
   IF TG_OP = 'INSERT' THEN
     NEW.base_price := COALESCE(NULLIF(NEW.base_price, 0), NEW.price, 0);
     NEW.price := COALESCE(NEW.base_price, 0);
@@ -508,7 +510,7 @@ BEGIN
     WHERE ci.user_id = v_user_id
     FOR UPDATE OF p
   LOOP
-    IF item.quantity < item.min_order_qty OR item.quantity > item.stock_quantity THEN
+    IF item.quantity < item.min_order_qty THEN
       RAISE EXCEPTION 'invalid_quantity';
     END IF;
     v_multiplier := CASE item.unit_type
@@ -516,26 +518,29 @@ BEGIN
       WHEN 'box' THEN greatest(item.box_quantity, 1)
       ELSE 1
     END;
+    IF item.quantity * v_multiplier > item.stock_quantity THEN
+      RAISE EXCEPTION 'invalid_quantity';
+    END IF;
     v_unit_price := public.calculate_commerce_price(
       item.product_id,
-      item.quantity,
-      CASE WHEN item.quantity >= 10 THEN 'wholesale' ELSE 'retail' END
+      item.quantity * v_multiplier,
+      CASE WHEN item.quantity * v_multiplier >= 10 THEN 'wholesale' ELSE 'retail' END
     );
     v_line_total := v_unit_price * item.quantity * v_multiplier;
     v_subtotal := v_subtotal + v_line_total;
     INSERT INTO order_items (
       order_id, product_id, sku, item_code, name, product_name_snapshot,
-      unit_type, unit_snapshot, quantity, unit_price, unit_price_snapshot,
+      unit_type, unit_snapshot, quantity, unit_multiplier_snapshot, unit_price, unit_price_snapshot,
       discount, discount_snapshot, tax_snapshot, line_total
     ) VALUES (
       v_order_id, item.product_id, item.sku, COALESCE(item.item_code, item.sku),
       COALESCE(item.name_ar, item.name), COALESCE(item.name_ar, item.name),
-      item.unit_type, item.unit, item.quantity, v_unit_price, v_unit_price,
+      item.unit_type, item.unit, item.quantity, v_multiplier, v_unit_price, v_unit_price,
       0, 0, 0, v_line_total
     );
   END LOOP;
 
-  IF v_subtotal = 0 THEN RAISE EXCEPTION 'empty_cart'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM order_items WHERE order_id = v_order_id) THEN RAISE EXCEPTION 'empty_cart'; END IF;
   UPDATE orders
   SET subtotal = v_subtotal, total = v_subtotal, total_amount = v_subtotal,
       total_items = (SELECT COUNT(*) FROM order_items WHERE order_id = v_order_id),
@@ -642,7 +647,7 @@ BEGIN
 
   UPDATE order_items oi
   SET line_total = ROUND(
-    COALESCE(oi.approved_quantity, oi.quantity) * COALESCE(oi.unit_price_snapshot, oi.unit_price, 0)
+    COALESCE(oi.approved_quantity, oi.quantity) * COALESCE(oi.unit_multiplier_snapshot, 1) * COALESCE(oi.unit_price_snapshot, oi.unit_price, 0)
     - COALESCE(oi.discount_snapshot, oi.discount, 0)
     + COALESCE(oi.tax_snapshot, 0), 2)
   WHERE oi.order_id = p_order_id;
