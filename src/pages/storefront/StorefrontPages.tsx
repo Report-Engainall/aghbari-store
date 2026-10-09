@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AlertCircle, ArrowLeft, Bell, Building2, CheckCircle2, ChevronLeft, Copy, FileText, GitCompare, Heart, HelpCircle, Layers, MapPin, Package, Plus, Search, Settings, ShoppingCart, Trash2, User, Wallet } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -117,7 +117,66 @@ export function OrderDetail() {
 
 export function Wishlist() { const { user } = useAuth(); const [products, setProducts] = useState<Product[]>([]); const [loading, setLoading] = useState(true); useEffect(() => { if (user) supabase.from('wishlist_items').select('product:products(*)').eq('user_id', user.id).then(({ data }) => { setProducts((data || []).map(item => (item as any).product).filter(Boolean)); setLoading(false) }) }, [user]); return <div className="max-w-7xl mx-auto px-4 py-6"><PageHeader title="المفضلة" description="المنتجات التي حفظتها للرجوع إليها" icon={Heart} />{loading ? <LoadingOverlay /> : products.length ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{products.map(product => <ProductCard key={product.id} product={product} />)}</div> : <EmptyState icon={<Heart />} title="لا توجد منتجات محفوظة" description="اضغط على القلب في أي منتج لإضافته للمفضلة." />}</div> }
 
-function RecordsPage({ title, icon, table, columns }: { title: string; icon: typeof FileText; table: string; columns: string[] }) { const { organization } = useAuth(); const [rows, setRows] = useState<Record<string, unknown>[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); useEffect(() => { if (organization) supabase.from(table).select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }).then(({ data, error: dbError }) => { if (dbError) setError(dbError.message); else setRows(data as Record<string, unknown>[] || []); setLoading(false) }) }, [organization, table]); return <div className="max-w-6xl mx-auto px-4 py-6"><PageHeader title={title} description="السجلات المرتبطة بحساب شركتك" icon={icon} />{loading ? <LoadingOverlay /> : error ? <PageError message={error} /> : !rows.length ? <EmptyState icon={<FileText />} title={`لا توجد ${title}`} /> : <div className="card overflow-x-auto"><table className="w-full text-sm text-right"><thead className="bg-neutral-50"><tr>{columns.map(column => <th key={column} className="p-4 text-neutral-500">{column}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={String(row.id)} className="border-t border-neutral-100"><td className="p-4 font-medium">{String(row.invoice_number || row.statement_number || row.payment_number || row.id).slice(0, 16)}</td><td className="p-4"><StatusBadge status={String(row.status || 'issued')} /></td><td className="p-4 text-neutral-500">{row.created_at ? formatDate(String(row.created_at)) : '—'}</td></tr>)}</tbody></table></div>}</div> }
+function RecordsPage({ title, icon, table, columns }: { title: string; icon: typeof FileText; table: string; columns: string[] }) {
+  const { organization } = useAuth()
+  const { policies } = useCommercePolicies()
+  const [rows, setRows] = useState<Record<string, unknown>[]>([])
+  const [approvedOrders, setApprovedOrders] = useState<Record<string, boolean>>({})
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      if (!organization) { setRows([]); setApprovedOrders({}); setLoading(false); return }
+      setLoading(true)
+      setError('')
+      const { data, error: dbError } = await supabase.from(table).select('*')
+        .eq('organization_id', organization.id)
+        .order('created_at', { ascending: false })
+      if (!active) return
+      if (dbError) {
+        setError(dbError.message)
+        setRows([])
+        setApprovedOrders({})
+        setLoading(false)
+        return
+      }
+      const nextRows = data as Record<string, unknown>[] || []
+      setRows(nextRows)
+      if (table === 'invoices') {
+        const orderIds = [...new Set(nextRows.map(row => String(row.order_id || '')).filter(Boolean))]
+        if (orderIds.length) {
+          const { data: ordersData, error: ordersError } = await supabase.from('orders')
+            .select('id, status')
+            .eq('organization_id', organization.id)
+            .in('id', orderIds)
+          if (!active) return
+          if (ordersError) setError('تعذر التحقق من حالة الطلبات المرتبطة بالفواتير.')
+          else setApprovedOrders(Object.fromEntries((ordersData || []).map(order => [order.id, order.status === 'approved'])))
+        } else setApprovedOrders({})
+      } else setApprovedOrders({})
+      setLoading(false)
+    }
+    void load()
+    return () => { active = false }
+  }, [organization?.id, table])
+
+  return <div className="max-w-6xl mx-auto px-4 py-6">
+    <PageHeader title={title} description="السجلات المرتبطة بحساب شركتك" icon={icon} />
+    {loading ? <LoadingOverlay /> : error ? <PageError message={error} /> : !rows.length ? <EmptyState icon={<FileText />} title={`لا توجد ${title}`} /> : <div className="card overflow-x-auto"><table className="w-full text-sm text-right">
+      <thead className="bg-neutral-50"><tr>{columns.map(column => <th key={column} className="p-4 text-neutral-500">{column}</th>)}</tr></thead>
+      <tbody>{rows.map(row => <Fragment key={String(row.id)}>
+        <tr className="border-t border-neutral-100">
+          <td className="p-4 font-medium">{String(row.invoice_number || row.statement_number || row.payment_number || row.id).slice(0, 16)}</td>
+          <td className="p-4"><StatusBadge status={String(row.status || 'issued')} /></td>
+          <td className="p-4 text-neutral-500">{row.created_at ? formatDate(String(row.created_at)) : '—'}</td>
+        </tr>
+        {table === 'invoices' && policies.payment_request_after_approval && approvedOrders[String(row.order_id)] && <tr className="border-t border-primary-100 bg-primary-50"><td colSpan={columns.length} className="px-4 py-3"><p className="font-bold text-primary-900">تم اعتماد الطلب من الإدارة.</p><p className="mt-1 text-sm text-primary-800">يرجى إرسال المبلغ وفق آلية الدفع المتفق عليها لإتمام الاعتماد النهائي وتحويل الطلب إلى فاتورة بيع.</p></td></tr>}
+      </Fragment>)}</tbody>
+    </table></div>}
+  </div>
+}
 export function Invoices() { return <RecordsPage title="الفواتير" icon={FileText} table="invoices" columns={['رقم المستند', 'الحالة', 'التاريخ']} /> }
 export function InvoiceDetail() { return <Invoices /> }
 export function Statements() { return <RecordsPage title="كشوف الحساب" icon={Wallet} table="statements" columns={['رقم الكشف', 'الحالة', 'التاريخ']} /> }
