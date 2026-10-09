@@ -572,3 +572,297 @@ REVOKE ALL ON FUNCTION public.approve_order_quantities(uuid, jsonb) FROM anon;
 GRANT EXECUTE ON FUNCTION public.approve_order_quantities(uuid, jsonb) TO authenticated;
 REVOKE ALL ON FUNCTION public.recalculate_organization_product_prices(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.recalculate_organization_product_prices(uuid) FROM anon;
+
+
+
+-- Only administrators may directly update an order. Customers submit orders/payment requests via RPC.
+DO $$
+DECLARE policy_row record;
+BEGIN
+  FOR policy_row IN
+    SELECT policyname FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'orders' AND cmd IN ('UPDATE','ALL')
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.orders', policy_row.policyname);
+  END LOOP;
+END;
+$$;
+
+CREATE POLICY orders_update_admin_only ON public.orders
+FOR UPDATE TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = orders.organization_id
+    AND om.user_id = auth.uid() AND om.status = 'active'
+    AND om.role IN ('owner','admin')
+))
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = orders.organization_id
+    AND om.user_id = auth.uid() AND om.status = 'active'
+    AND om.role IN ('owner','admin')
+));
+
+CREATE OR REPLACE FUNCTION public.admin_update_order_status(
+  p_order_id uuid,
+  p_status text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, private
+AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_org_id uuid;
+  v_old_status text;
+  v_order_number text;
+BEGIN
+  IF v_user_id IS NULL THEN RAISE EXCEPTION 'authentication_required'; END IF;
+  IF p_status NOT IN ('review','approved','processing','fulfilled','dispatched','delivered','cancelled','rejected') THEN
+    RAISE EXCEPTION 'invalid_order_status';
+  END IF;
+
+  SELECT organization_id, status, order_number
+    INTO v_org_id, v_old_status, v_order_number
+  FROM public.orders WHERE id = p_order_id FOR UPDATE;
+  IF v_org_id IS NULL THEN RAISE EXCEPTION 'order_not_found'; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = v_org_id AND om.user_id = v_user_id
+      AND om.status = 'active' AND om.role IN ('owner','admin')
+  ) THEN RAISE EXCEPTION 'admin_required'; END IF;
+  IF v_old_status IN ('cancelled','rejected','delivered') AND p_status <> v_old_status THEN
+    RAISE EXCEPTION 'terminal_order_status';
+  END IF;
+  IF p_status = 'approved' AND EXISTS (
+    SELECT 1 FROM public.order_items oi
+    WHERE oi.order_id = p_order_id AND oi.approved_quantity IS NULL
+  ) THEN
+    RAISE EXCEPTION 'quantity_approval_required';
+  END IF;
+  IF v_old_status = p_status THEN RETURN jsonb_build_object('order_id',p_order_id,'status',p_status,'changed',false); END IF;
+
+  UPDATE public.orders SET status = p_status, updated_at = now()
+  WHERE id = p_order_id;
+
+  INSERT INTO public.order_status_history (order_id, status, changed_by, notes)
+  VALUES (p_order_id, p_status, v_user_id, 'تحديث خادمي للحالة: ' || v_old_status || ' → ' || p_status);
+
+  INSERT INTO public.outbox_events (organization_id, event_key, event_type, aggregate_type, aggregate_id, payload, status, available_at)
+  VALUES (v_org_id, 'order-status:' || p_order_id::text || ':' || p_status || ':' || gen_random_uuid()::text,
+          'order.status_changed', 'order', p_order_id,
+          jsonb_build_object('order_id', p_order_id, 'order_number', v_order_number, 'from', v_old_status, 'to', p_status, 'actor_id', v_user_id),
+          'pending', now());
+
+  RETURN jsonb_build_object('order_id',p_order_id,'status',p_status,'changed',true);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_update_order_status(uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.admin_update_order_status(uuid, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.admin_update_order_status(uuid, text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.admin_set_order_adjustment_note(
+  p_order_id uuid,
+  p_note text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, private
+AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_org_id uuid;
+BEGIN
+  IF v_user_id IS NULL THEN RAISE EXCEPTION 'authentication_required'; END IF;
+  IF length(COALESCE(p_note,'')) > 2000 THEN RAISE EXCEPTION 'adjustment_note_too_long'; END IF;
+  SELECT organization_id INTO v_org_id FROM public.orders WHERE id=p_order_id FOR UPDATE;
+  IF v_org_id IS NULL THEN RAISE EXCEPTION 'order_not_found'; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id=v_org_id AND om.user_id=v_user_id
+      AND om.status='active' AND om.role IN ('owner','admin')
+  ) THEN RAISE EXCEPTION 'admin_required'; END IF;
+
+  UPDATE public.orders SET customer_adjustment_note = NULLIF(trim(COALESCE(p_note,''),''),''), updated_at=now()
+  WHERE id=p_order_id;
+
+  INSERT INTO public.outbox_events (organization_id, event_key, event_type, aggregate_type, aggregate_id, payload, status, available_at)
+  VALUES (v_org_id, 'order-adjustment-note:' || p_order_id::text || ':' || gen_random_uuid()::text,
+          'order.adjustment_note_changed', 'order', p_order_id,
+          jsonb_build_object('order_id',p_order_id,'updated_by',v_user_id),
+          'pending', now());
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_set_order_adjustment_note(uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.admin_set_order_adjustment_note(uuid, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.admin_set_order_adjustment_note(uuid, text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.submit_order_payment(
+  p_order_id uuid,
+  p_amount numeric,
+  p_method text DEFAULT 'transfer',
+  p_reference text DEFAULT NULL,
+  p_notes text DEFAULT NULL
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, private
+AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_org_id uuid;
+  v_owner_id uuid;
+  v_order_status text;
+  v_invoice_id uuid;
+  v_invoice_kind text;
+  v_payment_id uuid;
+  v_payment_number text := 'PAY-' || to_char(now(), 'YYYYMMDDHH24MISS') || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 6);
+BEGIN
+  IF v_user_id IS NULL THEN RAISE EXCEPTION 'authentication_required'; END IF;
+  IF p_amount IS NULL OR p_amount <= 0 OR p_amount > 100000000000 THEN RAISE EXCEPTION 'invalid_payment_amount'; END IF;
+  IF p_method NOT IN ('transfer','cash','check','card','wallet') THEN RAISE EXCEPTION 'invalid_payment_method'; END IF;
+  IF length(COALESCE(p_reference,'')) > 300 OR length(COALESCE(p_notes,'')) > 2000 THEN
+    RAISE EXCEPTION 'payment_metadata_too_long';
+  END IF;
+
+  SELECT organization_id, user_id, status
+    INTO v_org_id, v_owner_id, v_order_status
+  FROM public.orders WHERE id=p_order_id FOR UPDATE;
+  IF v_org_id IS NULL THEN RAISE EXCEPTION 'order_not_found'; END IF;
+  IF v_owner_id IS DISTINCT FROM v_user_id THEN RAISE EXCEPTION 'order_not_owned'; END IF;
+  IF v_order_status <> 'approved' THEN RAISE EXCEPTION 'order_not_approved_for_payment'; END IF;
+
+  SELECT id, invoice_kind INTO v_invoice_id, v_invoice_kind
+  FROM public.invoices
+  WHERE order_id=p_order_id AND organization_id=v_org_id
+  ORDER BY created_at DESC LIMIT 1 FOR UPDATE;
+  IF v_invoice_id IS NULL OR v_invoice_kind <> 'proforma' THEN RAISE EXCEPTION 'proforma_invoice_not_available'; END IF;
+
+  INSERT INTO public.payments (payment_number, invoice_id, organization_id, amount, method, status, reference, notes)
+  VALUES (v_payment_number, v_invoice_id, v_org_id, p_amount, p_method, 'pending',
+          NULLIF(trim(COALESCE(p_reference,'')),''), NULLIF(trim(COALESCE(p_notes,'')),''))
+  RETURNING id INTO v_payment_id;
+
+  INSERT INTO public.outbox_events (organization_id,event_key,event_type,aggregate_type,aggregate_id,payload,status,available_at)
+  VALUES (v_org_id, 'payment-submitted:' || v_payment_id::text, 'payment.submitted', 'payment', v_payment_id,
+          jsonb_build_object('payment_id',v_payment_id,'order_id',p_order_id,'submitted_by',v_user_id),
+          'pending',now());
+
+  RETURN v_payment_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.submit_order_payment(uuid, numeric, text, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.submit_order_payment(uuid, numeric, text, text, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.submit_order_payment(uuid, numeric, text, text, text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.confirm_order_payment(
+  p_payment_id uuid,
+  p_confirm boolean DEFAULT true,
+  p_admin_notes text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, private
+AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_org_id uuid;
+  v_payment_status text;
+  v_payment_amount numeric(14,2);
+  v_invoice_id uuid;
+  v_invoice_kind text;
+  v_invoice_status text;
+  v_invoice_total numeric(14,2);
+  v_invoice_paid numeric(14,2);
+  v_order_id uuid;
+  v_order_status text;
+  v_paid_total numeric(14,2);
+  v_invoice_number text;
+  v_new_status text;
+BEGIN
+  IF v_user_id IS NULL THEN RAISE EXCEPTION 'authentication_required'; END IF;
+  IF length(COALESCE(p_admin_notes,'')) > 2000 THEN RAISE EXCEPTION 'payment_metadata_too_long'; END IF;
+
+  SELECT pay.organization_id, pay.status, pay.amount, pay.invoice_id, inv.invoice_kind, inv.status,
+         inv.total, inv.paid_amount, o.id, o.status
+  INTO v_org_id, v_payment_status, v_payment_amount, v_invoice_id, v_invoice_kind, v_invoice_status,
+       v_invoice_total, v_invoice_paid, v_order_id, v_order_status
+  FROM public.payments pay
+  JOIN public.invoices inv ON inv.id=pay.invoice_id
+  JOIN public.orders o ON o.id=inv.order_id
+  WHERE pay.id=p_payment_id
+  FOR UPDATE OF pay, inv, o;
+
+  IF v_invoice_id IS NULL THEN RAISE EXCEPTION 'payment_not_found'; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id=v_org_id AND om.user_id=v_user_id
+      AND om.status='active' AND om.role IN ('owner','admin')
+  ) THEN RAISE EXCEPTION 'admin_required'; END IF;
+  IF v_payment_status <> 'pending' THEN RAISE EXCEPTION 'payment_already_reviewed'; END IF;
+
+  IF NOT p_confirm THEN
+    UPDATE public.payments SET status='rejected', notes=COALESCE(NULLIF(trim(COALESCE(p_admin_notes,'')),''),notes)
+    WHERE id=p_payment_id;
+    INSERT INTO public.outbox_events (organization_id,event_key,event_type,aggregate_type,aggregate_id,payload,status,available_at)
+    VALUES (v_org_id,'payment-rejected:' || p_payment_id::text,'payment.rejected','payment',p_payment_id,
+            jsonb_build_object('payment_id',p_payment_id,'order_id',v_order_id,'reviewed_by',v_user_id),
+            'pending',now());
+    RETURN jsonb_build_object('payment_id',p_payment_id,'status','rejected','invoice_kind',v_invoice_kind);
+  END IF;
+
+  IF v_invoice_kind <> 'proforma' OR v_invoice_status <> 'draft' THEN
+    RAISE EXCEPTION 'proforma_invoice_not_available';
+  END IF;
+  IF v_order_status <> 'approved' THEN RAISE EXCEPTION 'order_not_approved_for_payment'; END IF;
+
+  UPDATE public.payments
+  SET status='confirmed', paid_date=CURRENT_DATE,
+      notes=COALESCE(NULLIF(trim(COALESCE(p_admin_notes,'')),''),notes)
+  WHERE id=p_payment_id;
+
+  SELECT COALESCE(SUM(amount),0) INTO v_paid_total
+  FROM public.payments WHERE invoice_id=v_invoice_id AND status='confirmed';
+  IF v_paid_total > v_invoice_total + 0.009 THEN RAISE EXCEPTION 'payment_exceeds_invoice_total'; END IF;
+
+  IF v_paid_total + 0.009 >= v_invoice_total THEN
+    v_invoice_number := 'INV-' || to_char(now(), 'YYYYMMDDHH24MISS') || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 6);
+    UPDATE public.invoices
+    SET invoice_kind='sales', invoice_number=v_invoice_number, status='paid',
+        paid_amount=v_paid_total, issue_date=CURRENT_DATE,
+        finalized_at=now(), finalized_by=v_user_id
+    WHERE id=v_invoice_id;
+    UPDATE public.orders
+    SET payment_status='paid', status='processing', updated_at=now()
+    WHERE id=v_order_id;
+    INSERT INTO public.order_status_history (order_id,status,changed_by,notes)
+    VALUES (v_order_id,'processing',v_user_id,'تم إصدار فاتورة البيع بعد تأكيد سداد المبلغ.');
+    v_new_status := 'sales_invoice_issued';
+  ELSE
+    UPDATE public.invoices SET paid_amount=v_paid_total WHERE id=v_invoice_id;
+    UPDATE public.orders SET payment_status='partial', updated_at=now() WHERE id=v_order_id;
+    v_new_status := 'partial_payment_confirmed';
+  END IF;
+
+  INSERT INTO public.outbox_events (organization_id,event_key,event_type,aggregate_type,aggregate_id,payload,status,available_at)
+  VALUES (v_org_id,'payment-confirmed:' || p_payment_id::text,'payment.confirmed','payment',p_payment_id,
+          jsonb_build_object('payment_id',p_payment_id,'order_id',v_order_id,'invoice_id',v_invoice_id,
+                             'confirmed_total',v_paid_total,'invoice_status',v_new_status,'reviewed_by',v_user_id),
+          'pending',now());
+
+  RETURN jsonb_build_object('payment_id',p_payment_id,'status','confirmed','confirmed_total',v_paid_total,
+                            'invoice_kind',CASE WHEN v_new_status='sales_invoice_issued' THEN 'sales' ELSE 'proforma' END,
+                            'result',v_new_status);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.confirm_order_payment(uuid, boolean, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.confirm_order_payment(uuid, boolean, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.confirm_order_payment(uuid, boolean, text) TO authenticated;
