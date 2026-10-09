@@ -90,6 +90,12 @@ export function useCommercePolicies() {
       setPolicies({
         ...DEFAULT_COMMERCE_POLICIES,
         ...(data ?? {}),
+        customer_prices_hidden: true,
+        require_quantity_approval: true,
+        payment_request_after_approval: true,
+        offline_orders_disabled: true,
+        ai_external_data_requires_consent: true,
+        ai_rule_based_fallback: true,
       } as CommercePolicies)
       setError(null)
     }
@@ -120,8 +126,8 @@ export function useCommercePolicies() {
       .upsert({
         organization_id: organization.id,
         customer_prices_hidden: true,
-        require_quantity_approval: next.require_quantity_approval,
-        payment_request_after_approval: next.payment_request_after_approval,
+        require_quantity_approval: true,
+        payment_request_after_approval: true,
         quantity_input_tone: next.quantity_input_tone,
         upload_chunk_size_mb: next.upload_chunk_size_mb,
         processing_chunk_size: next.processing_chunk_size,
@@ -141,8 +147,8 @@ export function useCommercePolicies() {
         ai_daily_token_quota: next.ai_daily_token_quota,
         ai_monthly_token_quota: next.ai_monthly_token_quota,
         ai_request_budget_usd: next.ai_request_budget_usd,
-        ai_external_data_requires_consent: next.ai_external_data_requires_consent,
-        ai_rule_based_fallback: next.ai_rule_based_fallback,
+        ai_external_data_requires_consent: true,
+        ai_rule_based_fallback: true,
         offline_orders_disabled: true,
         updated_by: authData.user.id,
         updated_at: new Date().toISOString(),
@@ -153,7 +159,7 @@ export function useCommercePolicies() {
       setError(saveError.message)
       return false
     }
-    setPolicies({ ...next, customer_prices_hidden: true })
+    setPolicies({ ...next, customer_prices_hidden: true, require_quantity_approval: true, payment_request_after_approval: true, offline_orders_disabled: true, ai_external_data_requires_consent: true, ai_rule_based_fallback: true })
     return true
   }, [organization?.id])
 
