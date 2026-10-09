@@ -74,6 +74,8 @@ ALTER TABLE pricing_rules ADD COLUMN IF NOT EXISTS calculation_method text;
 ALTER TABLE pricing_rules ADD COLUMN IF NOT EXISTS value numeric(14,4);
 ALTER TABLE pricing_rules ADD COLUMN IF NOT EXISTS active boolean;
 ALTER TABLE pricing_rules ADD COLUMN IF NOT EXISTS min_quantity integer;
+ALTER TABLE pricing_rules ADD COLUMN IF NOT EXISTS created_by uuid REFERENCES auth.users(id) ON DELETE RESTRICT;
+ALTER TABLE pricing_rules ALTER COLUMN created_by SET DEFAULT auth.uid();
 
 UPDATE pricing_rules
 SET price_level = COALESCE(price_level, CASE WHEN scope_type = 'retail' THEN 'retail' WHEN scope_type = 'wholesale' THEN 'wholesale' ELSE 'both' END),
@@ -195,6 +197,23 @@ DROP TRIGGER IF EXISTS sync_product_prices_after_rule_change ON pricing_rules;
 CREATE TRIGGER sync_product_prices_after_rule_change
 AFTER INSERT OR UPDATE OR DELETE ON pricing_rules
 FOR EACH ROW EXECUTE FUNCTION public.sync_organization_prices_after_rule_change();
+
+CREATE OR REPLACE FUNCTION public.sync_prices_after_product_base_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, private
+AS $
+BEGIN
+  PERFORM public.recalculate_organization_product_prices(NEW.organization_id);
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS sync_product_prices_after_base_change ON products;
+CREATE TRIGGER sync_product_prices_after_base_change
+AFTER INSERT OR UPDATE OF base_price ON products
+FOR EACH ROW EXECUTE FUNCTION public.sync_prices_after_product_base_change();
 
 -- Historical rows with no active pricing rule always resolve to the immutable base_price.
 DO $$
