@@ -1147,6 +1147,14 @@ FROM public.orders o
 WHERE EXISTS (
   SELECT 1 FROM public.organization_members om
   WHERE om.organization_id = o.organization_id AND om.user_id = auth.uid() AND om.status = 'active'
+)
+AND (
+  o.user_id = auth.uid()
+  OR EXISTS (
+    SELECT 1 FROM public.organization_members staff
+    WHERE staff.organization_id = o.organization_id AND staff.user_id = auth.uid()
+      AND staff.status = 'active' AND staff.role IN ('owner','admin')
+  )
 );
 
 CREATE OR REPLACE VIEW public.customer_order_item_summaries AS
@@ -1159,24 +1167,51 @@ JOIN public.orders o ON o.id = oi.order_id
 WHERE EXISTS (
   SELECT 1 FROM public.organization_members om
   WHERE om.organization_id = o.organization_id AND om.user_id = auth.uid() AND om.status = 'active'
+)
+AND (
+  o.user_id = auth.uid()
+  OR EXISTS (
+    SELECT 1 FROM public.organization_members staff
+    WHERE staff.organization_id = o.organization_id AND staff.user_id = auth.uid()
+      AND staff.status = 'active' AND staff.role IN ('owner','admin')
+  )
 );
 
 CREATE OR REPLACE VIEW public.customer_sales_invoice_summaries AS
 SELECT i.id, i.order_id, i.organization_id, i.invoice_number, i.status,
        i.issue_date, i.due_date, i.created_at
 FROM public.invoices i
+JOIN public.orders o ON o.id = i.order_id
 WHERE i.invoice_kind = 'sales'
   AND EXISTS (
     SELECT 1 FROM public.organization_members om
     WHERE om.organization_id = i.organization_id AND om.user_id = auth.uid() AND om.status = 'active'
+  )
+  AND (
+    o.user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM public.organization_members staff
+      WHERE staff.organization_id = o.organization_id AND staff.user_id = auth.uid()
+        AND staff.status = 'active' AND staff.role IN ('owner','admin')
+    )
   );
 
 CREATE OR REPLACE VIEW public.customer_payment_summaries AS
 SELECT p.id, p.invoice_id, p.organization_id, p.payment_number, p.method, p.status, p.created_at, p.reference
 FROM public.payments p
+JOIN public.invoices i ON i.id = p.invoice_id
+JOIN public.orders o ON o.id = i.order_id
 WHERE EXISTS (
   SELECT 1 FROM public.organization_members om
   WHERE om.organization_id = p.organization_id AND om.user_id = auth.uid() AND om.status = 'active'
+)
+AND (
+  o.user_id = auth.uid()
+  OR EXISTS (
+    SELECT 1 FROM public.organization_members staff
+    WHERE staff.organization_id = o.organization_id AND staff.user_id = auth.uid()
+      AND staff.status = 'active' AND staff.role IN ('owner','admin')
+  )
 );
 
 CREATE OR REPLACE VIEW public.customer_statement_summaries AS
