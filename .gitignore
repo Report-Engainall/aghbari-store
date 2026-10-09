@@ -1,4 +1,19 @@
-logs
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+*.local
+*.tsbuildinfo
+
+# Local environment files (keep only the documented template)
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -6,18 +21,21 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
-
+# Editors and operating systems
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-.env
+
+# Generated TypeScript build outputs from older Vite config builds
+/vite.config.js
+/vite.config.d.ts
+
+# Archives and encoded snapshots are not source code
+*.zip
+zip_base64.txt
