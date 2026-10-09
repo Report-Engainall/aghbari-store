@@ -540,6 +540,16 @@ BEGIN
     WHERE om.organization_id = v_organization_id AND om.user_id = v_user_id
       AND om.status = 'active' AND om.role IN ('owner','admin')
   ) THEN RAISE EXCEPTION 'admin_required'; END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.invoices inv
+    WHERE inv.order_id = p_order_id AND inv.invoice_kind = 'sales'
+  ) THEN RAISE EXCEPTION 'sales_invoice_already_finalized'; END IF;
+  IF (SELECT count(*) FROM public.order_items oi WHERE oi.order_id = p_order_id) <> jsonb_object_length(p_quantities) THEN
+    RAISE EXCEPTION 'all_order_items_required';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.order_items oi WHERE oi.order_id = p_order_id) THEN
+    RAISE EXCEPTION 'order_items_required';
+  END IF;
 
   FOR v_entry IN SELECT key, value #>> '{}' AS quantity_text FROM jsonb_each(p_quantities)
   LOOP
@@ -664,6 +674,13 @@ BEGIN
   IF v_old_status IN ('cancelled','rejected','delivered') AND p_status <> v_old_status THEN
     RAISE EXCEPTION 'terminal_order_status';
   END IF;
+  IF p_status IN ('processing','fulfilled','dispatched','delivered') AND NOT EXISTS (
+    SELECT 1 FROM public.invoices inv
+    WHERE inv.order_id = p_order_id AND inv.invoice_kind = 'sales'
+      AND inv.status IN ('paid','partial')
+  ) THEN
+    RAISE EXCEPTION 'payment_confirmation_required';
+  END IF;
   IF p_status = 'approved' AND EXISTS (
     SELECT 1 FROM public.order_items oi
     WHERE oi.order_id = p_order_id AND oi.approved_quantity IS NULL
@@ -715,7 +732,7 @@ BEGIN
       AND om.status='active' AND om.role IN ('owner','admin')
   ) THEN RAISE EXCEPTION 'admin_required'; END IF;
 
-  UPDATE public.orders SET customer_adjustment_note = NULLIF(trim(COALESCE(p_note,''),''),''), updated_at=now()
+  UPDATE public.orders SET customer_adjustment_note = NULLIF(trim(COALESCE(p_note,'')), ''), updated_at=now()
   WHERE id=p_order_id;
 
   INSERT INTO public.outbox_events (organization_id, event_key, event_type, aggregate_type, aggregate_id, payload, status, available_at)
