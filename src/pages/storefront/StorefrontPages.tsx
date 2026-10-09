@@ -10,6 +10,7 @@ import { StatusBadge } from '@/components/ui/Badge'
 import { formatCurrency, formatDate, formatCustomerAmount } from '@/lib/utils'
 import type { Address, CartItem, Invoice, Notification, Order, Product, Statement } from '@/types'
 import { createOrderFromCart, generateIdempotencyKey } from '@/lib/orders'
+import { useCommercePolicies } from '@/lib/useCommercePolicies'
 
 function PageHeader({ title, description, icon: Icon = Package }: { title: string; description?: string; icon?: typeof Package }) {
   return <div className="mb-6 flex items-start gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600"><Icon className="h-5 w-5" /></div><div><h1 className="text-2xl font-bold text-neutral-900">{title}</h1>{description && <p className="mt-1 text-sm text-neutral-500">{description}</p>}</div></div>
@@ -44,16 +45,75 @@ export function OrderSuccess() { const { id } = useParams(); return <div classNa
 
 export function Orders() { const { user } = useAuth(); const [orders, setOrders] = useState<Order[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); useEffect(() => { if (user) supabase.from('orders').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).then(({ data, error: dbError }) => { if (dbError) setError(dbError.message); else setOrders(data as Order[] || []); setLoading(false) }) }, [user]); return <div className="max-w-5xl mx-auto px-4 py-6"><PageHeader title="طلباتي" description="متابعة كل طلبات شركتك" icon={Package} />{loading ? <LoadingOverlay /> : error ? <PageError message={error} /> : !orders.length ? <EmptyState icon={<Package />} title="لا توجد طلبات بعد" action={<Link to="/store" className="btn-primary">ابدأ التسوق</Link>} /> : <div className="card overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm text-right"><thead className="bg-neutral-50 text-neutral-500"><tr><th className="p-4">رقم الطلب</th><th className="p-4">التاريخ</th><th className="p-4">عدد الأصناف</th><th className="p-4">الحالة</th><th className="p-4" /></tr></thead><tbody>{orders.map(order => <tr key={order.id} className="border-t border-neutral-100 hover:bg-neutral-50"><td className="p-4 font-semibold">{order.order_number}</td><td className="p-4 text-neutral-500">{formatDate(order.created_at)}</td><td className="p-4">{order.items?.length || '—'}</td><td className="p-4"><StatusBadge status={order.status} /></td><td className="p-4"><Link to={`/orders/${order.id}`} className="text-primary-600 hover:underline">التفاصيل</Link></td></tr>)}</tbody></table></div></div>}</div> }
 
-export function OrderDetail() { const { id } = useParams(); const [order, setOrder] = useState<Order | null>(null); const [loading, setLoading] = useState(true); useEffect(() => { if (id) supabase.from('orders').select('*, items:order_items(*)').eq('id', id).maybeSingle().then(({ data }) => { setOrder(data as Order || null); setLoading(false) }) }, [id]); if (loading) return <LoadingOverlay />; if (!order) return <ErrorState title="الطلب غير موجود" />; const itemCount = order.items?.length || 0; const showTotal = itemCount > 5; const STEPS: { key: string; label: string }[] = [{ key: 'pending', label: 'تم استلام الطلب' }, { key: 'review', label: 'قيد المراجعة' }, { key: 'approved', label: 'تم الاعتماد' }, { key: 'processing', label: 'قيد التجهيز' }, { key: 'dispatched', label: 'تم الشحن' }, { key: 'delivered', label: 'تم التوصيل' }]; const currentIdx = STEPS.findIndex(s => s.key === order.status); const isCancelled = order.status === 'cancelled' || order.status === 'rejected'; return <div className="max-w-4xl mx-auto px-4 py-6"><PageHeader title={`الطلب ${order.order_number}`} description={`أُنشئ في ${formatDate(order.created_at)}`} icon={Package} />
-    {order.customer_adjustment_note && <div className="card p-4 mb-4 bg-warning-50 border-warning-200"><p className="text-sm font-bold text-warning-800">{order.customer_adjustment_note}</p></div>}
-    {order.status === 'review' && <div className="card p-4 mb-4 bg-warning-50 border-warning-200 flex items-center gap-3"><AlertCircle className="h-5 w-5 text-warning-600 shrink-0" /><p className="text-sm font-bold text-warning-800">تم إرجاع الطلب للتعديل. يرجى مراجعة الطلب وتعديله ثم إعادة الإرسال.</p></div>}
+export function OrderDetail() {
+  const { id } = useParams()
+  const { user } = useAuth()
+  const { policies } = useCommercePolicies()
+  const [order, setOrder] = useState<Order | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!id || !user) { setLoading(false); return }
+    let mounted = true
+    const load = async () => {
+      const { data, error: dbError } = await supabase.from('orders')
+        .select('*, items:order_items(*)')
+        .eq('id', id)
+        .eq('user_id', user.id)
+        .maybeSingle()
+      if (!mounted) return
+      if (dbError) setError(dbError.message)
+      setOrder(data as Order || null)
+      setLoading(false)
+    }
+    void load()
+    const channel = supabase.channel(`customer-order-${id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `id=eq.${id}` }, () => { void load() })
+      .subscribe()
+    return () => {
+      mounted = false
+      void supabase.removeChannel(channel)
+    }
+  }, [id, user?.id])
+
+  if (loading) return <LoadingOverlay />
+  if (error) return <ErrorState title="تعذر تحميل الطلب" description={error} onRetry={() => window.location.reload()} />
+  if (!order) return <ErrorState title="الطلب غير موجود" />
+
+  const itemCount = order.items?.length || 0
+  const showTotal = !policies.customer_prices_hidden
+  const STEPS: { key: string; label: string }[] = [
+    { key: 'pending', label: 'تم استلام الطلب' },
+    { key: 'review', label: 'قيد المراجعة' },
+    { key: 'approved', label: 'تم الاعتماد' },
+    { key: 'processing', label: 'قيد التجهيز' },
+    { key: 'dispatched', label: 'تم الشحن' },
+    { key: 'delivered', label: 'تم التوصيل' },
+  ]
+  const currentIdx = STEPS.findIndex(step => step.key === order.status)
+  const isCancelled = order.status === 'cancelled' || order.status === 'rejected'
+
+  return <div className="max-w-4xl mx-auto px-4 py-6">
+    <PageHeader title={`الطلب ${order.order_number}`} description={`أُنشئ في ${formatDate(order.created_at)}`} icon={Package} />
+    {order.customer_adjustment_note && <div className="card p-4 mb-4 border-warning-200 bg-warning-50"><p className="text-sm font-bold text-warning-800">{order.customer_adjustment_note}</p></div>}
+    {order.status === 'review' && <div className="card p-4 mb-4 border-warning-200 bg-warning-50 flex items-center gap-3"><AlertCircle className="h-5 w-5 text-warning-600 shrink-0" /><p className="text-sm font-bold text-warning-800">تم إرجاع الطلب للتعديل. يرجى مراجعة الطلب أو التواصل مع الإدارة.</p></div>}
     <div className="card p-6 mb-6">
       <div className="flex items-center justify-between gap-2 mb-2">
         {STEPS.map((step, idx) => <div key={step.key} className="flex-1 flex flex-col items-center"><div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${isCancelled ? 'bg-error-100 text-error-600' : idx <= currentIdx ? 'bg-success-500 text-white' : 'bg-neutral-100 text-neutral-400'}`}>{idx <= currentIdx && !isCancelled ? '✓' : idx + 1}</div><p className={`text-xs mt-2 text-center ${idx <= currentIdx && !isCancelled ? 'font-semibold text-neutral-900' : 'text-neutral-400'}`}>{step.label}</p></div>)}
       </div>
       {isCancelled && <p className="text-center text-error-600 font-semibold mt-3">تم إلغاء هذا الطلب</p>}
     </div>
-    <div className="card p-6"><div className="flex flex-wrap justify-between gap-4 mb-6"><div><p className="text-sm text-neutral-500">الحالة</p><StatusBadge status={order.status} /></div><div><p className="text-sm text-neutral-500">حالة الدفع</p><StatusBadge status={order.payment_status} /></div></div><h3 className="font-bold mb-3">الأصناف</h3>{order.items?.map(item => <div key={item.id} className="flex justify-between py-2 border-b border-neutral-100 text-sm"><span className="truncate">{item.product_name_snapshot || item.name} × {item.quantity}</span></div>)}{showTotal && <div className="flex justify-between font-bold pt-4 mt-2"><span>الإجمالي</span><span className="text-primary-700">{formatCurrency(order.total)}</span></div>}{!showTotal && <p className="text-sm text-neutral-500 pt-4 mt-2">{formatCustomerAmount()}</p>}<p className="text-sm text-neutral-600 mt-4">{order.notes || 'لا توجد ملاحظات على الطلب.'}</p>{order.status === 'approved' && <div className="mt-4 p-3 bg-success-50 border border-success-200 rounded-lg"><p className="text-sm font-semibold text-success-800">تم اعتماد طلبك. يرجى إرسال المبلغ لإتمام الفاتورة وتأكيد الطلب نهائياً.</p></div>}</div></div> }
+    <div className="card p-6">
+      <div className="mb-6 flex flex-wrap justify-between gap-4"><div><p className="text-sm text-neutral-500">الحالة</p><StatusBadge status={order.status} /></div><div><p className="text-sm text-neutral-500">حالة الدفع</p><StatusBadge status={order.payment_status} /></div></div>
+      <h3 className="font-bold mb-3">الأصناف ({itemCount})</h3>
+      {order.items?.map(item => <div key={item.id} className="flex justify-between gap-3 py-2 border-b border-neutral-100 text-sm"><span className="min-w-0">{item.product_name_snapshot || item.name}</span><span className="shrink-0 text-neutral-600">× {item.approved_quantity ?? item.quantity}</span></div>)}
+      {showTotal ? <div className="flex justify-between font-bold pt-4 mt-2"><span>الإجمالي</span><span className="text-primary-700">{formatCurrency(order.total)}</span></div> : <p className="text-sm text-neutral-500 pt-4 mt-2">يُحدد المبلغ بعد مراجعة واعتماد الطلب.</p>}
+      <p className="text-sm text-neutral-600 mt-4">{order.notes || 'لا توجد ملاحظات على الطلب.'}</p>
+      {policies.payment_request_after_approval && order.status === 'approved' && <div className="mt-5 rounded-xl border border-primary-200 bg-primary-50 p-4"><p className="font-bold text-primary-900">تم اعتماد طلبك من الإدارة.</p><p className="mt-1 text-sm leading-6 text-primary-800">يرجى إرسال المبلغ وفق آلية الدفع المتفق عليها لإتمام الاعتماد النهائي وتحويل الطلب إلى فاتورة بيع.</p></div>}
+    </div>
+  </div>
+}
 
 export function Wishlist() { const { user } = useAuth(); const [products, setProducts] = useState<Product[]>([]); const [loading, setLoading] = useState(true); useEffect(() => { if (user) supabase.from('wishlist_items').select('product:products(*)').eq('user_id', user.id).then(({ data }) => { setProducts((data || []).map(item => (item as any).product).filter(Boolean)); setLoading(false) }) }, [user]); return <div className="max-w-7xl mx-auto px-4 py-6"><PageHeader title="المفضلة" description="المنتجات التي حفظتها للرجوع إليها" icon={Heart} />{loading ? <LoadingOverlay /> : products.length ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{products.map(product => <ProductCard key={product.id} product={product} />)}</div> : <EmptyState icon={<Heart />} title="لا توجد منتجات محفوظة" description="اضغط على القلب في أي منتج لإضافته للمفضلة." />}</div> }
 
