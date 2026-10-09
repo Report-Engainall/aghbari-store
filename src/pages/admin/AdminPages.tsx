@@ -457,6 +457,10 @@ export function Import() {
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'تعذر إنشاء إصدار جديد.')
     } finally {
+      abortControllerRef.current = null
+      pausedRef.current = false
+      setPaused(false)
+      resumeRef.current = null
       setBusy(false)
     }
   }
@@ -471,17 +475,31 @@ export function Import() {
     setBusy(true); setMessage(''); setProgress(null)
     try {
       const fileHash = await hashFile(file)
-      const { data: existing, error: checkError } = await supabase.from('import_uploads').select('id, file_name')
+      const { data: existing, error: checkError } = await supabase.from('import_uploads').select('id, file_name, status')
         .eq('organization_id', organization.id).eq('profile_id', profileId).eq('file_hash', fileHash)
         .is('period_start', null).is('period_end', null).maybeSingle()
       if (checkError) throw checkError
-      if (existing) { setDuplicate({ fileHash, profileId }); setMessage('الملف مكرر بالبصمة نفسها: ' + existing.file_name + '. اختر تجاهله أو إنشاء نسخة جديدة من ملف التعريف.'); return }
+      if (existing) {
+        if (String(existing.status) === 'failed' && ext === 'csv') {
+          setDuplicate({ fileHash, profileId, uploadId: String(existing.id), status: String(existing.status) })
+          setMessage('يوجد تشغيل سابق فاشل لهذا الملف؛ يمكنك إعادة المعالجة من البداية مع حذف سجلات Snapshot الجزئية الخاصة بذلك التشغيل.')
+        } else {
+          setDuplicate({ fileHash, profileId, status: String(existing.status) })
+          setMessage('الملف مكرر بالبصمة نفسها: ' + existing.file_name + '. اختر تجاهله أو إنشاء نسخة جديدة من ملف التعريف.')
+        }
+        return
+      }
 
       if (ext === 'csv') {
+        abortControllerRef.current = new AbortController()
+        pausedRef.current = false
+        setPaused(false)
         const result = await processCsvToSnapshot({
           file, organizationId: organization.id,
           profile: profile as unknown as CsvImportProfile, fileHash,
           policies,
+          signal: abortControllerRef.current.signal,
+          waitIfPaused,
           onProgress: next => setProgress(next),
         })
         const summary = `الصفوف: ${result.totalRows}؛ المقبولة: ${result.acceptedRows}؛ التحذيرات: ${result.warningRows}؛ المرفوضة: ${result.rejectedRows}؛ المكررة: ${result.duplicateRows}؛ DQS: ${result.qualityScore ?? 'غير متاح'}/100. ${result.message}`
@@ -491,6 +509,7 @@ export function Import() {
         const { error } = await supabase.from('import_uploads').insert({
           organization_id: organization.id, profile_id: profileId,
           file_name: file.name, file_type: ext, file_size: file.size, file_hash: fileHash,
+          expires_at: new Date(Date.now() + policies.import_retention_days * 86400000).toISOString(),
           status: 'manual_review', error_code: 'PARSER_NOT_AVAILABLE',
           error_message: ext === 'pdf'
             ? 'لم يتم ربط مستخرج الجداول من PDF بعد. يتطلب الملف تعييناً ومراجعة يدوية ولا تُولد صفوف مفترضة.'
