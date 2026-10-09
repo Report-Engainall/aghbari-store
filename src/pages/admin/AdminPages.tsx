@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Activity, AlertTriangle, BarChart3, Bell, Brain, CheckCircle2, Database, FileText, HeartPulse, Package, Plus, RefreshCw, UserPlus, Search, Settings as SettingsIcon, ShoppingCart, Shield, Upload, Users, XCircle } from 'lucide-react'
+import { Activity, AlertTriangle, BarChart3, Bell, Brain, CheckCircle2, CreditCard, Database, FileText, HeartPulse, Package, Plus, RefreshCw, UserPlus, Search, Settings as SettingsIcon, ShoppingCart, Shield, Upload, Users, XCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/components/ui/Toast'
@@ -67,6 +67,8 @@ export function OrderDetail() {
   const { show } = useToast()
   const { policies } = useCommercePolicies()
   const [order, setOrder] = useState<Order | null>(null)
+  const [invoice, setInvoice] = useState<Record<string, unknown> | null>(null)
+  const [payments, setPayments] = useState<Record<string, unknown>[]>([])
   const [saving, setSaving] = useState(false)
   const [editingItems, setEditingItems] = useState<Record<string, number>>({})
   const [adjustmentNote, setAdjustmentNote] = useState('')
@@ -81,6 +83,12 @@ export function OrderDetail() {
     if (error) { show('error', 'تعذر تحميل الطلب', error.message); return }
     setOrder(data as Order || null)
     if (data?.customer_adjustment_note) setAdjustmentNote(data.customer_adjustment_note)
+    const { data: invoiceRow } = await supabase.from('invoices').select('*').eq('order_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    setInvoice(invoiceRow as Record<string, unknown> | null)
+    if (invoiceRow?.id) {
+      const { data: paymentRows } = await supabase.from('payments').select('*').eq('invoice_id', invoiceRow.id).order('created_at', { ascending: false })
+      setPayments(paymentRows as Record<string, unknown>[] || [])
+    } else setPayments([])
   }
   useEffect(() => { void load() }, [id, organization?.id])
 
@@ -117,11 +125,15 @@ export function OrderDetail() {
       return
     }
     setSaving(true)
-    const { error } = await supabase.from('orders').update({ status, updated_at: new Date().toISOString() })
-      .eq('id', id).eq('organization_id', organization.id)
+    const { error } = await supabase.rpc('admin_update_order_status', { p_order_id: id, p_status: status })
     setSaving(false)
-    if (error) show('error', 'تعذر تحديث الطلب', error.message)
-    else { show('success', 'تم تحديث حالة الطلب'); await load() }
+    if (error) {
+      const friendly = error.message.includes('quantity_approval_required')
+        ? 'اعتمد جميع الكميات أولاً قبل تحويل الطلب إلى معتمد.'
+        : error.message.includes('admin_required') ? 'هذه العملية تتطلب صلاحية مسؤول.'
+        : error.message
+      show('error', 'تعذر تحديث حالة الطلب', friendly)
+    } else { show('success', 'تم تحديث حالة الطلب'); await load() }
   }
 
   const handleItemEnter = (event: React.KeyboardEvent, itemId: string, itemIds: string[]) => {
@@ -164,11 +176,32 @@ export function OrderDetail() {
     await load()
   }
 
+  const reviewPayment = async (paymentId: string, confirm: boolean) => {
+    if (!id) return
+    setSaving(true)
+    const { error } = await supabase.rpc('confirm_order_payment', {
+      p_payment_id: paymentId,
+      p_confirm: confirm,
+      p_admin_notes: confirm ? 'تم التحقق من استلام المبلغ من الإدارة.' : 'تعذر التحقق من الدفعة؛ يلزم التواصل مع العميل.',
+    })
+    setSaving(false)
+    if (error) {
+      const friendly = error.message.includes('payment_exceeds_invoice_total')
+        ? 'إجمالي الدفعات المؤكدة يتجاوز قيمة الفاتورة؛ راجع المبلغ.'
+        : error.message.includes('payment_already_reviewed') ? 'تمت مراجعة هذه الدفعة من قبل.'
+        : error.message.includes('admin_required') ? 'يلزم حساب مسؤول للمراجعة.'
+        : error.message
+      show('error', confirm ? 'تعذر تأكيد الدفعة' : 'تعذر رفض الدفعة', friendly)
+    } else {
+      show('success', confirm ? 'تم تسجيل قرار الدفعة' : 'تم رفض الدفعة')
+      await load()
+    }
+  }
+
   const saveAdjustment = async () => {
     if (!id || !organization || !adjustmentNote.trim()) return
     setSaving(true)
-    const { error } = await supabase.from('orders').update({ customer_adjustment_note: adjustmentNote.trim() })
-      .eq('id', id).eq('organization_id', organization.id)
+    const { error } = await supabase.rpc('admin_set_order_adjustment_note', { p_order_id: id, p_note: adjustmentNote.trim() })
     setSaving(false)
     if (error) show('error', 'تعذر حفظ التنبيه', error.message)
     else { show('success', 'تم حفظ تنبيه التعديل'); await load() }
@@ -214,6 +247,17 @@ export function OrderDetail() {
         {dirty && <div className="mt-4 flex flex-wrap gap-2"><button disabled={saving} onClick={() => void approveQuantities()} className="btn-primary"><CheckCircle2 className="h-4 w-4" />{saving ? 'جارٍ الاعتماد…' : 'اعتماد الكميات وحفظها'}</button><button disabled={saving} onClick={() => setEditingItems({})} className="btn-secondary">إلغاء التعديلات المعلقة</button></div>}
         {!dirty && <button disabled={saving || !order.items?.length} onClick={() => void approveQuantities()} className="btn-primary mt-4"><CheckCircle2 className="h-4 w-4" />{saving ? 'جارٍ الاعتماد…' : 'تسجيل اعتماد الكميات'}</button>}
         <div className="mt-6 space-y-2"><label className="label">تنبيه تعديل الأصناف (يظهر للعميل)</label><textarea value={adjustmentNote} onChange={event => setAdjustmentNote(event.target.value)} className="input min-h-20" placeholder="تنبيه: تم تعديل الأصناف/الكميات بحسب الكميات المتوفرة." /><button onClick={() => void saveAdjustment()} disabled={saving || !adjustmentNote.trim()} className="btn-secondary btn-sm">حفظ التنبيه</button></div>
+        {invoice && <section className="mt-6 border-t border-neutral-100 pt-5">
+          <div className="mb-3 flex items-center gap-2"><CreditCard className="h-5 w-5 text-primary-700" /><h3 className="font-bold">الدفعات والفاتورة</h3></div>
+          <p className="text-xs text-neutral-500 mb-3">نوع المستند: {String(invoice.invoice_kind || 'sales') === 'proforma' ? 'فاتورة أولية غير نهائية' : 'فاتورة بيع'} · الحالة: {String(invoice.status || '—')}</p>
+          {payments.length ? <div className="space-y-3">{payments.map(payment => <div className="rounded-xl border border-neutral-200 p-3" key={String(payment.id)}>
+            <div className="flex flex-wrap justify-between gap-2"><span className="font-semibold">{String(payment.payment_number || payment.id)}</span><StatusBadge status={String(payment.status || 'pending')} /></div>
+            <p className="mt-1 text-sm text-neutral-600">المبلغ المسجل للإدارة: {formatCurrency(Number(payment.amount || 0))} · الطريقة: {String(payment.method || '—')}</p>
+            {payment.reference && <p className="mt-1 text-xs text-neutral-500">المرجع: {String(payment.reference)}</p>}
+            {payment.status === 'pending' && <div className="mt-3 flex gap-2"><button disabled={saving} onClick={() => void reviewPayment(String(payment.id), true)} className="btn-primary btn-sm">تأكيد استلام المبلغ</button><button disabled={saving} onClick={() => void reviewPayment(String(payment.id), false)} className="btn-secondary btn-sm">رفض الدفعة</button></div>}
+          </div>)}</div> : <p className="text-sm text-neutral-500">لا توجد دفعات مسجلة.</p>}
+          {String(invoice.invoice_kind || '') === 'proforma' && <p className="mt-3 rounded-lg bg-sky-50 p-3 text-sm text-sky-900">لن تتحول الفاتورة الأولية إلى فاتورة بيع رسمية إلا بعد تأكيد الإدارة للدفعات التي تساوي إجمالي المبلغ المستحق.</p>}
+        </section>}
         <h3 className="font-bold mt-6 mb-3">إجراءات الطلب</h3>
         <div className="flex flex-wrap gap-2">{['review', 'approved', 'processing', 'dispatched', 'delivered', 'cancelled'].map(status => <button key={status} disabled={saving || status === order.status || (dirty && policies.require_quantity_approval)} onClick={() => void update(status)} className="btn-secondary btn-sm"><StatusBadge status={status} /></button>)}</div>
       </div>
