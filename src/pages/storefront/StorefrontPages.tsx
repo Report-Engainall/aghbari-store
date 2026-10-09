@@ -745,3 +745,223 @@ export function CompanyUsers() {
 
 export function HelpOrder() { return <div className="max-w-4xl mx-auto px-4 py-6"><PageHeader title="المساعدة - الطلبات" description="دليل إدارة الطلبات وتتبعها" icon={HelpCircle} /><div className="card p-6 space-y-4 text-sm text-neutral-600"><p>يمكنك متابعة حالة طلباتك من صفحة "طلباتي". يتم تحديث الحالة تلقائياً عند كل مرحلة: المراجعة، الاعتماد، التجهيز، الشحن، التوصيل.</p><p>لإعادة طلب سابق، استخدم صفحة "إعادة الطلب" واختر الطلب المناسب.</p></div></div> }
 export function HelpAccount() { return <div className="max-w-4xl mx-auto px-4 py-6"><PageHeader title="المساعدة - الحساب" description="دليل إدارة الحساب والإعدادات" icon={HelpCircle} /><div className="card p-6 space-y-4 text-sm text-neutral-600"><p>يمكنك تعديل اسمك من إعدادات الحساب. لتعديل بيانات الشركة، تواصل مع مسؤول المؤسسة.</p><p>تدير الإشعارات من صفحة الإشعارات أو من إعدادات الحساب.</p></div></div> }
+
+
+
+/**
+ * Customer-facing financial-document pages intentionally use summary views which
+ * omit monetary fields. Operational amounts stay in the authorized staff workflow.
+ */
+export function Invoices() {
+  const { organization } = useAuth()
+  const [rows, setRows] = useState<Invoice[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      setLoading(true)
+      setError('')
+      if (!organization?.id) {
+        setRows([])
+        setError('سجّل الدخول بحساب شركتك لعرض الفواتير.')
+        setLoading(false)
+        return
+      }
+      const { data, error: queryError } = await supabase.from('customer_sales_invoice_summaries')
+        .select('id,order_id,organization_id,invoice_number,status,issue_date,due_date,created_at')
+        .eq('organization_id', organization.id)
+        .order('created_at', { ascending: false })
+        .limit(100)
+      if (!active) return
+      if (queryError) {
+        setRows([])
+        setError('تعذر تحميل الفواتير. حاول مرة أخرى.')
+      } else setRows((data || []) as unknown as Invoice[])
+      setLoading(false)
+    }
+    void load()
+    return () => { active = false }
+  }, [organization?.id])
+
+  return <div className="max-w-5xl mx-auto px-4 py-6">
+    <PageHeader title="فواتيري" description="عرض حالة المستندات دون إظهار أي مبالغ أو أسعار" icon={FileText} />
+    {loading ? <LoadingOverlay /> : error ? <PageError message={error} /> : rows.length === 0
+      ? <EmptyState icon={<FileText />} title="لا توجد فواتير بيع" description="تظهر الفاتورة هنا بعد اعتماد الدفع وإصدارها رسمياً." />
+      : <div className="card divide-y divide-neutral-100">{rows.map(invoice =>
+        <Link key={invoice.id} to={\`/invoices/\${invoice.id}\`} className="flex flex-wrap items-center justify-between gap-3 p-4 transition hover:bg-neutral-50">
+          <div><p className="font-semibold text-neutral-900">{invoice.invoice_number}</p><p className="mt-1 text-xs text-neutral-500">{formatDate(invoice.issue_date || invoice.created_at)}</p></div>
+          <div className="flex items-center gap-3"><StatusBadge status={invoice.status} /><span className="text-primary-700 text-sm">التفاصيل ←</span></div>
+        </Link>)}</div>}
+  </div>
+}
+
+export function InvoiceDetail() {
+  const { id } = useParams()
+  const { organization } = useAuth()
+  const [invoice, setInvoice] = useState<Invoice | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      setLoading(true)
+      if (!id || !organization?.id) { setInvoice(null); setLoading(false); return }
+      const { data, error } = await supabase.from('customer_sales_invoice_summaries')
+        .select('id,order_id,organization_id,invoice_number,status,issue_date,due_date,created_at')
+        .eq('id', id).eq('organization_id', organization.id).maybeSingle()
+      if (!active) return
+      setInvoice(error ? null : data as unknown as Invoice | null)
+      setLoading(false)
+    }
+    void load()
+    return () => { active = false }
+  }, [id, organization?.id])
+
+  if (loading) return <LoadingOverlay />
+  if (!invoice) return <ErrorState title="الفاتورة غير موجودة" description="لا توجد فاتورة بيع صادرة لهذا الحساب، أو لا تملك صلاحية عرضها." />
+
+  return <div className="max-w-3xl mx-auto px-4 py-6">
+    <PageHeader title={\`فاتورة \${invoice.invoice_number}\`} description="المستند الرسمي المعتمد" icon={FileText} />
+    <div className="card p-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div><p className="text-xs text-neutral-500 mb-1">رقم الفاتورة</p><p className="font-semibold">{invoice.invoice_number}</p></div>
+      <div><p className="text-xs text-neutral-500 mb-1">الحالة</p><StatusBadge status={invoice.status} /></div>
+      <div><p className="text-xs text-neutral-500 mb-1">تاريخ الإصدار</p><p className="font-medium">{invoice.issue_date ? formatDate(invoice.issue_date) : '—'}</p></div>
+      <div><p className="text-xs text-neutral-500 mb-1">تاريخ الاستحقاق</p><p className="font-medium">{invoice.due_date ? formatDate(invoice.due_date) : '—'}</p></div>
+    </div>
+    <p className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-sm leading-6 text-neutral-700">تُخفي بوابة العميل الأسعار والمبالغ في جميع مراحل الطلب والفاتورة. لمتابعة حالة السداد، افتح تفاصيل الطلب المرتبط أو صفحة المدفوعات.</p>
+    <div className="mt-4 flex flex-wrap gap-3"><Link to={\`/orders/\${invoice.order_id}\`} className="btn-primary">متابعة الطلب</Link><Link to="/payments" className="btn-secondary">المدفوعات</Link></div>
+  </div>
+}
+
+export function Statements() {
+  const { organization } = useAuth()
+  const [rows, setRows] = useState<Statement[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      setLoading(true)
+      setError('')
+      if (!organization?.id) { setRows([]); setError('سجّل الدخول بحساب شركتك لعرض كشوف الحساب.'); setLoading(false); return }
+      const { data, error: queryError } = await supabase.from('customer_statement_summaries')
+        .select('id,organization_id,statement_number,period_start,period_end,status,created_at')
+        .eq('organization_id', organization.id)
+        .order('created_at', { ascending: false }).limit(100)
+      if (!active) return
+      if (queryError) { setRows([]); setError('تعذر تحميل كشوف الحساب. حاول مرة أخرى.') }
+      else setRows((data || []) as unknown as Statement[])
+      setLoading(false)
+    }
+    void load()
+    return () => { active = false }
+  }, [organization?.id])
+
+  return <div className="max-w-5xl mx-auto px-4 py-6">
+    <PageHeader title="كشوف الحساب" description="استعرض الفترات وحالة المستند من دون أرصدة أو قيم مالية" icon={Wallet} />
+    {loading ? <LoadingOverlay /> : error ? <PageError message={error} /> : !rows.length
+      ? <EmptyState icon={<Wallet />} title="لا توجد كشوف حساب" description="ستظهر الكشوف بعد إصدارها من الإدارة." />
+      : <div className="card divide-y divide-neutral-100">{rows.map(row =>
+        <Link key={row.id} to={\`/statements/\${row.id}\`} className="flex flex-wrap items-center justify-between gap-3 p-4 transition hover:bg-neutral-50">
+          <div><p className="font-semibold">{row.statement_number}</p><p className="mt-1 text-xs text-neutral-500">{formatDate(row.period_start)} — {formatDate(row.period_end)}</p></div>
+          <StatusBadge status={row.status} />
+        </Link>)}</div>}
+  </div>
+}
+
+export function Payments() {
+  const { organization } = useAuth()
+  const [rows, setRows] = useState<import('@/types').Payment[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      setLoading(true)
+      setError('')
+      if (!organization?.id) { setRows([]); setError('سجّل الدخول بحساب شركتك لعرض المدفوعات.'); setLoading(false); return }
+      const { data, error: queryError } = await supabase.from('customer_payment_summaries')
+        .select('id,invoice_id,organization_id,payment_number,method,status,created_at,reference')
+        .eq('organization_id', organization.id)
+        .order('created_at', { ascending: false }).limit(100)
+      if (!active) return
+      if (queryError) { setRows([]); setError('تعذر تحميل المدفوعات. حاول مرة أخرى.') }
+      else setRows((data || []) as unknown as import('@/types').Payment[])
+      setLoading(false)
+    }
+    void load()
+    return () => { active = false }
+  }, [organization?.id])
+
+  return <div className="max-w-5xl mx-auto px-4 py-6">
+    <PageHeader title="المدفوعات" description="تتبع حالة الدفعات والمراجع دون إظهار مبالغ مالية" icon={Wallet} />
+    {loading ? <LoadingOverlay /> : error ? <PageError message={error} /> : !rows.length
+      ? <EmptyState icon={<Wallet />} title="لا توجد مدفوعات" description="بعد اعتماد الطلب، أرسل بيانات الدفع من صفحة تفاصيل الطلب." action={<Link to="/orders" className="btn-primary">طلباتي</Link>} />
+      : <div className="card divide-y divide-neutral-100">{rows.map(row =>
+        <Link key={row.id} to={\`/payments/\${row.id}\`} className="flex flex-wrap items-center justify-between gap-3 p-4 transition hover:bg-neutral-50">
+          <div><p className="font-semibold">{row.payment_number}</p><p className="mt-1 text-xs text-neutral-500">{formatDate(row.created_at)} · {row.method || '—'}</p>{row.reference && <p className="mt-1 text-xs text-neutral-500">المرجع: {row.reference}</p>}</div>
+          <StatusBadge status={row.status} />
+        </Link>)}</div>}
+  </div>
+}
+
+export function Profile() {
+  const { user } = useAuth()
+  const { show } = useToast()
+  const [fullName, setFullName] = useState(String(user?.user_metadata?.full_name || ''))
+  const [phone, setPhone] = useState(String(user?.user_metadata?.phone || ''))
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setFullName(String(user?.user_metadata?.full_name || ''))
+    setPhone(String(user?.user_metadata?.phone || ''))
+  }, [user?.id])
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!user) { show('error', 'يجب تسجيل الدخول أولاً'); return }
+    setSaving(true)
+    const { error } = await supabase.auth.updateUser({ data: {
+      ...user.user_metadata,
+      full_name: fullName.trim(),
+      phone: phone.trim() || null,
+    } })
+    setSaving(false)
+    show(error ? 'error' : 'success', error ? 'تعذر حفظ الملف الشخصي' : 'تم حفظ الملف الشخصي', error?.message)
+  }
+
+  return <div className="max-w-xl mx-auto px-4 py-6">
+    <PageHeader title="ملفي الشخصي" description="إدارة بيانات التواصل المرتبطة بحساب الدخول" icon={User} />
+    <form onSubmit={save} className="card p-6 space-y-4">
+      <div><label className="label">البريد الإلكتروني</label><input className="input bg-neutral-50" readOnly value={user?.email || ''} /></div>
+      <div><label className="label">الاسم الكامل</label><input required maxLength={160} className="input" value={fullName} onChange={event => setFullName(event.target.value)} /></div>
+      <div><label className="label">رقم الهاتف</label><input maxLength={40} className="input" value={phone} onChange={event => setPhone(event.target.value)} /></div>
+      <button type="submit" className="btn-primary" disabled={saving || !user}>{saving ? 'جارٍ الحفظ…' : 'حفظ التغييرات'}</button>
+    </form>
+  </div>
+}
+
+export function Company() {
+  const { organization, membership } = useAuth()
+  if (!organization) return <div className="max-w-4xl mx-auto px-4 py-6"><PageHeader title="الشركة" description="بيانات حساب الشركة" icon={Building2} /><EmptyState icon={<Building2 />} title="لا توجد مؤسسة مرتبطة" description="سجّل الدخول بحساب شركة نشطة أو اطلب من المسؤول ربط حسابك." /></div>
+  return <div className="max-w-4xl mx-auto px-4 py-6">
+    <PageHeader title={organization.name_ar || organization.name} description="مساحة عمل الشركة والبيانات التجارية" icon={Building2} />
+    <div className="card p-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div><p className="text-xs text-neutral-500 mb-1">الاسم التجاري</p><p className="font-semibold">{organization.name}</p></div>
+        <div><p className="text-xs text-neutral-500 mb-1">حالة الحساب</p><StatusBadge status={organization.status} /></div>
+        <div><p className="text-xs text-neutral-500 mb-1">فئة الحساب</p><p className="font-medium">{organization.tier}</p></div>
+        <div><p className="text-xs text-neutral-500 mb-1">صلاحية المستخدم</p><p className="font-medium">{membership?.role || 'عضو'}</p></div>
+      </div>
+      <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Link to="/company/details" className="btn-secondary justify-center">بيانات الشركة</Link>
+        <Link to="/company/contacts" className="btn-secondary justify-center">جهات التواصل</Link>
+        <Link to="/company/users" className="btn-secondary justify-center">مستخدمو الشركة</Link>
+      </div>
+    </div>
+  </div>
+}
