@@ -1158,17 +1158,26 @@ WHERE i.invoice_kind = 'sales'
   );
 
 CREATE OR REPLACE VIEW public.customer_payment_summaries AS
-SELECT p.id, p.invoice_id, p.organization_id, p.payment_number, p.method, p.status, p.created_at
+SELECT p.id, p.invoice_id, p.organization_id, p.payment_number, p.method, p.status, p.created_at, p.reference
 FROM public.payments p
 WHERE EXISTS (
   SELECT 1 FROM public.organization_members om
   WHERE om.organization_id = p.organization_id AND om.user_id = auth.uid() AND om.status = 'active'
 );
 
+CREATE OR REPLACE VIEW public.customer_statement_summaries AS
+SELECT s.id, s.organization_id, s.statement_number, s.period_start, s.period_end, s.status, s.created_at
+FROM public.statements s
+WHERE EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = s.organization_id AND om.user_id = auth.uid() AND om.status = 'active'
+);
+
 GRANT SELECT ON public.customer_order_summaries TO authenticated;
 GRANT SELECT ON public.customer_order_item_summaries TO authenticated;
 GRANT SELECT ON public.customer_sales_invoice_summaries TO authenticated;
 GRANT SELECT ON public.customer_payment_summaries TO authenticated;
+GRANT SELECT ON public.customer_statement_summaries TO authenticated;
 
 
 -- Restrict import/profile mutation and pricing-rule writes to organization administrators.
