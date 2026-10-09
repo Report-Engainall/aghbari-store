@@ -78,16 +78,19 @@ export function OrderDetail() {
     const channel = supabase.channel(`customer-order-${id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `id=eq.${id}` }, () => { void load() })
       .subscribe()
+    // Polling is a safe fallback for delayed WebSocket delivery; the server remains the source of truth.
+    const pollId = window.setInterval(() => { void load() }, 15000)
     return () => {
       mounted = false
+      window.clearInterval(pollId)
       void supabase.removeChannel(channel)
     }
   }, [id, user?.id])
 
   const submitPayment = async () => {
-    if (!id || !paymentAmount.trim()) { setError('أدخل المبلغ الذي أرسلته'); return }
+    if (!id || !paymentAmount.trim()) { setPaymentErrorMessage('أدخل المبلغ الذي أرسلته'); return }
     const amount = Number(paymentAmount)
-    if (!Number.isFinite(amount) || amount <= 0) { setError('أدخل مبلغاً صحيحاً أكبر من صفر.'); return }
+    if (!Number.isFinite(amount) || amount <= 0) { setPaymentErrorMessage('أدخل مبلغاً صحيحاً أكبر من صفر.'); return }
     setSubmittingPayment(true)
     setPaymentErrorMessage('')
     const { data, error: paymentError } = await supabase.rpc('submit_order_payment', {
