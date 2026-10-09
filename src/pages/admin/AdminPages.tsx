@@ -465,6 +465,51 @@ export function Import() {
     }
   }
 
+  const retryFailedImport = async () => {
+    if (!file || !organization?.id || !profileId || !duplicate?.uploadId) return
+    const selectedProfile = profiles.find(entry => String(entry.id) === profileId)
+    if (!selectedProfile) { setMessage('ملف التعريف المحدد غير متاح.'); return }
+    if (file.name.split('.').pop()?.toLowerCase() !== 'csv') { setMessage('إعادة المحاولة متاحة حالياً لمعالجة CSV فقط.'); return }
+    setBusy(true); setMessage(''); setProgress(null)
+    abortControllerRef.current = new AbortController()
+    pausedRef.current = false
+    setPaused(false)
+    try {
+      const verifiedHash = await hashFile(file)
+      if (verifiedHash !== duplicate.fileHash) throw new Error('FILE_HASH_CHANGED')
+      const result = await processCsvToSnapshot({
+        file,
+        organizationId: organization.id,
+        profile: selectedProfile as unknown as CsvImportProfile,
+        fileHash: duplicate.fileHash,
+        existingUploadId: duplicate.uploadId,
+        policies,
+        signal: abortControllerRef.current.signal,
+        waitIfPaused,
+        onProgress: next => setProgress(next),
+      })
+      const summary = 'الصفوف: ' + result.totalRows + '؛ المقبولة: ' + result.acceptedRows + '؛ التحذيرات: ' + result.warningRows + '؛ المرفوضة: ' + result.rejectedRows + '؛ المكررة: ' + result.duplicateRows + '؛ DQS: ' + (result.qualityScore ?? 'غير متاح') + '/100. ' + result.message
+      setMessage(summary)
+      show(result.status === 'rejected' ? 'warning' : 'success', 'انتهت إعادة معالجة CSV', summary)
+      setDuplicate(null)
+      setFile(null)
+      await load()
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'تعذر إعادة المعالجة.'
+      const cancelled = reason === 'IMPORT_CANCELLED'
+      setMessage(cancelled ? 'أُلغيت المعالجة. السجلات الجزئية ستُنظف قبل المحاولة التالية.' : reason === 'FILE_HASH_CHANGED' ? 'الملف المختار لا يطابق البصمة الأصلية.' : reason)
+      show(cancelled ? 'warning' : 'error', cancelled ? 'أُلغيت المعالجة' : 'تعذرت إعادة المعالجة')
+      await load()
+    } finally {
+      abortControllerRef.current = null
+      pausedRef.current = false
+      setPaused(false)
+      resumeRef.current = null
+      setBusy(false)
+      setProgress(null)
+    }
+  }
+
   const stage = async () => {
     if (!file || !organization?.id || !profileId) { setMessage('اختر ملفاً وملف تعريف أولاً.'); return }
     if (file.size <= 0 || file.size > policies.max_file_size_mb * 1024 * 1024) { setMessage('حجم الملف يجب ألا يتجاوز ' + policies.max_file_size_mb + ' ميجابايت وأن يكون أكبر من صفر.'); return }
