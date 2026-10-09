@@ -974,8 +974,8 @@ BEGIN
         expires_at = now() + make_interval(hours => COALESCE((
           SELECT cps.idempotency_ttl_hours FROM public.commerce_policy_settings cps WHERE cps.organization_id=v_org_id
         ),24))
-    WHERE public.idempotency_keys.expires_at <= now()
-       OR (public.idempotency_keys.status = 'failed' AND public.idempotency_keys.request_hash = EXCLUDED.request_hash)
+    WHERE idempotency_keys.expires_at <= now()
+       OR (idempotency_keys.status = 'failed' AND idempotency_keys.request_hash = EXCLUDED.request_hash)
   RETURNING id INTO v_idempotency_id;
 
   IF FOUND THEN
