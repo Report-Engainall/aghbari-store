@@ -52,6 +52,7 @@ export function OrderDetail() {
   const [order, setOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [paymentErrorMessage, setPaymentErrorMessage] = useState('')
   const [paymentAmount, setPaymentAmount] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('transfer')
   const [paymentReference, setPaymentReference] = useState('')
@@ -88,7 +89,7 @@ export function OrderDetail() {
     const amount = Number(paymentAmount)
     if (!Number.isFinite(amount) || amount <= 0) { setError('أدخل مبلغاً صحيحاً أكبر من صفر.'); return }
     setSubmittingPayment(true)
-    setError('')
+    setPaymentErrorMessage('')
     const { data, error: paymentError } = await supabase.rpc('submit_order_payment', {
       p_order_id: id,
       p_amount: amount,
@@ -103,7 +104,7 @@ export function OrderDetail() {
         : paymentError.message.includes('order_not_owned') ? 'لا تملك صلاحية تسجيل دفع لهذا الطلب.'
         : paymentError.message.includes('proforma_invoice_not_available') ? 'لا توجد فاتورة أولية متاحة لهذا الطلب.'
         : paymentError.message
-      setError(friendly)
+      setPaymentErrorMessage(friendly)
       return
     }
     setPaymentSubmitted(true)
@@ -117,7 +118,7 @@ export function OrderDetail() {
   if (!order) return <ErrorState title="الطلب غير موجود" />
 
   const itemCount = order.items?.length || 0
-  const showTotal = !policies.customer_prices_hidden
+  const showTotal = false
   const STEPS: { key: string; label: string }[] = [
     { key: 'pending', label: 'تم استلام الطلب' },
     { key: 'review', label: 'قيد المراجعة' },
@@ -155,7 +156,7 @@ export function OrderDetail() {
           <div className="sm:col-span-2"><label className="label">رقم المرجع / رقم التحويل (اختياري)</label><input className="input" value={paymentReference} onChange={e => setPaymentReference(e.target.value)} maxLength={300} placeholder="رقم العملية أو مرجع الحوالة" /></div>
           <div className="sm:col-span-2"><label className="label">ملاحظة (اختياري)</label><textarea className="input min-h-20" value={paymentNotes} onChange={e => setPaymentNotes(e.target.value)} maxLength={2000} placeholder="تفاصيل إضافية تساعد الإدارة في التحقق" /></div>
         </div>
-        {error && <p role="alert" className="mt-3 text-sm font-medium text-error-700">{error}</p>}
+        {paymentErrorMessage && <p role="alert" className="mt-3 text-sm font-medium text-error-700">{paymentErrorMessage}</p>}
         <button type="button" disabled={submittingPayment || !paymentAmount.trim()} onClick={() => void submitPayment()} className="btn-primary mt-4">{submittingPayment ? 'جارٍ تسجيل الدفعة…' : 'إرسال بيانات الدفع للمراجعة'}</button>
       </div>}
     </div>
