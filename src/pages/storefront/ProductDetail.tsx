@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { ChevronLeft, Package, ShoppingCart, Heart, Minus, Plus, Layers, Box, Check } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { CUSTOMER_PRODUCT_SELECT } from '@/lib/customerProductSelect'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/components/ui/Toast'
 import { Spinner, ErrorState, EmptyState } from '@/components/ui/Loader'
@@ -12,7 +13,7 @@ import type { Product } from '@/types'
 
 export default function ProductDetail() {
   const { id } = useParams()
-  const { user } = useAuth()
+  const { user, organization, isAdmin } = useAuth()
   const { show } = useToast()
   const navigate = useNavigate()
   const [product, setProduct] = useState<Product | null>(null)
@@ -26,20 +27,53 @@ export default function ProductDetail() {
   const [tab, setTab] = useState<'desc' | 'specs'>('desc')
 
   useEffect(() => {
-    setLoading(true)
-    supabase.from('products').select('*, category:categories(*), brand:brands(*)').eq('id', id).maybeSingle()
-      .then(({ data, error }) => {
-        if (error || !data) { setError(true); setLoading(false); return }
-        setProduct(data as any)
-        setQuantity((data as any).min_order_qty || 1)
-        if ((data as any).category_id) {
-          supabase.from('products').select('*, category:categories(*), brand:brands(*)').eq('category_id', (data as any).category_id).neq('id', id).eq('is_active', true).limit(4)
-            .then(({ data: rel }) => setRelated(rel as any || []))
-        }
+    let active = true
+    const load = async () => {
+      setLoading(true)
+      setError(false)
+      setRelated([])
+      if (!id || !organization?.id) {
+        setProduct(null)
         setLoading(false)
-      })
-    if (user) supabase.from('wishlist_items').select('id').eq('user_id', user.id).eq('product_id', id).maybeSingle().then(({ data }) => setLiked(!!data))
-  }, [id, user])
+        setError(true)
+        return
+      }
+      const productSelect = isAdmin ? '*, category:categories(*), brand:brands(*)' : CUSTOMER_PRODUCT_SELECT
+      const { data, error: productError } = await supabase.from('products')
+        .select(productSelect)
+        .eq('organization_id', organization.id)
+        .eq('id', id)
+        .eq('is_active', true)
+        .maybeSingle()
+      if (!active) return
+      if (productError || !data) {
+        setError(true)
+        setProduct(null)
+        setLoading(false)
+        return
+      }
+      setProduct(data as Product)
+      setQuantity(data.min_order_qty || 1)
+
+      if (data.category_id) {
+        const { data: relatedProducts } = await supabase.from('products')
+          .select(productSelect)
+          .eq('organization_id', organization.id)
+          .eq('category_id', data.category_id)
+          .eq('is_active', true)
+          .neq('id', id)
+          .limit(4)
+        if (!active) return
+        setRelated((relatedProducts || []) as unknown as Product[])
+      }
+      setLoading(false)
+    }
+    void load()
+    if (user && id) {
+      supabase.from('wishlist_items').select('id').eq('user_id', user.id).eq('product_id', id).maybeSingle().then(({ data }) => { if (active) setLiked(!!data) })
+    } else setLiked(false)
+    return () => { active = false }
+  }, [id, user?.id, organization?.id, isAdmin])
 
   const addToCart = async () => {
     if (!user) { show('info', 'يجب تسجيل الدخول'); navigate('/login'); return }
@@ -62,8 +96,7 @@ export default function ProductDetail() {
   if (!product) return <EmptyState title="المنتج غير موجود" />
 
   const displayName = product.name_ar || product.name
-  const { isAdmin: userIsAdmin } = useAuth()
-  const showPrices = userIsAdmin
+  const showPrices = isAdmin
   const retailPrice = product.retail_price || product.price
   const wholesalePrice = product.wholesale_price || product.bulk_price
   const unitPrice = showPrices ? (wholesalePrice > 0 && quantity >= 10 ? wholesalePrice : retailPrice) : 0
