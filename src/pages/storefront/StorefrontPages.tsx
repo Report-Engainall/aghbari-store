@@ -342,7 +342,7 @@ function RecordsPage({ title, icon, table, columns }: {
   return <div className="max-w-6xl mx-auto px-4 py-6">
     <PageHeader title={title} description="المستندات المرتبطة بحساب شركتك دون كشف القيم المالية" icon={icon} />
     {loading ? <LoadingOverlay /> : error ? <PageError message={error} /> : !rows.length
-      ? <EmptyState icon={<FileText />} title={\`لا توجد \${title}\`} />
+      ? <EmptyState icon={<FileText />} title={`لا توجد ${title}`} />
       : <div className="card overflow-x-auto"><table className="w-full text-sm text-right">
           <thead className="bg-neutral-50"><tr>{columns.map(column => <th key={column} className="p-4 text-neutral-500">{column}</th>)}</tr></thead>
           <tbody>{rows.map(row => <Fragment key={String(row.id)}>
