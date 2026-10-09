@@ -282,6 +282,167 @@ BEGIN
   END LOOP;
 END $$;
 
+-- Replace the original order RPC so all order prices use the single server-side pricing evaluator
+-- and idempotency keys cannot be replayed with a different cart or request body.
+CREATE OR REPLACE FUNCTION public.create_order_from_cart(
+  p_shipping_address jsonb,
+  p_billing_address jsonb,
+  p_notes text,
+  p_idempotency_key text
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, private
+AS $
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_org_id uuid;
+  v_order_id uuid;
+  v_invoice_id uuid;
+  v_existing uuid;
+  v_existing_hash text;
+  v_existing_status text;
+  v_idempotency_id uuid;
+  v_claimed boolean := false;
+  v_cart_hash text;
+  v_request_hash text;
+  v_order_number text := 'ORD-' || to_char(now(), 'YYYYMMDDHH24MISS') || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 6);
+  v_invoice_number text := 'INV-' || to_char(now(), 'YYYYMMDDHH24MISS') || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 6);
+  v_subtotal numeric(14,2) := 0;
+  v_line_total numeric(14,2);
+  v_unit_price numeric(12,2);
+  v_multiplier integer;
+  item record;
+BEGIN
+  IF v_user_id IS NULL OR p_idempotency_key IS NULL OR length(trim(p_idempotency_key)) < 8 THEN
+    RAISE EXCEPTION 'invalid_request';
+  END IF;
+
+  SELECT organization_id INTO v_org_id
+  FROM organization_members
+  WHERE user_id = v_user_id AND status = 'active'
+  ORDER BY created_at
+  LIMIT 1;
+  IF v_org_id IS NULL THEN RAISE EXCEPTION 'organization_required'; END IF;
+
+  SELECT md5(COALESCE(string_agg(
+    ci.product_id::text || ':' || ci.quantity::text || ':' || COALESCE(ci.unit_type, 'piece'),
+    '|' ORDER BY ci.product_id::text, ci.unit_type
+  ), 'empty-cart'))
+  INTO v_cart_hash
+  FROM cart_items ci WHERE ci.user_id = v_user_id;
+
+  v_request_hash := md5(
+    COALESCE(p_shipping_address::text, '') || '|' ||
+    COALESCE(p_billing_address::text, '') || '|' ||
+    COALESCE(p_notes, '') || '|' || COALESCE(v_cart_hash, 'empty-cart')
+  );
+
+  INSERT INTO idempotency_keys (organization_id, idempotency_key, request_hash, operation_type, status, created_at, expires_at)
+  VALUES (v_org_id, p_idempotency_key, v_request_hash, 'create_order', 'processing', now(), now() + interval '24 hours')
+  ON CONFLICT (organization_id, idempotency_key, operation_type) DO UPDATE
+    SET request_hash = EXCLUDED.request_hash,
+        response_reference = NULL,
+        status = 'processing',
+        created_at = now(),
+        expires_at = now() + interval '24 hours'
+    WHERE idempotency_keys.expires_at <= now()
+       OR (idempotency_keys.status = 'failed' AND idempotency_keys.request_hash = EXCLUDED.request_hash)
+  RETURNING id INTO v_idempotency_id;
+
+  IF FOUND THEN
+    v_claimed := true;
+  ELSE
+    SELECT response_reference, request_hash, status
+      INTO v_existing, v_existing_hash, v_existing_status
+    FROM idempotency_keys
+    WHERE organization_id = v_org_id
+      AND idempotency_key = p_idempotency_key
+      AND operation_type = 'create_order';
+
+    IF v_existing_hash IS DISTINCT FROM v_request_hash THEN
+      RAISE EXCEPTION 'idempotency_key_reused_with_different_request';
+    END IF;
+    IF v_existing IS NOT NULL THEN RETURN v_existing; END IF;
+    IF v_existing_status = 'processing' THEN RAISE EXCEPTION 'idempotent_request_in_progress'; END IF;
+    RAISE EXCEPTION 'idempotent_request_not_reusable';
+  END IF;
+
+  INSERT INTO orders (order_number, organization_id, user_id, status, shipping_address, billing_address, notes, idempotency_key)
+  VALUES (v_order_number, v_org_id, v_user_id, 'pending', p_shipping_address, p_billing_address, p_notes, p_idempotency_key)
+  RETURNING id INTO v_order_id;
+
+  FOR item IN
+    SELECT ci.*, p.sku, p.item_code, p.name, p.name_ar, p.unit, p.base_price,
+           p.price, p.bulk_price, p.retail_price, p.wholesale_price, p.stock_quantity,
+           p.min_order_qty, p.box_quantity, p.carton_quantity
+    FROM cart_items ci JOIN products p ON p.id = ci.product_id
+    WHERE ci.user_id = v_user_id
+    FOR UPDATE OF p
+  LOOP
+    IF item.quantity < item.min_order_qty OR item.quantity > item.stock_quantity THEN
+      RAISE EXCEPTION 'invalid_quantity';
+    END IF;
+    v_multiplier := CASE item.unit_type
+      WHEN 'carton' THEN greatest(item.carton_quantity, 1)
+      WHEN 'box' THEN greatest(item.box_quantity, 1)
+      ELSE 1
+    END;
+    v_unit_price := public.calculate_commerce_price(
+      item.product_id,
+      item.quantity,
+      CASE WHEN item.quantity >= 10 THEN 'wholesale' ELSE 'retail' END
+    );
+    v_line_total := v_unit_price * item.quantity * v_multiplier;
+    v_subtotal := v_subtotal + v_line_total;
+    INSERT INTO order_items (
+      order_id, product_id, sku, item_code, name, product_name_snapshot,
+      unit_type, unit_snapshot, quantity, unit_price, unit_price_snapshot,
+      discount, discount_snapshot, tax_snapshot, line_total
+    ) VALUES (
+      v_order_id, item.product_id, item.sku, COALESCE(item.item_code, item.sku),
+      COALESCE(item.name_ar, item.name), COALESCE(item.name_ar, item.name),
+      item.unit_type, item.unit, item.quantity, v_unit_price, v_unit_price,
+      0, 0, 0, v_line_total
+    );
+  END LOOP;
+
+  IF v_subtotal = 0 THEN RAISE EXCEPTION 'empty_cart'; END IF;
+  UPDATE orders
+  SET subtotal = v_subtotal, total = v_subtotal, total_amount = v_subtotal,
+      total_items = (SELECT COUNT(*) FROM order_items WHERE order_id = v_order_id),
+      updated_at = now()
+  WHERE id = v_order_id;
+
+  INSERT INTO invoices (invoice_number, order_id, organization_id, subtotal, total, status, customer_name_snapshot, main_description)
+  SELECT v_invoice_number, v_order_id, v_org_id, v_subtotal, v_subtotal, 'issued', o.name, 'طلب شراء من منصة الأغبري'
+  FROM organizations o WHERE o.id = v_org_id;
+  SELECT id INTO v_invoice_id FROM invoices WHERE order_id = v_order_id;
+
+  INSERT INTO outbox_events (organization_id, event_key, event_type, aggregate_type, aggregate_id, payload)
+  VALUES (v_org_id, 'order-created:' || v_order_id::text, 'order.created', 'order', v_order_id,
+          jsonb_build_object('order_id', v_order_id, 'invoice_id', v_invoice_id));
+
+  UPDATE idempotency_keys
+  SET response_reference = v_order_id, status = 'completed'
+  WHERE id = v_idempotency_id;
+
+  DELETE FROM cart_items WHERE user_id = v_user_id;
+  RETURN v_order_id;
+EXCEPTION WHEN OTHERS THEN
+  IF v_claimed AND v_idempotency_id IS NOT NULL THEN
+    UPDATE idempotency_keys SET status = 'failed'
+    WHERE id = v_idempotency_id AND response_reference IS NULL;
+  END IF;
+  RAISE;
+END;
+$;
+
+REVOKE ALL ON FUNCTION public.create_order_from_cart(jsonb, jsonb, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.create_order_from_cart(jsonb, jsonb, text, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.create_order_from_cart(jsonb, jsonb, text, text) TO authenticated;
+
 CREATE OR REPLACE FUNCTION public.approve_order_quantities(
   p_order_id uuid,
   p_quantities jsonb
