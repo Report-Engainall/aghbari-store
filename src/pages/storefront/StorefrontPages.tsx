@@ -26,7 +26,7 @@ export function SearchPage() {
 
 export function Cart() {
   const { user } = useAuth(); const { show } = useToast(); const navigate = useNavigate(); const [items, setItems] = useState<CartItem[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState('')
-  const load = async () => { if (!user) return; setLoading(true); const { data, error: dbError } = await supabase.from('cart_items').select('*, product:products(*)').eq('user_id', user.id).order('created_at'); if (dbError) setError(dbError.message); else setItems(data as CartItem[] || []); setLoading(false) }
+  const load = async () => { if (!user) return; setLoading(true); const { data, error: dbError } = await supabase.from('cart_items').select('id,user_id,product_id,quantity,unit_type,created_at,product:products(id,name,name_ar,sku,image_url,unit)').eq('user_id', user.id).order('created_at'); if (dbError) setError(dbError.message); else setItems(data as CartItem[] || []); setLoading(false) }
   useEffect(() => { load() }, [user])
   const itemCount = items.length
   const updateQuantity = async (item: CartItem, quantity: number) => { if (quantity <= 0) { await supabase.from('cart_items').delete().eq('id', item.id) } else { await supabase.from('cart_items').update({ quantity }).eq('id', item.id) }; await load() }
@@ -36,7 +36,7 @@ export function Cart() {
 
 export function Checkout() {
   const { user } = useAuth(); const { show } = useToast(); const navigate = useNavigate(); const [items, setItems] = useState<CartItem[]>([]); const [address, setAddress] = useState(''); const [notes, setNotes] = useState(''); const [submitting, setSubmitting] = useState(false); const [error, setError] = useState('')
-  useEffect(() => { if (user) supabase.from('cart_items').select('*, product:products(*)').eq('user_id', user.id).then(({ data }) => setItems(data as CartItem[] || [])) }, [user])
+  useEffect(() => { if (user) supabase.from('cart_items').select('id,user_id,product_id,quantity,unit_type,created_at,product:products(id,name,name_ar,sku,image_url,unit)').eq('user_id', user.id).then(({ data }) => setItems(data as CartItem[] || [])) }, [user])
   const submit = async (event: FormEvent) => { event.preventDefault(); if (!items.length) { setError('السلة فارغة'); return }; setSubmitting(true); setError(''); const { orderId, error: orderError } = await createOrderFromCart({ shippingAddress: { address }, billingAddress: { address }, notes, idempotencyKey: generateIdempotencyKey() }); if (orderError || !orderId) { setError(orderError || 'تعذر إنشاء الطلب'); setSubmitting(false); return }; setSubmitting(false); show('success', 'تم إرسال الطلب للمراجعة'); navigate(`/order-success/${orderId}`) }
   return <div className="max-w-5xl mx-auto px-4 py-6"><PageHeader title="إتمام الطلب" description="أدخل معلومات التوصيل وأرسل الطلب للمراجعة" icon={ShoppingCart} />{!items.length ? <EmptyState title="لا توجد منتجات للطلب" action={<Link to="/store" className="btn-primary">العودة للمتجر</Link>} /> : <form onSubmit={submit} className="grid grid-cols-1 lg:grid-cols-3 gap-6"><div className="lg:col-span-2 card p-6 space-y-4"><div><label className="label">عنوان التوصيل</label><textarea required value={address} onChange={event => setAddress(event.target.value)} className="input min-h-24" placeholder="المدينة، الحي، الشارع، وأي تفاصيل مساعدة" /></div><div><label className="label">ملاحظات الطلب</label><textarea value={notes} onChange={event => setNotes(event.target.value)} className="input min-h-24" placeholder="ملاحظات اختيارية" /></div>{error && <PageError message={error} />}<button type="submit" disabled={submitting} className="btn-primary">{submitting ? 'جاري إرسال الطلب...' : 'تأكيد وإرسال الطلب'}</button></div><aside className="card p-5 h-fit"><h2 className="font-bold mb-4">ملخص الطلب</h2>{items.map(item => <div key={item.id} className="flex justify-between gap-3 text-sm py-2 border-b border-neutral-100"><span className="truncate">{item.product?.name_ar || item.product?.name}</span><span>{item.quantity}</span></div>)}<p className="text-sm text-neutral-500 pt-4">{formatCustomerAmount()}</p></aside></form>}</div>
 }
@@ -256,7 +256,7 @@ function RecordsPage({ title, icon, table, columns }: { title: string; icon: typ
 }
 export function Invoices() { return <RecordsPage title="الفواتير" icon={FileText} table="customer_sales_invoice_summaries" columns={['رقم المستند', 'الحالة', 'التاريخ']} /> }
 export function InvoiceDetail() { return <Invoices /> }
-export function Statements() { return <RecordsPage title="كشوف الحساب" icon={Wallet} table="statements" columns={['رقم الكشف', 'الحالة', 'التاريخ']} /> }
+export function Statements() { return <RecordsPage title="كشوف الحساب" icon={Wallet} table="customer_statement_summaries" columns={['رقم الكشف', 'الحالة', 'التاريخ']} /> }
 export function Payments() { return <RecordsPage title="المدفوعات" icon={Wallet} table="customer_payment_summaries" columns={['رقم العملية', 'الحالة', 'التاريخ']} /> }
 
 export function Profile() { const { user } = useAuth(); return <div className="max-w-3xl mx-auto px-4 py-6"><PageHeader title="الملف الشخصي" description="معلومات حسابك المستخدم" icon={User} /><div className="card p-6 space-y-4"><div><label className="label">البريد الإلكتروني</label><input className="input" value={user?.email || ''} readOnly /></div><div><label className="label">الاسم</label><input className="input" value={String(user?.user_metadata?.full_name || '')} readOnly /></div><p className="text-xs text-neutral-500">لتعديل البيانات، تواصل مع مسؤول الشركة.</p></div></div> }
@@ -360,7 +360,7 @@ export function CheckoutReview() {
   const { user, organization } = useAuth()
   const [items, setItems] = useState<CartItem[]>([])
   const [loading, setLoading] = useState(true)
-  useEffect(() => { if (user) supabase.from('cart_items').select('*, product:products(*)').eq('user_id', user.id).then(({ data }) => { setItems(data as CartItem[] || []); setLoading(false) }) }, [user])
+  useEffect(() => { if (user) supabase.from('cart_items').select('id,user_id,product_id,quantity,unit_type,created_at,product:products(id,name,name_ar,sku,image_url,unit)').eq('user_id', user.id).then(({ data }) => { setItems(data as CartItem[] || []); setLoading(false) }) }, [user])
   if (loading) return <LoadingOverlay />
   return <div className="max-w-4xl mx-auto px-4 py-6"><PageHeader title="مراجعة الطلب" description="راجع الطلب قبل التأكيد النهائي" icon={ShoppingCart} />
     <div className="card p-6 mb-4"><h2 className="font-bold mb-4">المنتجات</h2>{items.map(item => <div key={item.id} className="flex justify-between py-2 border-b border-neutral-100 text-sm"><span className="truncate">{item.product?.name_ar || item.product?.name} × {item.quantity}</span></div>)}
@@ -373,7 +373,7 @@ export function CheckoutReview() {
 export function CheckoutConfirm() {
   const { user } = useAuth(); const { show } = useToast(); const navigate = useNavigate()
   const [items, setItems] = useState<CartItem[]>([]); const [submitting, setSubmitting] = useState(false); const [error, setError] = useState('')
-  useEffect(() => { if (user) supabase.from('cart_items').select('*, product:products(*)').eq('user_id', user.id).then(({ data }) => setItems(data as CartItem[] || [])) }, [user])
+  useEffect(() => { if (user) supabase.from('cart_items').select('id,user_id,product_id,quantity,unit_type,created_at,product:products(id,name,name_ar,sku,image_url,unit)').eq('user_id', user.id).then(({ data }) => setItems(data as CartItem[] || [])) }, [user])
   const confirm = async () => {
     if (!items.length) { setError('السلة فارغة'); return }
     setSubmitting(true); setError('')
@@ -389,7 +389,18 @@ export function CheckoutConfirm() {
 
 export function ReorderList() {
   const { user } = useAuth(); const [orders, setOrders] = useState<Order[]>([]); const [loading, setLoading] = useState(true)
-  useEffect(() => { if (user) supabase.from('orders').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(20).then(({ data }) => { setOrders(data as Order[] || []); setLoading(false) }) }, [user])
+  useEffect(() => {
+    if (!user) { setOrders([]); setLoading(false); return }
+    supabase.from('customer_order_summaries')
+      .select('id,user_id,order_number,status,total_items,created_at,updated_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false }).limit(20)
+      .then(({ data, error }) => {
+        if (error) show('error', 'تعذر تحميل الطلبات السابقة', error.message)
+        setOrders((data || []) as unknown as Order[])
+        setLoading(false)
+      })
+  }, [user?.id])
   return <div className="max-w-4xl mx-auto px-4 py-6"><PageHeader title="إعادة الطلب" description="أعد طلب منتجات من طلب سابق بضغطة واحدة" icon={Copy} />
     {loading ? <LoadingOverlay /> : !orders.length ? <EmptyState icon={<Copy />} title="لا توجد طلبات سابقة" description="ستظهر طلباتك السابقة هنا لإعادة الطلب." action={<Link to="/store" className="btn-primary">تصفح المتجر</Link>} /> :
     <div className="space-y-3">{orders.map(order => <div key={order.id} className="card p-4 flex items-center justify-between"><div><h3 className="font-semibold">{order.order_number}</h3><p className="text-sm text-neutral-500">{formatDate(order.created_at)}</p></div><Link to={`/reorder/${order.id}`} className="btn-primary btn-sm">إعادة الطلب</Link></div>)}</div>}
@@ -397,23 +408,68 @@ export function ReorderList() {
 }
 
 export function ReorderDetail() {
-  const { id } = useParams(); const { user } = useAuth(); const { show } = useToast(); const navigate = useNavigate()
-  const [order, setOrder] = useState<Order | null>(null); const [loading, setLoading] = useState(true); const [adding, setAdding] = useState(false)
-  useEffect(() => { if (id) supabase.from('orders').select('*, items:order_items(*)').eq('id', id).maybeSingle().then(({ data }) => { setOrder(data as Order || null); setLoading(false) }) }, [id])
+  const { id } = useParams()
+  const { user } = useAuth()
+  const { show } = useToast()
+  const navigate = useNavigate()
+  const [order, setOrder] = useState<Order | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [adding, setAdding] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      if (!id || !user) { setOrder(null); setLoading(false); return }
+      setLoading(true)
+      const { data, error } = await supabase.from('customer_order_summaries')
+        .select('id,user_id,order_number,status,total_items,created_at')
+        .eq('id', id).eq('user_id', user.id).maybeSingle()
+      if (!active) return
+      if (error) { show('error', 'تعذر تحميل الطلب السابق', error.message); setLoading(false); return }
+      if (!data) { setOrder(null); setLoading(false); return }
+      const { data: itemRows, error: itemError } = await supabase.from('customer_order_item_summaries')
+        .select('id,order_id,product_id,product_name,item_code,unit_snapshot,quantity,approved_quantity')
+        .eq('order_id', id)
+      if (!active) return
+      if (itemError) { show('error', 'تعذر تحميل أصناف الطلب السابق', itemError.message); setLoading(false); return }
+      const items = (itemRows || []).map(item => ({
+        id: item.id,
+        order_id: item.order_id,
+        product_id: item.product_id,
+        name: item.product_name,
+        product_name_snapshot: item.product_name,
+        sku: item.item_code,
+        unit_type: item.unit_snapshot,
+        unit_snapshot: item.unit_snapshot,
+        quantity: item.approved_quantity ?? item.quantity,
+      }))
+      setOrder({ ...data, items } as unknown as Order)
+      setLoading(false)
+    }
+    void load()
+    return () => { active = false }
+  }, [id, user?.id])
+
   const reorder = async () => {
     if (!user || !order?.items?.length) return
     setAdding(true)
-    const cartRows = order.items.map(item => ({ user_id: user.id, product_id: item.product_id, quantity: item.quantity, unit_type: item.unit_type as 'piece' | 'box' | 'carton' }))
+    const cartRows = order.items.map(item => ({
+      user_id: user.id,
+      product_id: item.product_id,
+      quantity: item.quantity,
+      unit_type: (item.unit_type || 'piece') as 'piece' | 'box' | 'carton',
+    }))
     const { error } = await supabase.from('cart_items').insert(cartRows)
     setAdding(false)
     if (error) show('error', 'تعذر الإضافة', error.message)
     else { show('success', 'تمت الإضافة للسلة'); navigate('/cart') }
   }
+
   if (loading) return <LoadingOverlay />
   if (!order) return <ErrorState title="الطلب غير موجود" />
   return <div className="max-w-4xl mx-auto px-4 py-6"><PageHeader title={`إعادة طلب ${order.order_number}`} description="راجع المنتجات وأضفها للسلة" icon={Copy} />
     <div className="card p-6 mb-4">{order.items?.map(item => <div key={item.id} className="flex justify-between py-2 border-b border-neutral-100 text-sm"><span className="truncate">{item.product_name_snapshot || item.name} × {item.quantity}</span></div>)}</div>
-    <button onClick={reorder} disabled={adding} className="btn-primary">{adding ? 'جاري الإضافة...' : 'إضافة الكل للسلة'}</button>
+    <button onClick={reorder} disabled={adding || !order.items?.length} className="btn-primary">{adding ? 'جاري الإضافة...' : 'إضافة الكل للسلة'}</button>
   </div>
 }
 
@@ -475,7 +531,7 @@ export function PricingPage() {
 
 export function StatementDetail() {
   const { id } = useParams(); const { organization } = useAuth(); const [stmt, setStmt] = useState<Statement | null>(null); const [loading, setLoading] = useState(true)
-  useEffect(() => { if (id && organization) supabase.from('statements').select('*').eq('id', id).eq('organization_id', organization.id).maybeSingle().then(({ data }) => { setStmt(data as Statement || null); setLoading(false) }) }, [id, organization])
+  useEffect(() => { if (id && organization) supabase.from('customer_statement_summaries').select('id,organization_id,statement_number,period_start,period_end,status,created_at').eq('id', id).eq('organization_id', organization.id).maybeSingle().then(({ data, error }) => { if (error) setStmt(null); else setStmt(data as Statement || null); setLoading(false) }) }, [id, organization?.id])
   if (loading) return <LoadingOverlay />
   if (!stmt) return <ErrorState title="كشف الحساب غير موجود" />
   return <div className="max-w-3xl mx-auto px-4 py-6"><PageHeader title={`كشف حساب ${stmt.statement_number}`} description={`الفترة: ${formatDate(stmt.period_start)} - ${formatDate(stmt.period_end)}`} icon={Wallet} />
@@ -490,7 +546,7 @@ export function StatementDetail() {
 
 export function PaymentDetail() {
   const { id } = useParams(); const { organization } = useAuth(); const [payment, setPayment] = useState<import('@/types').Payment | null>(null); const [loading, setLoading] = useState(true)
-  useEffect(() => { if (id && organization) supabase.from('payments').select('*').eq('id', id).eq('organization_id', organization.id).maybeSingle().then(({ data }) => { setPayment(data as any || null); setLoading(false) }) }, [id, organization])
+  useEffect(() => { if (id && organization) supabase.from('customer_payment_summaries').select('id,invoice_id,organization_id,payment_number,method,status,created_at,reference').eq('id', id).eq('organization_id', organization.id).maybeSingle().then(({ data, error }) => { if (error) setPayment(null); else setPayment(data as any || null); setLoading(false) }) }, [id, organization?.id])
   if (loading) return <LoadingOverlay />
   if (!payment) return <ErrorState title="العملية غير موجودة" />
   return <div className="max-w-3xl mx-auto px-4 py-6"><PageHeader title={`عملية ${payment.payment_number}`} description="تفاصيل الدفع" icon={Wallet} />
@@ -505,7 +561,7 @@ export function PaymentDetail() {
 
 export function Receivables() {
   const { organization } = useAuth(); const [rows, setRows] = useState<Invoice[]>([]); const [loading, setLoading] = useState(true)
-  useEffect(() => { if (organization) supabase.from('invoices').select('*').eq('organization_id', organization.id).in('status', ['issued', 'partial', 'overdue']).order('created_at', { ascending: false }).then(({ data }) => { setRows(data as Invoice[] || []); setLoading(false) }) }, [organization])
+  useEffect(() => { if (organization) supabase.from('customer_sales_invoice_summaries').select('id,order_id,organization_id,invoice_number,status,issue_date,due_date,created_at').eq('organization_id', organization.id).in('status', ['issued', 'partial', 'overdue']).order('created_at', { ascending: false }).then(({ data, error }) => { if (error) show('error', 'تعذر تحميل المستحقات', error.message); setRows((data || []) as unknown as Invoice[]); setLoading(false) }) }, [organization?.id])
   return <div className="max-w-5xl mx-auto px-4 py-6"><PageHeader title="المستحقات" description="الفواتير غير المدفوعة بالكامل" icon={Wallet} />
     <div className="card p-5 mb-4"><p className="text-sm text-neutral-500">عدد الفواتير المستحقة</p><p className="text-3xl font-bold text-error-600">{rows.length}</p></div>
     {loading ? <LoadingOverlay /> : !rows.length ? <EmptyState icon={<Wallet />} title="لا توجد مستحقات" description="جميع الفواتير مدفوعة." /> :
@@ -516,7 +572,19 @@ export function Receivables() {
 
 export function FinancialDocuments() {
   const { organization } = useAuth(); const [invoices, setInvoices] = useState<Invoice[]>([]); const [statements, setStatements] = useState<Statement[]>([]); const [loading, setLoading] = useState(true)
-  useEffect(() => { if (organization) Promise.all([supabase.from('invoices').select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(20), supabase.from('statements').select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(20)]).then(([inv, stmt]) => { setInvoices(inv.data as Invoice[] || []); setStatements(stmt.data as Statement[] || []); setLoading(false) }) }, [organization])
+  useEffect(() => {
+    if (!organization) { setInvoices([]); setStatements([]); setLoading(false); return }
+    Promise.all([
+      supabase.from('customer_sales_invoice_summaries').select('id,order_id,organization_id,invoice_number,status,issue_date,due_date,created_at').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(20),
+      supabase.from('customer_statement_summaries').select('id,organization_id,statement_number,period_start,period_end,status,created_at').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(20),
+    ]).then(([inv, stmt]) => {
+      if (inv.error) show('error', 'تعذر تحميل الفواتير', inv.error.message)
+      if (stmt.error) show('error', 'تعذر تحميل كشوف الحساب', stmt.error.message)
+      setInvoices((inv.data || []) as unknown as Invoice[])
+      setStatements((stmt.data || []) as unknown as Statement[])
+      setLoading(false)
+    })
+  }, [organization?.id])
   return <div className="max-w-6xl mx-auto px-4 py-6"><PageHeader title="المستندات المالية" description="كل الفواتير وكشوف الحساب في مكان واحد" icon={FileText} />
     {loading ? <LoadingOverlay /> : <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div><h2 className="font-bold mb-3">الفواتير</h2>{invoices.length ? <div className="card divide-y divide-neutral-100">{invoices.map(inv => <Link key={inv.id} to={`/invoices/${inv.id}`} className="block p-4 hover:bg-neutral-50"><div className="flex justify-between"><span className="font-medium">{inv.invoice_number}</span><StatusBadge status={inv.status} /></div></Link>)}</div> : <EmptyState icon={<FileText />} title="لا توجد فواتير" />}</div>
