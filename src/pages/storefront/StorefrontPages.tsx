@@ -267,6 +267,115 @@ export function Wishlist() {
       : <EmptyState icon={<Heart />} title="لا توجد منتجات محفوظة" description="اضغط على القلب في أي منتج لإضافته للمفضلة." />}
   </div>
 }
+function RecordsPage({ title, icon, table, columns }: {
+  title: string
+  icon: typeof FileText
+  table: 'customer_sales_invoice_summaries' | 'customer_statement_summaries' | 'customer_payment_summaries'
+  columns: string[]
+}) {
+  const { organization } = useAuth()
+  const [rows, setRows] = useState<Record<string, unknown>[]>([])
+  const [approvedOrders, setApprovedOrders] = useState<Record<string, boolean>>({})
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      if (!organization?.id) {
+        setRows([])
+        setApprovedOrders({})
+        setLoading(false)
+        return
+      }
+      setLoading(true)
+      setError('')
+      let data: Record<string, unknown>[] = []
+      let queryError: { message: string } | null = null
+
+      if (table === 'customer_sales_invoice_summaries') {
+        const result = await supabase.from('customer_sales_invoice_summaries')
+          .select('id,order_id,organization_id,invoice_number,status,issue_date,due_date,created_at')
+          .eq('organization_id', organization.id).order('created_at', { ascending: false })
+        data = (result.data || []) as unknown as Record<string, unknown>[]
+        queryError = result.error
+      } else if (table === 'customer_statement_summaries') {
+        const result = await supabase.from('customer_statement_summaries')
+          .select('id,organization_id,statement_number,period_start,period_end,status,created_at')
+          .eq('organization_id', organization.id).order('created_at', { ascending: false })
+        data = (result.data || []) as unknown as Record<string, unknown>[]
+        queryError = result.error
+      } else {
+        const result = await supabase.from('customer_payment_summaries')
+          .select('id,invoice_id,organization_id,payment_number,method,status,created_at,reference')
+          .eq('organization_id', organization.id).order('created_at', { ascending: false })
+        data = (result.data || []) as unknown as Record<string, unknown>[]
+        queryError = result.error
+      }
+
+      if (!active) return
+      if (queryError) {
+        setError(queryError.message)
+        setRows([])
+        setApprovedOrders({})
+        setLoading(false)
+        return
+      }
+      setRows(data)
+
+      if (table === 'customer_sales_invoice_summaries') {
+        const orderIds = [...new Set(data.map(row => String(row.order_id || '')).filter(Boolean))]
+        if (orderIds.length) {
+          const { data: ordersData, error: ordersError } = await supabase.from('customer_order_summaries')
+            .select('id,status').eq('organization_id', organization.id).in('id', orderIds)
+          if (!active) return
+          if (ordersError) setError('تعذر التحقق من حالة الطلبات المرتبطة بالفواتير.')
+          else setApprovedOrders(Object.fromEntries((ordersData || []).map(order => [order.id, order.status === 'approved'])))
+        } else setApprovedOrders({})
+      } else setApprovedOrders({})
+      setLoading(false)
+    }
+    void load()
+    return () => { active = false }
+  }, [organization?.id, table])
+
+  return <div className="max-w-6xl mx-auto px-4 py-6">
+    <PageHeader title={title} description="المستندات المرتبطة بحساب شركتك دون كشف القيم المالية" icon={icon} />
+    {loading ? <LoadingOverlay /> : error ? <PageError message={error} /> : !rows.length
+      ? <EmptyState icon={<FileText />} title={\`لا توجد \${title}\`} />
+      : <div className="card overflow-x-auto"><table className="w-full text-sm text-right">
+          <thead className="bg-neutral-50"><tr>{columns.map(column => <th key={column} className="p-4 text-neutral-500">{column}</th>)}</tr></thead>
+          <tbody>{rows.map(row => <Fragment key={String(row.id)}>
+            <tr className="border-t border-neutral-100">
+              <td className="p-4 font-medium">{String(row.invoice_number || row.statement_number || row.payment_number || row.id).slice(0, 24)}</td>
+              <td className="p-4"><StatusBadge status={String(row.status || 'unknown')} /></td>
+              <td className="p-4 text-neutral-500">{row.created_at ? formatDate(String(row.created_at)) : '—'}</td>
+            </tr>
+            {table === 'customer_sales_invoice_summaries' && approvedOrders[String(row.order_id)] && <tr className="border-t border-primary-100 bg-primary-50"><td colSpan={columns.length} className="px-4 py-3"><p className="font-bold text-primary-900">تم اعتماد الطلب من الإدارة.</p><p className="mt-1 text-sm text-primary-800">يرجى إرسال المبلغ عبر آلية الدفع المتفق عليها لإتمام الاعتماد النهائي. لا تظهر القيم المالية في شاشة العميل.</p></td></tr>}
+          </Fragment>)}</tbody>
+        </table></div>}
+  </div>
+}
+
+export function Invoices() {
+  return <RecordsPage title="الفواتير" icon={FileText} table="customer_sales_invoice_summaries" columns={['رقم المستند', 'الحالة', 'التاريخ']} />
+}
+export function InvoiceDetail() { return <Invoices /> }
+export function Statements() {
+  return <RecordsPage title="كشوف الحساب" icon={Wallet} table="customer_statement_summaries" columns={['رقم الكشف', 'الحالة', 'التاريخ']} />
+}
+export function Payments() {
+  return <RecordsPage title="المدفوعات" icon={Wallet} table="customer_payment_summaries" columns={['رقم العملية', 'الحالة', 'التاريخ']} />
+}
+export function Profile() {
+  const { user } = useAuth()
+  return <div className="max-w-3xl mx-auto px-4 py-6"><PageHeader title="الملف الشخصي" description="معلومات حسابك المستخدم" icon={User} /><div className="card p-6 space-y-4"><div><label className="label">البريد الإلكتروني</label><input className="input" value={user?.email || ''} readOnly /></div><div><label className="label">الاسم</label><input className="input" value={String(user?.user_metadata?.full_name || '')} readOnly /></div><p className="text-xs text-neutral-500">لتعديل البيانات، استخدم إعدادات الحساب أو تواصل مع مسؤول الشركة.</p></div></div>
+}
+export function Company() {
+  const { organization } = useAuth()
+  return <div className="max-w-3xl mx-auto px-4 py-6"><PageHeader title="الشركة" description="بيانات المؤسسة المرتبطة بحسابك" icon={Building2} /><div className="card p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">{[['اسم الشركة', organization?.name], ['البريد', organization?.email], ['الهاتف', organization?.phone], ['المدينة', organization?.city], ['الدولة', organization?.country], ['الحالة', organization?.status]].map(([label, value]) => <div key={String(label)}><p className="text-xs text-neutral-500 mb-1">{label}</p><p className="font-medium">{value || 'غير متوفر'}</p></div>)}</div></div>
+}
+
 export function Addresses() { const { organization } = useAuth(); const [rows, setRows] = useState<Address[]>([]); const [loading, setLoading] = useState(true); useEffect(() => { if (organization) supabase.from('addresses').select('*').eq('organization_id', organization.id).then(({ data }) => { setRows(data as Address[] || []); setLoading(false) }) }, [organization]); return <div className="max-w-4xl mx-auto px-4 py-6"><PageHeader title="عناوين التوصيل" description="إدارة عناوين شركتك" icon={MapPin} /><Link to="/addresses/new" className="btn-primary mb-5 inline-flex"><Plus className="h-4 w-4" /> إضافة عنوان</Link>{loading ? <LoadingOverlay /> : rows.length ? <div className="grid gap-3">{rows.map(row => <div className="card p-5" key={row.id}><div className="flex justify-between"><h3 className="font-semibold">{row.label}</h3>{row.is_default && <span className="badge-success">افتراضي</span>}</div><p className="text-sm text-neutral-600 mt-2">{row.line1}، {row.city}، {row.country}</p></div>)}</div> : <EmptyState icon={<MapPin />} title="لا توجد عناوين" description="أضف عنواناً لاستخدامه عند إتمام الطلب." />}</div> }
 export function AccountSettings() { const { signOut } = useAuth(); const { show } = useToast(); const [saving, setSaving] = useState(false); const [name, setName] = useState(''); const save = async (event: FormEvent) => { event.preventDefault(); setSaving(true); const { error } = await supabase.auth.updateUser({ data: { full_name: name } }); setSaving(false); show(error ? 'error' : 'success', error ? 'تعذر الحفظ' : 'تم حفظ الإعدادات', error?.message) }; return <div className="max-w-3xl mx-auto px-4 py-6"><PageHeader title="إعدادات الحساب" description="تحكم في بيانات الحساب وتفضيلاته" icon={Settings} /><form onSubmit={save} className="card p-6 space-y-4"><div><label className="label">الاسم الظاهر</label><input className="input" value={name} onChange={event => setName(event.target.value)} placeholder="الاسم الكامل" /></div><button className="btn-primary" disabled={saving}>{saving ? 'جاري الحفظ...' : 'حفظ التغييرات'}</button></form><button onClick={() => signOut()} className="btn-danger mt-5">تسجيل الخروج</button></div> }
 export function Notifications() { const { user } = useAuth(); const [rows, setRows] = useState<Notification[]>([]); useEffect(() => { if (user) supabase.from('notifications').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).then(({ data }) => setRows(data as Notification[] || [])) }, [user]); return <div className="max-w-3xl mx-auto px-4 py-6"><PageHeader title="الإشعارات" description="آخر التحديثات المتعلقة بحسابك وطلباتك" icon={Bell} />{rows.length ? <div className="card divide-y divide-neutral-100">{rows.map(row => <div key={row.id} className="p-4"><div className="flex justify-between"><h3 className="font-semibold">{row.title}</h3><span className="text-xs text-neutral-400">{formatDate(row.created_at)}</span></div><p className="text-sm text-neutral-500 mt-1">{row.body}</p></div>)}</div> : <EmptyState icon={<Bell />} title="لا توجد إشعارات" />}</div> }
