@@ -473,7 +473,7 @@ BEGIN
         response_reference = NULL,
         status = 'processing',
         created_at = now(),
-        expires_at = now() + interval '24 hours'
+        expires_at = now() + make_interval(hours => COALESCE((SELECT cps.idempotency_ttl_hours FROM public.commerce_policy_settings cps WHERE cps.organization_id = v_org_id), 24))
     WHERE idempotency_keys.expires_at <= now()
        OR (idempotency_keys.status = 'failed' AND idempotency_keys.request_hash = EXCLUDED.request_hash)
   RETURNING id INTO v_idempotency_id;
@@ -582,6 +582,7 @@ AS $$
 DECLARE
   v_user_id uuid := auth.uid();
   v_organization_id uuid;
+  v_order_status text;
   v_entry record;
   v_item_id uuid;
   v_quantity numeric(15,3);
@@ -595,9 +596,10 @@ BEGIN
     RAISE EXCEPTION 'approved_quantities_required';
   END IF;
 
-  SELECT o.organization_id INTO v_organization_id
+  SELECT o.organization_id, o.status INTO v_organization_id, v_order_status
   FROM orders o WHERE o.id = p_order_id FOR UPDATE;
   IF v_organization_id IS NULL THEN RAISE EXCEPTION 'order_not_found'; END IF;
+  IF v_order_status NOT IN ('pending','review') THEN RAISE EXCEPTION 'order_not_open_for_quantity_approval'; END IF;
   IF NOT EXISTS (
     SELECT 1 FROM organization_members om
     WHERE om.organization_id = v_organization_id AND om.user_id = v_user_id
