@@ -65,6 +65,60 @@ ALTER TABLE commerce_policy_settings DROP CONSTRAINT IF EXISTS commerce_policy_p
 ALTER TABLE commerce_policy_settings
   ADD CONSTRAINT commerce_policy_prices_hidden CHECK (customer_prices_hidden = true);
 
+
+-- Policy registry values are scoped to the organization and constrained at the database boundary.
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS upload_chunk_size_mb integer NOT NULL DEFAULT 4;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS processing_chunk_size integer NOT NULL DEFAULT 500;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS max_file_size_mb integer NOT NULL DEFAULT 100;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS max_import_rows integer NOT NULL DEFAULT 100000;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS max_import_columns integer NOT NULL DEFAULT 100;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS max_cell_length integer NOT NULL DEFAULT 4000;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS max_archive_expansion_factor integer NOT NULL DEFAULT 10;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS dqs_excellent_min integer NOT NULL DEFAULT 90;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS dqs_acceptable_min integer NOT NULL DEFAULT 75;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS dqs_warning_min integer NOT NULL DEFAULT 50;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS import_retention_days integer NOT NULL DEFAULT 30;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS idempotency_ttl_hours integer NOT NULL DEFAULT 24;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS max_processing_timeout_seconds integer NOT NULL DEFAULT 300;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS api_p95_target_ms integer NOT NULL DEFAULT 300;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS search_p95_target_ms integer NOT NULL DEFAULT 150;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_daily_token_quota bigint NOT NULL DEFAULT 0;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_monthly_token_quota bigint NOT NULL DEFAULT 0;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_request_budget_usd numeric(10,4) NOT NULL DEFAULT 0;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_external_data_requires_consent boolean NOT NULL DEFAULT true;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_rule_based_fallback boolean NOT NULL DEFAULT true;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS offline_orders_disabled boolean NOT NULL DEFAULT true;
+
+DO $
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'commerce_policy_limits_check') THEN
+    ALTER TABLE commerce_policy_settings ADD CONSTRAINT commerce_policy_limits_check CHECK (
+      upload_chunk_size_mb BETWEEN 2 AND 5
+      AND processing_chunk_size BETWEEN 500 AND 2000
+      AND max_file_size_mb BETWEEN 1 AND 100
+      AND max_import_rows BETWEEN 1 AND 100000
+      AND max_import_columns BETWEEN 1 AND 100
+      AND max_cell_length BETWEEN 1 AND 4000
+      AND max_archive_expansion_factor BETWEEN 1 AND 10
+      AND dqs_excellent_min BETWEEN 50 AND 100
+      AND dqs_acceptable_min BETWEEN 25 AND 99
+      AND dqs_warning_min BETWEEN 0 AND 98
+      AND dqs_excellent_min > dqs_acceptable_min
+      AND dqs_acceptable_min > dqs_warning_min
+      AND import_retention_days BETWEEN 1 AND 3650
+      AND idempotency_ttl_hours BETWEEN 1 AND 168
+      AND max_processing_timeout_seconds BETWEEN 10 AND 3600
+      AND api_p95_target_ms BETWEEN 50 AND 10000
+      AND search_p95_target_ms BETWEEN 25 AND 5000
+      AND ai_daily_token_quota >= 0
+      AND ai_monthly_token_quota >= 0
+      AND ai_request_budget_usd >= 0
+      AND offline_orders_disabled = true
+    );
+  END IF;
+END;
+$;
+
 ALTER TABLE commerce_policy_settings ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS commerce_policy_settings_read_member ON commerce_policy_settings;
 CREATE POLICY commerce_policy_settings_read_member
