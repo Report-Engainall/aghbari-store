@@ -446,11 +446,21 @@ export function Import() {
     <div className="card mb-5 max-w-2xl p-6">
       <div className="mb-4 rounded-xl border border-warning-200 bg-warning-50 p-4"><p className="font-bold text-warning-900">حدود المعالجة المعلنة</p><p className="mt-1 text-sm leading-6 text-warning-800">CSV يُحلّل تدريجياً إلى دفعات 500 سجل مع التطبيع والتحقق وكشف التكرار ودرجة جودة Snapshot. لا يتم دمج السجلات تلقائياً في البيانات التشغيلية. ملفات Excel وPDF تبقى للمراجعة لأن قارئهما لم يُربط بعد؛ لن تظهر نسبة تقدم مصطنعة أو حالة «مكتمل».</p></div>
       {profiles.length ? <div className="mb-4"><label className="label">ملف تعريف الاستيراد</label><select className="input" value={profileId} onChange={e => setProfileId(e.target.value)}>{profiles.map(p => <option key={String(p.id)} value={String(p.id)}>{String(p.profile_name)} v{String(p.version)}</option>)}</select></div> : <button type="button" disabled={!isAdmin || busy} className="btn-secondary mb-4" onClick={() => void createProfile()}>إنشاء ملف تعريف أساسي</button>}
-      <label className="label">ملف CSV أو Excel أو PDF</label><input type="file" accept=".csv,.xlsx,.xls,.pdf" className="input" onChange={e => { setFile(e.target.files?.[0] || null); setMessage('') }} />
+      <label className="label">ملف CSV أو Excel أو PDF</label><input type="file" accept=".csv,.xlsx,.xls,.pdf" className="input" onChange={e => { setFile(e.target.files?.[0] || null); setDuplicate(null); setMessage('') }} />
       <p className="mt-3 text-xs leading-5 text-neutral-500">حد الملف 100 ميجابايت؛ حد CSV هو 100,000 صف و100 عمود و4,000 حرف للخلية. تُحفظ بصمة SHA-256 والسجلات المنظمة وبيان Snapshot، ولا يُرفع الملف الخام إلى Storage.</p>
       {progress && <div role="status" className="mt-4 rounded-lg border border-primary-100 bg-primary-50 p-3 text-sm text-primary-900"><p className="font-semibold">{progress.stage}</p><p className="mt-1">تم فحص {progress.processedRows.toLocaleString('en-US')} صف؛ تُحفظ الدفعات كل 500 سجل.</p><div className="mt-2 h-1.5 animate-pulse rounded bg-primary-200" /></div>}
       {message && <p role="status" className="mt-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-sm leading-6">{message}</p>}
-      <button disabled={!file || !profileId || busy || !isAdmin} onClick={() => void stage()} className="btn-primary mt-5">{busy ? 'جارٍ الفحص والمعالجة…' : 'فحص / تسجيل الملف'}</button>
+      {duplicate && <div className="mt-3 rounded-xl border border-warning-200 bg-warning-50 p-4">
+        <p className="font-semibold text-warning-900">إجراء الملف المكرر</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" disabled={busy} onClick={() => { setDuplicate(null); setFile(null); setMessage('تم تجاهل الملف المكرر.'); }} className="btn-secondary btn-sm">تجاهل</button>
+          <button type="button" disabled={busy || !isAdmin} onClick={() => void createProfileVersion()} className="btn-primary btn-sm">إنشاء نسخة جديدة</button>
+          <button type="button" disabled title="يتطلب محرك استبدال ذري" className="btn-secondary btn-sm opacity-50">استبدال النسخة (غير متاح)</button>
+          <button type="button" disabled title="يتطلب محرك دمج فعلي" className="btn-secondary btn-sm opacity-50">دمج (غير متاح)</button>
+        </div>
+        <p className="mt-2 text-xs text-warning-800">الاستبدال والدمج متوقفان حتى وجود تنفيذ خادمي ذري؛ لن يظهرا كوظيفتين شكليتين.</p>
+      </div>}
+      <button disabled={!file || !profileId || busy || !isAdmin || !!duplicate} onClick={() => void stage()} className="btn-primary mt-5">{busy ? 'جارٍ الفحص والمعالجة…' : 'فحص / تسجيل الملف'}</button>
     </div>
     {uploads.length > 0 && <Table headers={['الملف', 'النوع', 'الحالة', 'الجودة', 'SHA-256', 'التاريخ']}>{uploads.map(row => <tr key={String(row.id)} className="border-t border-neutral-100"><td className="p-4">{String(row.file_name || '—')}</td><td className="p-4">{String(row.file_type || '—')}</td><td className="p-4"><StatusBadge status={String(row.status)} /></td><td className="p-4">{row.quality_score != null ? `${row.quality_score}/100` : '—'}</td><td className="p-4 font-mono text-xs">{String(row.file_hash || '—').slice(0, 16)}…</td><td className="p-4 text-neutral-500">{row.uploaded_at ? formatDate(String(row.uploaded_at)) : '—'}</td></tr>)}</Table>}
   </AdminPage>
