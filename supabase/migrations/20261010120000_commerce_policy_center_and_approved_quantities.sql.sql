@@ -1193,6 +1193,49 @@ GRANT SELECT ON public.customer_sales_invoice_summaries TO authenticated;
 GRANT SELECT ON public.customer_payment_summaries TO authenticated;
 GRANT SELECT ON public.customer_statement_summaries TO authenticated;
 
+-- Customer-facing views must obey the invoking user's privileges and RLS.
+-- The app must not depend on the default SECURITY DEFINER behavior of public views.
+ALTER VIEW public.customer_order_summaries SET (security_invoker = true);
+ALTER VIEW public.customer_order_item_summaries SET (security_invoker = true);
+ALTER VIEW public.customer_sales_invoice_summaries SET (security_invoker = true);
+ALTER VIEW public.customer_payment_summaries SET (security_invoker = true);
+ALTER VIEW public.customer_statement_summaries SET (security_invoker = true);
+
+-- Customers may read only their own orders and dependent lines/documents.
+-- Staff policies above remain separate; policies are permissive-OR, so this adds a narrowly scoped owner path.
+DROP POLICY IF EXISTS orders_customer_read_own ON public.orders;
+CREATE POLICY orders_customer_read_own ON public.orders
+FOR SELECT TO authenticated
+USING (user_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS order_items_customer_read_own ON public.order_items;
+CREATE POLICY order_items_customer_read_own ON public.order_items
+FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.orders o
+  WHERE o.id = order_items.order_id AND o.user_id = (SELECT auth.uid())
+));
+
+DROP POLICY IF EXISTS invoices_customer_read_own ON public.invoices;
+CREATE POLICY invoices_customer_read_own ON public.invoices
+FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.orders o
+  WHERE o.id = invoices.order_id AND o.user_id = (SELECT auth.uid())
+));
+
+DROP POLICY IF EXISTS payments_customer_read_own ON public.payments;
+CREATE POLICY payments_customer_read_own ON public.payments
+FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1
+  FROM public.invoices i
+  JOIN public.orders o ON o.id = i.order_id
+  WHERE i.id = payments.invoice_id AND o.user_id = (SELECT auth.uid())
+));
+
+
+
 
 -- Restrict import/profile mutation and pricing-rule writes to organization administrators.
 -- The data API must not let an ordinary member rewrite import manifests, snapshots, or price rules.
