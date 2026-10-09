@@ -114,6 +114,8 @@ export interface Order {
   tax: number
   shipping_cost: number
   total: number
+  total_amount?: number
+  total_items?: number
   currency: string
   payment_status: PaymentStatus
   shipping_address: any
@@ -140,6 +142,7 @@ export interface OrderItem {
   name: string
   product_name_snapshot: string | null
   quantity: number
+  approved_quantity?: number | null
   unit_type: string
   unit_snapshot: string | null
   unit_price: number
