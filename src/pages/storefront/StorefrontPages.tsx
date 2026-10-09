@@ -118,6 +118,7 @@ export function OrderDetail() {
   const [paymentNotes, setPaymentNotes] = useState('')
   const [submittingPayment, setSubmittingPayment] = useState(false)
   const [paymentSubmitted, setPaymentSubmitted] = useState(false)
+  const [paymentIdempotencyKey, setPaymentIdempotencyKey] = useState(() => generateIdempotencyKey())
 
   useEffect(() => {
     if (!id || !user) { setLoading(false); return }
@@ -161,6 +162,7 @@ export function OrderDetail() {
     const { data, error: paymentError } = await supabase.rpc('submit_order_payment', {
       p_order_id: id,
       p_amount: amount,
+      p_idempotency_key: paymentIdempotencyKey,
       p_method: paymentMethod,
       p_reference: paymentReference.trim() || null,
       p_notes: paymentNotes.trim() || null,
@@ -171,6 +173,8 @@ export function OrderDetail() {
         ? 'لا يمكن تسجيل الدفع قبل اعتماد الطلب من الإدارة.'
         : paymentError.message.includes('order_not_owned') ? 'لا تملك صلاحية تسجيل دفع لهذا الطلب.'
         : paymentError.message.includes('proforma_invoice_not_available') ? 'لا توجد فاتورة أولية متاحة لهذا الطلب.'
+        : paymentError.message.includes('payment_exceeds_remaining_balance') ? 'المبلغ أكبر من الرصيد المتبقي. أدخل المبلغ المتبقي أو قسّم الدفع إلى دفعات أصغر.'
+        : paymentError.message.includes('idempotency_key_reused_with_different_request') ? 'تغيرت بيانات الدفع؛ اضغط إرسال مرة أخرى بالمفتاح الجديد.'
         : paymentError.message
       setPaymentErrorMessage(friendly)
       return
@@ -179,6 +183,7 @@ export function OrderDetail() {
     setPaymentAmount('')
     setPaymentReference('')
     setPaymentNotes('')
+    setPaymentIdempotencyKey(generateIdempotencyKey())
   }
 
   if (loading) return <LoadingOverlay />
@@ -219,10 +224,10 @@ export function OrderDetail() {
         <p className="mt-1 text-sm leading-6 text-primary-800">يرجى إرسال المبلغ المتفق عليه، ثم تسجيل مرجع التحويل أدناه. لا تُعرض الأسعار أو الإجماليات الرقمية في هذه الشاشة. ستبقى الفاتورة أولية حتى تتحقق الإدارة من الدفعات.</p>
         {paymentSubmitted && <p role="status" className="mt-3 rounded-lg border border-success-200 bg-success-50 p-3 text-sm font-semibold text-success-800">تم تسجيل طلب تأكيد الدفع. حالة الدفعة: قيد المراجعة.</p>}
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div><label className="label">المبلغ الذي أرسلته</label><input className="input" type="number" min="0.01" step="0.01" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} placeholder="أدخل المبلغ" /></div>
-          <div><label className="label">طريقة الدفع</label><select className="input" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}><option value="transfer">تحويل بنكي</option><option value="cash">نقداً</option><option value="check">شيك</option><option value="card">بطاقة</option><option value="wallet">محفظة</option></select></div>
-          <div className="sm:col-span-2"><label className="label">رقم المرجع / رقم التحويل (اختياري)</label><input className="input" value={paymentReference} onChange={e => setPaymentReference(e.target.value)} maxLength={300} placeholder="رقم العملية أو مرجع الحوالة" /></div>
-          <div className="sm:col-span-2"><label className="label">ملاحظة (اختياري)</label><textarea className="input min-h-20" value={paymentNotes} onChange={e => setPaymentNotes(e.target.value)} maxLength={2000} placeholder="تفاصيل إضافية تساعد الإدارة في التحقق" /></div>
+          <div><label className="label">المبلغ الذي أرسلته</label><input className="input" type="number" min="0.01" step="0.01" value={paymentAmount} onChange={e => { setPaymentAmount(e.target.value); setPaymentIdempotencyKey(generateIdempotencyKey()) }} placeholder="أدخل المبلغ" /></div>
+          <div><label className="label">طريقة الدفع</label><select className="input" value={paymentMethod} onChange={e => { setPaymentMethod(e.target.value); setPaymentIdempotencyKey(generateIdempotencyKey()) }}><option value="transfer">تحويل بنكي</option><option value="cash">نقداً</option><option value="check">شيك</option><option value="card">بطاقة</option><option value="wallet">محفظة</option></select></div>
+          <div className="sm:col-span-2"><label className="label">رقم المرجع / رقم التحويل (اختياري)</label><input className="input" value={paymentReference} onChange={e => { setPaymentReference(e.target.value); setPaymentIdempotencyKey(generateIdempotencyKey()) }} maxLength={300} placeholder="رقم العملية أو مرجع الحوالة" /></div>
+          <div className="sm:col-span-2"><label className="label">ملاحظة (اختياري)</label><textarea className="input min-h-20" value={paymentNotes} onChange={e => { setPaymentNotes(e.target.value); setPaymentIdempotencyKey(generateIdempotencyKey()) }} maxLength={2000} placeholder="تفاصيل إضافية تساعد الإدارة في التحقق" /></div>
         </div>
         {paymentErrorMessage && <p role="alert" className="mt-3 text-sm font-medium text-error-700">{paymentErrorMessage}</p>}
         <button type="button" disabled={submittingPayment || !paymentAmount.trim()} onClick={() => void submitPayment()} className="btn-primary mt-4">{submittingPayment ? 'جارٍ تسجيل الدفعة…' : 'إرسال بيانات الدفع للمراجعة'}</button>
