@@ -11,6 +11,7 @@ import { formatCurrency, formatDate, formatCustomerAmount } from '@/lib/utils'
 import type { Address, CartItem, Invoice, Notification, Order, Product, Statement } from '@/types'
 import { createOrderFromCart, generateIdempotencyKey } from '@/lib/orders'
 import { useCommercePolicies } from '@/lib/useCommercePolicies'
+import { CUSTOMER_PRODUCT_SELECT } from '@/lib/customerProductSelect'
 
 function PageHeader({ title, description, icon: Icon = Package }: { title: string; description?: string; icon?: typeof Package }) {
   return <div className="mb-6 flex items-start gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600"><Icon className="h-5 w-5" /></div><div><h1 className="text-2xl font-bold text-neutral-900">{title}</h1>{description && <p className="mt-1 text-sm text-neutral-500">{description}</p>}</div></div>
@@ -19,9 +20,47 @@ function PageHeader({ title, description, icon: Icon = Package }: { title: strin
 function PageError({ message }: { message: string }) { return <div className="card p-8 text-center text-error-700 bg-error-50 border-error-200"><AlertCircle className="mx-auto mb-2 h-8 w-8" /><p>{message}</p></div> }
 
 export function SearchPage() {
-  const [params] = useSearchParams(); const query = params.get('q') || ''; const [products, setProducts] = useState<Product[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState('')
-  useEffect(() => { setLoading(true); supabase.from('products').select('*, category:categories(*), brand:brands(*)').eq('is_active', true).or(`name.ilike.%${query}%,name_ar.ilike.%${query}%,sku.ilike.%${query}%`).limit(48).then(({ data, error: dbError }) => { if (dbError) setError(dbError.message); else setProducts(data as Product[] || []); setLoading(false) }) }, [query])
-  return <div className="max-w-7xl mx-auto px-4 py-6"><PageHeader title="نتائج البحث" description={query ? `نتائج البحث عن: ${query}` : 'ابحث عن المنتجات بالاسم أو الرمز'} icon={Search} />{loading ? <LoadingOverlay /> : error ? <PageError message={error} /> : products.length ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{products.map(product => <ProductCard key={product.id} product={product} />)}</div> : <EmptyState icon={<Search />} title="لا توجد نتائج" description="جرّب كلمة بحث مختلفة أو تصفح الكتالوج." />}</div>
+  const { organization } = useAuth()
+  const [params] = useSearchParams()
+  const query = params.get('q') || ''
+  const [products, setProducts] = useState<Product[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      setLoading(true)
+      setError('')
+      if (!organization?.id) {
+        setProducts([])
+        setLoading(false)
+        setError('سجّل الدخول بحساب مؤسستك لعرض الكتالوج.')
+        return
+      }
+      let request = supabase.from('products')
+        .select(CUSTOMER_PRODUCT_SELECT)
+        .eq('organization_id', organization.id)
+        .eq('is_active', true)
+      if (query) request = request.or(`name.ilike.%${query}%,name_ar.ilike.%${query}%,sku.ilike.%${query}%`)
+      const { data, error: queryError } = await request.order('created_at', { ascending: false }).limit(48)
+      if (!active) return
+      if (queryError) {
+        setProducts([])
+        setError('تعذر تحميل نتائج البحث. حاول مرة أخرى.')
+      } else setProducts((data || []) as unknown as Product[])
+      setLoading(false)
+    }
+    void load()
+    return () => { active = false }
+  }, [query, organization?.id])
+
+  return <div className="max-w-7xl mx-auto px-4 py-6">
+    <PageHeader title="نتائج البحث" description={query ? `نتائج البحث عن: ${query}` : 'ابحث عن المنتجات بالاسم أو الرمز'} icon={Search} />
+    {loading ? <LoadingOverlay /> : error ? <PageError message={error} /> : products.length
+      ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{products.map(product => <ProductCard key={product.id} product={product} />)}</div>
+      : <EmptyState icon={<Search />} title="لا توجد نتائج" description="جرّب كلمة بحث مختلفة أو تصفح الكتالوج." />}
+  </div>
 }
 
 export function Cart() {
@@ -192,75 +231,42 @@ export function OrderDetail() {
   </div>
 }
 
-export function Wishlist() { const { user } = useAuth(); const [products, setProducts] = useState<Product[]>([]); const [loading, setLoading] = useState(true); useEffect(() => { if (user) supabase.from('wishlist_items').select('product:products(*)').eq('user_id', user.id).then(({ data }) => { setProducts((data || []).map(item => (item as any).product).filter(Boolean)); setLoading(false) }) }, [user]); return <div className="max-w-7xl mx-auto px-4 py-6"><PageHeader title="المفضلة" description="المنتجات التي حفظتها للرجوع إليها" icon={Heart} />{loading ? <LoadingOverlay /> : products.length ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{products.map(product => <ProductCard key={product.id} product={product} />)}</div> : <EmptyState icon={<Heart />} title="لا توجد منتجات محفوظة" description="اضغط على القلب في أي منتج لإضافته للمفضلة." />}</div> }
-
-function RecordsPage({ title, icon, table, columns }: { title: string; icon: typeof FileText; table: string; columns: string[] }) {
-  const { organization } = useAuth()
-  const { policies } = useCommercePolicies()
-  const [rows, setRows] = useState<Record<string, unknown>[]>([])
-  const [approvedOrders, setApprovedOrders] = useState<Record<string, boolean>>({})
+export function Wishlist() {
+  const { user, organization } = useAuth()
+  const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
     let active = true
     const load = async () => {
-      if (!organization) { setRows([]); setApprovedOrders({}); setLoading(false); return }
-      setLoading(true)
-      setError('')
-      let request = supabase.from(table).select('*').eq('organization_id', organization.id)
-      // Customer record views intentionally omit numeric monetary columns.
-      const { data, error: dbError } = await request.order('created_at', { ascending: false })
-      if (!active) return
-      if (dbError) {
-        setError(dbError.message)
-        setRows([])
-        setApprovedOrders({})
+      if (!user || !organization?.id) {
+        setProducts([])
         setLoading(false)
         return
       }
-      const nextRows = data as Record<string, unknown>[] || []
-      setRows(nextRows)
-      if (table === 'customer_sales_invoice_summaries') {
-        const orderIds = [...new Set(nextRows.map(row => String(row.order_id || '')).filter(Boolean))]
-        if (orderIds.length) {
-          const { data: ordersData, error: ordersError } = await supabase.from('customer_order_summaries')
-            .select('id, status')
-            .eq('organization_id', organization.id)
-            .in('id', orderIds)
-          if (!active) return
-          if (ordersError) setError('تعذر التحقق من حالة الطلبات المرتبطة بالفواتير.')
-          else setApprovedOrders(Object.fromEntries((ordersData || []).map(order => [order.id, order.status === 'approved'])))
-        } else setApprovedOrders({})
-      } else setApprovedOrders({})
+      setLoading(true)
+      const safeProductFields = 'id,organization_id,category_id,brand_id,sku,name,name_ar,slug,description,unit,box_quantity,carton_quantity,min_order_qty,stock_quantity,reserved_stock,weight,barcode,image_url,is_active,is_featured,is_new,tags,created_at,updated_at,category:categories(id,name,slug),brand:brands(id,name,slug,logo_url)'
+      const { data, error: queryError } = await supabase.from('wishlist_items')
+        .select(`product:products(${safeProductFields})`)
+        .eq('user_id', user.id)
+        .eq('product.organization_id', organization.id)
+      if (!active) return
+      if (queryError) { setError(queryError.message); setProducts([]) }
+      else setProducts((data || []).map(item => (item as any).product).filter(Boolean) as Product[])
       setLoading(false)
     }
     void load()
     return () => { active = false }
-  }, [organization?.id, table])
+  }, [user?.id, organization?.id])
 
-  return <div className="max-w-6xl mx-auto px-4 py-6">
-    <PageHeader title={title} description="السجلات المرتبطة بحساب شركتك" icon={icon} />
-    {loading ? <LoadingOverlay /> : error ? <PageError message={error} /> : !rows.length ? <EmptyState icon={<FileText />} title={`لا توجد ${title}`} /> : <div className="card overflow-x-auto"><table className="w-full text-sm text-right">
-      <thead className="bg-neutral-50"><tr>{columns.map(column => <th key={column} className="p-4 text-neutral-500">{column}</th>)}</tr></thead>
-      <tbody>{rows.map(row => <Fragment key={String(row.id)}>
-        <tr className="border-t border-neutral-100">
-          <td className="p-4 font-medium">{String(row.invoice_number || row.statement_number || row.payment_number || row.id).slice(0, 16)}</td>
-          <td className="p-4"><StatusBadge status={String(row.status || 'issued')} /></td>
-          <td className="p-4 text-neutral-500">{row.created_at ? formatDate(String(row.created_at)) : '—'}</td>
-        </tr>
-        {table === 'customer_sales_invoice_summaries' && policies.payment_request_after_approval && approvedOrders[String(row.order_id)] && <tr className="border-t border-primary-100 bg-primary-50"><td colSpan={columns.length} className="px-4 py-3"><p className="font-bold text-primary-900">تم اعتماد الطلب من الإدارة.</p><p className="mt-1 text-sm text-primary-800">يرجى إرسال المبلغ وفق آلية الدفع المتفق عليها لإتمام الاعتماد النهائي وتحويل الطلب إلى فاتورة بيع.</p></td></tr>}
-      </Fragment>)}</tbody>
-    </table></div>}
+  return <div className="max-w-7xl mx-auto px-4 py-6">
+    <PageHeader title="المفضلة" description="المنتجات التي حفظتها للرجوع إليها" icon={Heart} />
+    {loading ? <LoadingOverlay /> : error ? <PageError message="تعذر تحميل المفضلة." /> : products.length
+      ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{products.map(product => <ProductCard key={product.id} product={product} />)}</div>
+      : <EmptyState icon={<Heart />} title="لا توجد منتجات محفوظة" description="اضغط على القلب في أي منتج لإضافته للمفضلة." />}
   </div>
 }
-export function Invoices() { return <RecordsPage title="الفواتير" icon={FileText} table="customer_sales_invoice_summaries" columns={['رقم المستند', 'الحالة', 'التاريخ']} /> }
-export function InvoiceDetail() { return <Invoices /> }
-export function Statements() { return <RecordsPage title="كشوف الحساب" icon={Wallet} table="customer_statement_summaries" columns={['رقم الكشف', 'الحالة', 'التاريخ']} /> }
-export function Payments() { return <RecordsPage title="المدفوعات" icon={Wallet} table="customer_payment_summaries" columns={['رقم العملية', 'الحالة', 'التاريخ']} /> }
-
-export function Profile() { const { user } = useAuth(); return <div className="max-w-3xl mx-auto px-4 py-6"><PageHeader title="الملف الشخصي" description="معلومات حسابك المستخدم" icon={User} /><div className="card p-6 space-y-4"><div><label className="label">البريد الإلكتروني</label><input className="input" value={user?.email || ''} readOnly /></div><div><label className="label">الاسم</label><input className="input" value={String(user?.user_metadata?.full_name || '')} readOnly /></div><p className="text-xs text-neutral-500">لتعديل البيانات، تواصل مع مسؤول الشركة.</p></div></div> }
-export function Company() { const { organization } = useAuth(); return <div className="max-w-3xl mx-auto px-4 py-6"><PageHeader title="الشركة" description="بيانات المؤسسة المرتبطة بحسابك" icon={Building2} /><div className="card p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">{[['اسم الشركة', organization?.name], ['البريد', organization?.email], ['الهاتف', organization?.phone], ['المدينة', organization?.city], ['الدولة', organization?.country], ['الحالة', organization?.status]].map(([label, value]) => <div key={String(label)}><p className="text-xs text-neutral-500 mb-1">{label}</p><p className="font-medium">{value || 'غير متوفر'}</p></div>)}</div></div> }
 export function Addresses() { const { organization } = useAuth(); const [rows, setRows] = useState<Address[]>([]); const [loading, setLoading] = useState(true); useEffect(() => { if (organization) supabase.from('addresses').select('*').eq('organization_id', organization.id).then(({ data }) => { setRows(data as Address[] || []); setLoading(false) }) }, [organization]); return <div className="max-w-4xl mx-auto px-4 py-6"><PageHeader title="عناوين التوصيل" description="إدارة عناوين شركتك" icon={MapPin} /><Link to="/addresses/new" className="btn-primary mb-5 inline-flex"><Plus className="h-4 w-4" /> إضافة عنوان</Link>{loading ? <LoadingOverlay /> : rows.length ? <div className="grid gap-3">{rows.map(row => <div className="card p-5" key={row.id}><div className="flex justify-between"><h3 className="font-semibold">{row.label}</h3>{row.is_default && <span className="badge-success">افتراضي</span>}</div><p className="text-sm text-neutral-600 mt-2">{row.line1}، {row.city}، {row.country}</p></div>)}</div> : <EmptyState icon={<MapPin />} title="لا توجد عناوين" description="أضف عنواناً لاستخدامه عند إتمام الطلب." />}</div> }
 export function AccountSettings() { const { signOut } = useAuth(); const { show } = useToast(); const [saving, setSaving] = useState(false); const [name, setName] = useState(''); const save = async (event: FormEvent) => { event.preventDefault(); setSaving(true); const { error } = await supabase.auth.updateUser({ data: { full_name: name } }); setSaving(false); show(error ? 'error' : 'success', error ? 'تعذر الحفظ' : 'تم حفظ الإعدادات', error?.message) }; return <div className="max-w-3xl mx-auto px-4 py-6"><PageHeader title="إعدادات الحساب" description="تحكم في بيانات الحساب وتفضيلاته" icon={Settings} /><form onSubmit={save} className="card p-6 space-y-4"><div><label className="label">الاسم الظاهر</label><input className="input" value={name} onChange={event => setName(event.target.value)} placeholder="الاسم الكامل" /></div><button className="btn-primary" disabled={saving}>{saving ? 'جاري الحفظ...' : 'حفظ التغييرات'}</button></form><button onClick={() => signOut()} className="btn-danger mt-5">تسجيل الخروج</button></div> }
 export function Notifications() { const { user } = useAuth(); const [rows, setRows] = useState<Notification[]>([]); useEffect(() => { if (user) supabase.from('notifications').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).then(({ data }) => setRows(data as Notification[] || [])) }, [user]); return <div className="max-w-3xl mx-auto px-4 py-6"><PageHeader title="الإشعارات" description="آخر التحديثات المتعلقة بحسابك وطلباتك" icon={Bell} />{rows.length ? <div className="card divide-y divide-neutral-100">{rows.map(row => <div key={row.id} className="p-4"><div className="flex justify-between"><h3 className="font-semibold">{row.title}</h3><span className="text-xs text-neutral-400">{formatDate(row.created_at)}</span></div><p className="text-sm text-neutral-500 mt-1">{row.body}</p></div>)}</div> : <EmptyState icon={<Bell />} title="لا توجد إشعارات" />}</div> }
@@ -286,52 +292,76 @@ export function CategoriesPage() {
 }
 
 export function AdvancedSearch() {
+  const { organization } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
-  const [form, setForm] = useState({ q: '', categoryId: '', brandId: '', minPrice: '', maxPrice: '', inStock: false })
+  const [error, setError] = useState('')
+  const [form, setForm] = useState({ q: '', categoryId: '', brandId: '', inStock: false })
   const [categories, setCategories] = useState<import('@/types').Category[]>([])
   const [brands, setBrands] = useState<import('@/types').Brand[]>([])
+
   useEffect(() => {
-    supabase.from('categories').select('*').eq('is_active', true).order('sort_order').then(({ data }) => setCategories(data as any || []))
-    supabase.from('brands').select('*').eq('is_active', true).then(({ data }) => setBrands(data as any || []))
-  }, [])
-  const search = async (e: FormEvent) => {
-    e.preventDefault(); setLoading(true); setSearched(true)
-    let query = supabase.from('products').select('*, category:categories(*), brand:brands(*)').eq('is_active', true)
-    if (form.q) query = query.or(`name.ilike.%${form.q}%,name_ar.ilike.%${form.q}%,sku.ilike.%${form.q}%`)
-    if (form.categoryId) query = query.eq('category_id', form.categoryId)
-    if (form.brandId) query = query.eq('brand_id', form.brandId)
-    if (form.inStock) query = query.gt('stock_quantity', 0)
-    if (form.minPrice) query = query.gte('price', parseFloat(form.minPrice))
-    if (form.maxPrice) query = query.lte('price', parseFloat(form.maxPrice))
-    query = query.order('created_at', { ascending: false }).limit(48)
-    const { data } = await query
-    setProducts(data as Product[] || []); setLoading(false)
+    if (!organization?.id) { setCategories([]); setBrands([]); return }
+    supabase.from('categories').select('id,name,slug,parent_id,icon,sort_order,is_active,created_at')
+      .eq('organization_id', organization.id).eq('is_active', true).order('sort_order')
+      .then(({ data }) => setCategories(data as import('@/types').Category[] || []))
+    supabase.from('brands').select('id,name,slug,logo_url,description,is_active,created_at')
+      .eq('organization_id', organization.id).eq('is_active', true)
+      .then(({ data }) => setBrands(data as import('@/types').Brand[] || []))
+  }, [organization?.id])
+
+  const search = async (event: FormEvent) => {
+    event.preventDefault()
+    setLoading(true)
+    setSearched(true)
+    setError('')
+    if (!organization?.id) {
+      setProducts([])
+      setError('سجّل الدخول بحساب مؤسستك للبحث في الكتالوج.')
+      setLoading(false)
+      return
+    }
+    let request = supabase.from('products')
+      .select(CUSTOMER_PRODUCT_SELECT)
+      .eq('organization_id', organization.id)
+      .eq('is_active', true)
+    if (form.q) request = request.or(`name.ilike.%${form.q}%,name_ar.ilike.%${form.q}%,sku.ilike.%${form.q}%`)
+    if (form.categoryId) request = request.eq('category_id', form.categoryId)
+    if (form.brandId) request = request.eq('brand_id', form.brandId)
+    if (form.inStock) request = request.gt('stock_quantity', 0)
+    const { data, error: queryError } = await request.order('created_at', { ascending: false }).limit(48)
+    if (queryError) { setProducts([]); setError('تعذر تنفيذ البحث. حاول مرة أخرى.') }
+    else setProducts((data || []) as unknown as Product[])
+    setLoading(false)
   }
-  return <div className="max-w-7xl mx-auto px-4 py-6"><PageHeader title="البحث المتقدم" description="ابحث بمعايير متعددة: الاسم، التصنيف، العلامة، السعر، التوفر" icon={Search} />
+
+  return <div className="max-w-7xl mx-auto px-4 py-6">
+    <PageHeader title="البحث المتقدم" description="ابحث بالاسم والتصنيف والعلامة التجارية والتوفر" icon={Search} />
     <form onSubmit={search} className="card p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-      <div className="lg:col-span-3"><label className="label">كلمة البحث</label><input className="input" value={form.q} onChange={e => setForm(f => ({ ...f, q: e.target.value }))} placeholder="اسم المنتج أو SKU" /></div>
-      <div><label className="label">التصنيف</label><select className="input" value={form.categoryId} onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))}><option value="">الكل</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-      <div><label className="label">العلامة التجارية</label><select className="input" value={form.brandId} onChange={e => setForm(f => ({ ...f, brandId: e.target.value }))}><option value="">الكل</option>{brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
-      <div><label className="label">متوفر فقط</label><label className="flex items-center gap-2 mt-2"><input type="checkbox" checked={form.inStock} onChange={e => setForm(f => ({ ...f, inStock: e.target.checked }))} className="rounded border-neutral-300" /> نعم</label></div>
-      <div><label className="label">السعر من</label><input type="number" className="input" value={form.minPrice} onChange={e => setForm(f => ({ ...f, minPrice: e.target.value }))} /></div>
-      <div><label className="label">السعر إلى</label><input type="number" className="input" value={form.maxPrice} onChange={e => setForm(f => ({ ...f, maxPrice: e.target.value }))} /></div>
-      <div className="lg:col-span-3"><button type="submit" className="btn-primary" disabled={loading}>{loading ? 'جاري البحث...' : 'بحث'}</button></div>
+      <div className="lg:col-span-3"><label className="label">كلمة البحث</label><input className="input" value={form.q} onChange={event => setForm(current => ({ ...current, q: event.target.value }))} placeholder="اسم المنتج أو SKU" /></div>
+      <div><label className="label">التصنيف</label><select className="input" value={form.categoryId} onChange={event => setForm(current => ({ ...current, categoryId: event.target.value }))}><option value="">الكل</option>{categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div>
+      <div><label className="label">العلامة التجارية</label><select className="input" value={form.brandId} onChange={event => setForm(current => ({ ...current, brandId: event.target.value }))}><option value="">الكل</option>{brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></div>
+      <div><label className="label">التوفر</label><label className="flex items-center gap-2 mt-2"><input type="checkbox" checked={form.inStock} onChange={event => setForm(current => ({ ...current, inStock: event.target.checked }))} className="rounded border-neutral-300" /> متوفر فقط</label></div>
+      <div className="lg:col-span-3"><p className="mb-3 text-xs leading-5 text-neutral-500">لا تتضمن نتائج البحث أسعاراً أو نطاق سعر. تظهر الأسعار فقط في المسارات الإدارية المصرح بها.</p><button type="submit" className="btn-primary" disabled={loading}>{loading ? 'جاري البحث...' : 'بحث'}</button></div>
     </form>
-    {searched && (loading ? <LoadingOverlay /> : products.length ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{products.map(p => <ProductCard key={p.id} product={p} />)}</div> : <EmptyState icon={<Search />} title="لا توجد نتائج" description="جرّب معايير بحث مختلفة." />)}
+    {searched && (loading ? <LoadingOverlay /> : error ? <PageError message={error} /> : products.length
+      ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{products.map(product => <ProductCard key={product.id} product={product} />)}</div>
+      : <EmptyState icon={<Search />} title="لا توجد نتائج" description="جرّب معايير بحث مختلفة." />)}
   </div>
 }
 
 export function ComparePage() {
-  const { user } = useAuth()
+  const { organization } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   useEffect(() => {
     const ids = JSON.parse(localStorage.getItem('compare_ids') || '[]') as string[]
-    if (!ids.length) { setLoading(false); return }
-    supabase.from('products').select('*, category:categories(*), brand:brands(*)').in('id', ids).then(({ data }) => { setProducts(data as Product[] || []); setLoading(false) })
-  }, [])
+    if (!ids.length || !organization?.id) { setLoading(false); setProducts([]); return }
+    supabase.from('products').select(CUSTOMER_PRODUCT_SELECT)
+      .eq('organization_id', organization.id).in('id', ids)
+      .then(({ data, error }) => { setProducts(error ? [] : (data || []) as unknown as Product[]); setLoading(false) })
+  }, [organization?.id])
   const removeItem = (id: string) => {
     const ids = JSON.parse(localStorage.getItem('compare_ids') || '[]') as string[]
     localStorage.setItem('compare_ids', JSON.stringify(ids.filter(x => x !== id)))
