@@ -453,6 +453,9 @@ DECLARE
   v_user_id uuid := auth.uid();
   v_org_id uuid;
   v_active_membership_count integer := 0;
+  v_customer_id uuid;
+  v_customer_tier text := 'retail';
+  v_price_level text := 'retail';
   v_order_id uuid;
   v_invoice_id uuid;
   v_existing uuid;
@@ -490,6 +493,23 @@ BEGIN
   FROM public.organization_members
   WHERE user_id = v_user_id AND status = 'active'
   LIMIT 1;
+
+  -- Derive the customer class from the authenticated user's linked customer record.
+  -- No price level or organization identifier is trusted from the browser.
+  SELECT c.id, c.tier
+    INTO v_customer_id, v_customer_tier
+  FROM public.customers c
+  JOIN public.profiles pr ON pr.id = c.profile_id
+  WHERE c.organization_id = v_org_id
+    AND pr.auth_user_id = v_user_id
+    AND c.status = 'approved'
+  ORDER BY c.created_at DESC
+  LIMIT 1;
+
+  v_price_level := CASE
+    WHEN v_customer_tier = 'wholesale' THEN 'wholesale'
+    ELSE 'retail'
+  END;
 
   SELECT md5(COALESCE(string_agg(
     ci.product_id::text || ':' || ci.quantity::text || ':' || COALESCE(ci.unit_type, 'piece'),
@@ -534,8 +554,8 @@ BEGIN
     RAISE EXCEPTION 'idempotent_request_not_reusable';
   END IF;
 
-  INSERT INTO orders (order_number, organization_id, user_id, status, shipping_address, billing_address, notes, idempotency_key)
-  VALUES (v_order_number, v_org_id, v_user_id, 'pending', p_shipping_address, p_billing_address, p_notes, p_idempotency_key)
+  INSERT INTO orders (order_number, organization_id, user_id, customer_id, status, shipping_address, billing_address, notes, idempotency_key)
+  VALUES (v_order_number, v_org_id, v_user_id, v_customer_id, 'pending', p_shipping_address, p_billing_address, p_notes, p_idempotency_key)
   RETURNING id INTO v_order_id;
 
   FOR item IN
@@ -564,7 +584,7 @@ BEGIN
     v_unit_price := public.calculate_commerce_price(
       item.product_id,
       item.quantity * v_multiplier,
-      CASE WHEN item.quantity * v_multiplier >= 10 THEN 'wholesale' ELSE 'retail' END
+      v_price_level
     );
     v_line_total := v_unit_price * item.quantity * v_multiplier;
     v_subtotal := v_subtotal + v_line_total;
