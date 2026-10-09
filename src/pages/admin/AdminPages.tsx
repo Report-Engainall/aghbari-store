@@ -254,7 +254,7 @@ export function OrderDetail() {
           {payments.length ? <div className="space-y-3">{payments.map(payment => <div className="rounded-xl border border-neutral-200 p-3" key={String(payment.id)}>
             <div className="flex flex-wrap justify-between gap-2"><span className="font-semibold">{String(payment.payment_number || payment.id)}</span><StatusBadge status={String(payment.status || 'pending')} /></div>
             <p className="mt-1 text-sm text-neutral-600">المبلغ المسجل للإدارة: {formatCurrency(Number(payment.amount || 0))} · الطريقة: {String(payment.method || '—')}</p>
-            {payment.reference && <p className="mt-1 text-xs text-neutral-500">المرجع: {String(payment.reference)}</p>}
+            {typeof payment.reference === 'string' && payment.reference.length > 0 && <p className="mt-1 text-xs text-neutral-500">المرجع: {payment.reference}</p>}
             {payment.status === 'pending' && <div className="mt-3 flex gap-2"><button disabled={saving} onClick={() => void reviewPayment(String(payment.id), true)} className="btn-primary btn-sm">تأكيد استلام المبلغ</button><button disabled={saving} onClick={() => void reviewPayment(String(payment.id), false)} className="btn-secondary btn-sm">رفض الدفعة</button></div>}
           </div>)}</div> : <p className="text-sm text-neutral-500">لا توجد دفعات مسجلة.</p>}
           {String(invoice.invoice_kind || '') === 'proforma' && <p className="mt-3 rounded-lg bg-sky-50 p-3 text-sm text-sky-900">لن تتحول الفاتورة الأولية إلى فاتورة بيع رسمية إلا بعد تأكيد الإدارة للدفعات التي تساوي إجمالي المبلغ المستحق.</p>}
