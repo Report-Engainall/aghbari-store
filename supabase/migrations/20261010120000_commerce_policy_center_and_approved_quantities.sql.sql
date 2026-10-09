@@ -385,10 +385,13 @@ SECURITY DEFINER
 SET search_path = public, private
 AS $$
 BEGIN
+  -- The recalculation itself updates derived price columns. Ignore nested trigger calls
+  -- to prevent recursive recalculation while retaining canonical base-price changes.
+  IF pg_trigger_depth() > 1 THEN RETURN NEW; END IF;
   PERFORM public.recalculate_organization_product_prices(NEW.organization_id);
   RETURN NEW;
 END;
-$$;
+$;
 
 DROP TRIGGER IF EXISTS sync_product_prices_after_base_change ON products;
 CREATE TRIGGER sync_product_prices_after_base_change
@@ -447,6 +450,7 @@ AS $$
 DECLARE
   v_user_id uuid := auth.uid();
   v_org_id uuid;
+  v_active_membership_count integer := 0;
   v_order_id uuid;
   v_invoice_id uuid;
   v_existing uuid;
@@ -468,12 +472,22 @@ BEGIN
     RAISE EXCEPTION 'invalid_request';
   END IF;
 
+  SELECT count(*) INTO v_active_membership_count
+  FROM public.organization_members
+  WHERE user_id = v_user_id AND status = 'active';
+
+  IF v_active_membership_count = 0 THEN
+    RAISE EXCEPTION 'organization_required';
+  ELSIF v_active_membership_count > 1 THEN
+    -- Never pick an arbitrary tenant when an identity belongs to multiple organizations.
+    -- A trusted server-side active-organization context must be wired before multi-tenant ordering is enabled.
+    RAISE EXCEPTION 'organization_context_required';
+  END IF;
+
   SELECT organization_id INTO v_org_id
-  FROM organization_members
+  FROM public.organization_members
   WHERE user_id = v_user_id AND status = 'active'
-  ORDER BY created_at
   LIMIT 1;
-  IF v_org_id IS NULL THEN RAISE EXCEPTION 'organization_required'; END IF;
 
   SELECT md5(COALESCE(string_agg(
     ci.product_id::text || ':' || ci.quantity::text || ':' || COALESCE(ci.unit_type, 'piece'),
@@ -1155,4 +1169,230 @@ GRANT SELECT ON public.customer_order_summaries TO authenticated;
 GRANT SELECT ON public.customer_order_item_summaries TO authenticated;
 GRANT SELECT ON public.customer_sales_invoice_summaries TO authenticated;
 GRANT SELECT ON public.customer_payment_summaries TO authenticated;
+
+
+-- Restrict import/profile mutation and pricing-rule writes to organization administrators.
+-- The data API must not let an ordinary member rewrite import manifests, snapshots, or price rules.
+DO $
+DECLARE policy_row record;
+BEGIN
+  FOR policy_row IN
+    SELECT policyname, tablename
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename IN ('import_profiles','import_uploads','import_chunks','import_records','pricing_rules','idempotency_keys')
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', policy_row.policyname, policy_row.tablename);
+  END LOOP;
+END;
+$;
+
+CREATE POLICY import_profiles_read_org_admin
+ON public.import_profiles FOR SELECT TO authenticated
+USING (
+  EXISTS (SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = import_profiles.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin'))
+);
+
+CREATE POLICY import_profiles_insert_org_admin
+ON public.import_profiles FOR INSERT TO authenticated
+WITH CHECK (
+  EXISTS (SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = import_profiles.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin'))
+);
+
+CREATE POLICY import_profiles_update_org_admin
+ON public.import_profiles FOR UPDATE TO authenticated
+USING (
+  EXISTS (SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = import_profiles.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin'))
+)
+WITH CHECK (
+  EXISTS (SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = import_profiles.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin'))
+);
+
+CREATE POLICY import_profiles_delete_org_admin
+ON public.import_profiles FOR DELETE TO authenticated
+USING (
+  EXISTS (SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = import_profiles.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin'))
+);
+
+CREATE POLICY import_uploads_read_org_admin
+ON public.import_uploads FOR SELECT TO authenticated
+USING (
+  EXISTS (SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = import_uploads.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin'))
+);
+
+CREATE POLICY import_uploads_insert_org_admin
+ON public.import_uploads FOR INSERT TO authenticated
+WITH CHECK (
+  EXISTS (SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = import_uploads.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin'))
+);
+
+CREATE POLICY import_uploads_update_org_admin
+ON public.import_uploads FOR UPDATE TO authenticated
+USING (
+  EXISTS (SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = import_uploads.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin'))
+)
+WITH CHECK (
+  EXISTS (SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = import_uploads.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin'))
+);
+
+CREATE POLICY import_uploads_delete_org_admin
+ON public.import_uploads FOR DELETE TO authenticated
+USING (
+  EXISTS (SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = import_uploads.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin'))
+);
+
+CREATE POLICY import_chunks_read_org_admin
+ON public.import_chunks FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.import_uploads u
+  JOIN public.organization_members om ON om.organization_id = u.organization_id
+  WHERE u.id = import_chunks.upload_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin')
+));
+
+CREATE POLICY import_chunks_insert_org_admin
+ON public.import_chunks FOR INSERT TO authenticated
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.import_uploads u
+  JOIN public.organization_members om ON om.organization_id = u.organization_id
+  WHERE u.id = import_chunks.upload_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin')
+));
+
+CREATE POLICY import_chunks_update_org_admin
+ON public.import_chunks FOR UPDATE TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.import_uploads u
+  JOIN public.organization_members om ON om.organization_id = u.organization_id
+  WHERE u.id = import_chunks.upload_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin')
+))
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.import_uploads u
+  JOIN public.organization_members om ON om.organization_id = u.organization_id
+  WHERE u.id = import_chunks.upload_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin')
+));
+
+CREATE POLICY import_chunks_delete_org_admin
+ON public.import_chunks FOR DELETE TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.import_uploads u
+  JOIN public.organization_members om ON om.organization_id = u.organization_id
+  WHERE u.id = import_chunks.upload_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin')
+));
+
+CREATE POLICY import_records_read_org_admin
+ON public.import_records FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.import_uploads u
+  JOIN public.organization_members om ON om.organization_id = u.organization_id
+  WHERE u.id = import_records.upload_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin')
+));
+
+CREATE POLICY import_records_insert_org_admin
+ON public.import_records FOR INSERT TO authenticated
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.import_uploads u
+  JOIN public.organization_members om ON om.organization_id = u.organization_id
+  WHERE u.id = import_records.upload_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin')
+));
+
+CREATE POLICY import_records_update_org_admin
+ON public.import_records FOR UPDATE TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.import_uploads u
+  JOIN public.organization_members om ON om.organization_id = u.organization_id
+  WHERE u.id = import_records.upload_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin')
+))
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.import_uploads u
+  JOIN public.organization_members om ON om.organization_id = u.organization_id
+  WHERE u.id = import_records.upload_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin')
+));
+
+CREATE POLICY import_records_delete_org_admin
+ON public.import_records FOR DELETE TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.import_uploads u
+  JOIN public.organization_members om ON om.organization_id = u.organization_id
+  WHERE u.id = import_records.upload_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin')
+));
+
+CREATE POLICY pricing_rules_read_org
+ON public.pricing_rules FOR SELECT TO authenticated
+USING (private.is_org_member(organization_id));
+
+CREATE POLICY pricing_rules_insert_admin
+ON public.pricing_rules FOR INSERT TO authenticated
+WITH CHECK (
+  EXISTS (SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = pricing_rules.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin'))
+);
+
+CREATE POLICY pricing_rules_update_admin
+ON public.pricing_rules FOR UPDATE TO authenticated
+USING (
+  EXISTS (SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = pricing_rules.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin'))
+)
+WITH CHECK (
+  EXISTS (SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = pricing_rules.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin'))
+);
+
+CREATE POLICY pricing_rules_delete_admin
+ON public.pricing_rules FOR DELETE TO authenticated
+USING (
+  EXISTS (SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = pricing_rules.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin'))
+);
+
+-- Idempotency keys are written only inside privileged, transactional RPCs. Do not expose
+-- direct insert/update/delete access that could rewrite replay protection state.
+
 
