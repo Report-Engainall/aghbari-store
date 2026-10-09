@@ -307,7 +307,7 @@ export function AdvancedSearch() {
       .eq('organization_id', organization.id).eq('is_active', true).order('sort_order')
       .then(({ data }) => setCategories(data as import('@/types').Category[] || []))
     supabase.from('brands').select('id,name,slug,logo_url,description,is_active,created_at')
-      .eq('organization_id', organization.id).eq('is_active', true)
+      .eq('is_active', true)
       .then(({ data }) => setBrands(data as import('@/types').Brand[] || []))
   }, [organization?.id])
 
