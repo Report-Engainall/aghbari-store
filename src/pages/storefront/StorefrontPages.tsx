@@ -254,10 +254,10 @@ function RecordsPage({ title, icon, table, columns }: { title: string; icon: typ
     </table></div>}
   </div>
 }
-export function Invoices() { return <RecordsPage title="الفواتير" icon={FileText} table="invoices" columns={['رقم المستند', 'الحالة', 'التاريخ']} /> }
+export function Invoices() { return <RecordsPage title="الفواتير" icon={FileText} table="customer_sales_invoice_summaries" columns={['رقم المستند', 'الحالة', 'التاريخ']} /> }
 export function InvoiceDetail() { return <Invoices /> }
 export function Statements() { return <RecordsPage title="كشوف الحساب" icon={Wallet} table="statements" columns={['رقم الكشف', 'الحالة', 'التاريخ']} /> }
-export function Payments() { return <RecordsPage title="المدفوعات" icon={Wallet} table="payments" columns={['رقم العملية', 'الحالة', 'التاريخ']} /> }
+export function Payments() { return <RecordsPage title="المدفوعات" icon={Wallet} table="customer_payment_summaries" columns={['رقم العملية', 'الحالة', 'التاريخ']} /> }
 
 export function Profile() { const { user } = useAuth(); return <div className="max-w-3xl mx-auto px-4 py-6"><PageHeader title="الملف الشخصي" description="معلومات حسابك المستخدم" icon={User} /><div className="card p-6 space-y-4"><div><label className="label">البريد الإلكتروني</label><input className="input" value={user?.email || ''} readOnly /></div><div><label className="label">الاسم</label><input className="input" value={String(user?.user_metadata?.full_name || '')} readOnly /></div><p className="text-xs text-neutral-500">لتعديل البيانات، تواصل مع مسؤول الشركة.</p></div></div> }
 export function Company() { const { organization } = useAuth(); return <div className="max-w-3xl mx-auto px-4 py-6"><PageHeader title="الشركة" description="بيانات المؤسسة المرتبطة بحسابك" icon={Building2} /><div className="card p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">{[['اسم الشركة', organization?.name], ['البريد', organization?.email], ['الهاتف', organization?.phone], ['المدينة', organization?.city], ['الدولة', organization?.country], ['الحالة', organization?.status]].map(([label, value]) => <div key={String(label)}><p className="text-xs text-neutral-500 mb-1">{label}</p><p className="font-medium">{value || 'غير متوفر'}</p></div>)}</div></div> }
