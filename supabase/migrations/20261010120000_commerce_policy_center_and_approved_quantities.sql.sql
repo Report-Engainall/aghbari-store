@@ -391,7 +391,7 @@ BEGIN
   PERFORM public.recalculate_organization_product_prices(NEW.organization_id);
   RETURN NEW;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS sync_product_prices_after_base_change ON products;
 CREATE TRIGGER sync_product_prices_after_base_change
@@ -1173,7 +1173,7 @@ GRANT SELECT ON public.customer_payment_summaries TO authenticated;
 
 -- Restrict import/profile mutation and pricing-rule writes to organization administrators.
 -- The data API must not let an ordinary member rewrite import manifests, snapshots, or price rules.
-DO $
+DO $$
 DECLARE policy_row record;
 BEGIN
   FOR policy_row IN
@@ -1185,7 +1185,7 @@ BEGIN
     EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', policy_row.policyname, policy_row.tablename);
   END LOOP;
 END;
-$;
+$$;
 
 CREATE POLICY import_profiles_read_org_admin
 ON public.import_profiles FOR SELECT TO authenticated
