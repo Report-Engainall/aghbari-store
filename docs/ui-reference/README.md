@@ -1,17 +1,20 @@
-# Historical UI references
+# مراجع واجهات Aghbari Commerce
 
-These five screenshots were retained from the previous `dev` Bolt export as reference material. They live under documentation so they do not ship as customer-facing public assets.
+هذا المجلد يحتوي على **89 صورة مرجعية** من واجهات إدارية ومتجر عميل وتقارير وتشغيل، وليست أصولاً تُعرض مباشرةً في التطبيق.
 
-| File | Purpose |
-|---|---|
-| `aghbari-screen-2026-08-06-150303.png` | Historical screen reference |
-| `aghbari-screen-2026-08-06-150329.png` | Historical screen reference |
-| `aghbari-screen-2026-08-06-150354.png` | Historical screen reference |
-| `aghbari-screen-2026-08-06-150421.png` | Historical screen reference |
-| `aghbari-screen-2026-08-06-150457.png` | Historical screen reference |
+- [فهرس الأصول وتصنيف عائلات الشاشات](./UI-REFERENCE-ASSET-INDEX.md)
+- [استعراض الصور داخل GitHub](https://github.com/Report-Engainall/aghbari-store/tree/main/docs/ui-reference)
 
-## Consolidation decision
+توجد 4 نسخة/اسم ملف مكرر تماماً ضمن الجرد (أربعة أزواج لها SHA-1 متطابق). احتُفظ بالأسماء التاريخية للتتبّع، وصُنّفت حسب عائلة الشاشة لتُنفذ الواجهة مرة واحدة لكل عائلة.
 
-The old `dev` ref was an independent/orphan Bolt export, not a branch descended from `main`. The current `main` app contains the newer modular route structure and the current database migrations, so the legacy monolithic `src/App.tsx`, its separate stylesheet, duplicate package definitions, and generated build/dependency files were not overlaid on top of the active app.
+## قواعد الاستخدام
 
-The available Base64 ZIP snapshot was incomplete (no ZIP end-of-central-directory record in the inspected decoded content) and included generated `dist`, `node_modules`, and environment data rather than a clean, complete source bundle. It was not restored as project source. The useful historical screenshots are preserved here.
+- تُستخدم الصور مرجعاً للتخطيط والتفاعل فقط؛ لا تُنسخ بيانات العملاء والأسعار والمخزون الظاهرة فيها.
+- الهوية النهائية هي **الأغبري / Aghbari Commerce**؛ أي اسم قديم ظاهر في الصور لا يعاد إلى العلامة التجارية.
+- لا تُنقل الصور إلى `public/` ولا تُضمّن في حزمة الإنتاج.
+- لا تعلن عن وظيفة مكتملة من شكل الشاشة؛ يجب أن تمر عبر backend/RPC/DB contract وصلاحيات الخادم والاختبارات المناسبة.
+- بعض المراجع تصور وظائف مشروع أقدم أو تحليلات منفصلة. تُضمّن فقط بعد التأكد من نطاقها ومعمارية المشروع الحالي، ولا تُستنسخ بوصفها محركات جديدة بلا داعٍ.
+
+## خلفية
+
+كانت المراجع الأولى خمس لقطات من تصدير Bolt سابق. جرى إلحاق بقية اللقطات في `main/docs/ui-reference/`; لذا لم يعد الوصف القديم الذي يقول «خمس صور» صحيحاً. تفاصيل جميع الصور والبصمات والنسخ المطابقة موثقة في الفهرس.
