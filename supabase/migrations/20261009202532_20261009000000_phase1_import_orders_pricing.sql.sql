@@ -30,21 +30,89 @@
 - Direct client inserts into orders and order items are not used by the application; the privileged RPC validates the caller and owns the transaction.
 */
 
+-- Compatibility bridge: the repository has two historical shapes for products/orders.
+-- Add aliases before referencing the commerce-era column names; preserve the canonical base price.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS item_code text;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS sku text;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS name_ar text;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS slug text;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS brand_id uuid REFERENCES brands(id) ON DELETE SET NULL;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS price numeric(12,2);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS bulk_price numeric(12,2);
 ALTER TABLE products ADD COLUMN IF NOT EXISTS base_price numeric(12,2);
 ALTER TABLE products ADD COLUMN IF NOT EXISTS retail_price numeric(12,2);
 ALTER TABLE products ADD COLUMN IF NOT EXISTS wholesale_price numeric(12,2);
-UPDATE products SET base_price = COALESCE(base_price, price), retail_price = COALESCE(retail_price, price), wholesale_price = COALESCE(wholesale_price, NULLIF(bulk_price, 0), price) WHERE base_price IS NULL OR retail_price IS NULL OR wholesale_price IS NULL;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_quantity integer;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS reserved_stock integer DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS min_order_qty integer DEFAULT 1;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS box_quantity integer DEFAULT 1;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS carton_quantity integer DEFAULT 1;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS is_active boolean;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS is_featured boolean DEFAULT false;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS is_new boolean DEFAULT false;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS tags text[] DEFAULT '{}';
+UPDATE products SET
+  item_code = COALESCE(NULLIF(item_code, ''), NULLIF(sku, '')),
+  sku = COALESCE(NULLIF(sku, ''), NULLIF(item_code, '')),
+  price = COALESCE(price, base_price, 0),
+  bulk_price = COALESCE(bulk_price, wholesale_price, base_price, price, 0),
+  base_price = COALESCE(base_price, price, 0),
+  retail_price = COALESCE(retail_price, price, base_price, 0),
+  wholesale_price = COALESCE(wholesale_price, NULLIF(bulk_price, 0), base_price, price, 0),
+  is_active = COALESCE(is_active, status = 'active', true),
+  stock_quantity = COALESCE(stock_quantity, 0),
+  min_order_qty = COALESCE(min_order_qty, 1),
+  box_quantity = COALESCE(box_quantity, 1),
+  carton_quantity = COALESCE(carton_quantity, 1);
+UPDATE products SET sku = COALESCE(NULLIF(sku, ''), item_code, id::text)
+WHERE sku IS NULL OR sku = '';
+UPDATE products p SET stock_quantity = GREATEST(COALESCE((
+  SELECT SUM(ib.quantity_available)::integer FROM inventory_balances ib WHERE ib.product_id = p.id
+), p.stock_quantity, 0), 0);
 ALTER TABLE products ALTER COLUMN base_price SET DEFAULT 0;
 ALTER TABLE products ALTER COLUMN retail_price SET DEFAULT 0;
 ALTER TABLE products ALTER COLUMN wholesale_price SET DEFAULT 0;
+ALTER TABLE products ALTER COLUMN price SET DEFAULT 0;
+ALTER TABLE products ALTER COLUMN bulk_price SET DEFAULT 0;
+ALTER TABLE products ALTER COLUMN stock_quantity SET DEFAULT 0;
 
+-- Both schema generations remain usable while the server-side order RPC moves to approved quantities.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_id uuid REFERENCES customers(id) ON DELETE SET NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_address jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS billing_address jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS subtotal numeric(14,2) DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS total numeric(14,2) DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_amount numeric(15,2) DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS currency text DEFAULT 'SAR';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status text DEFAULT 'unpaid';
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS idempotency_key text;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_adjustment_note text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS internal_notes text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS expected_delivery date;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_at timestamptz;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+UPDATE orders SET subtotal = COALESCE(subtotal, total_amount, total, 0), total = COALESCE(total, total_amount, subtotal, 0), total_amount = COALESCE(total_amount, total, subtotal, 0);
+ALTER TABLE orders ALTER COLUMN customer_id DROP NOT NULL;
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS item_code text;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS sku text;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS name text;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS unit_type text;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS unit_price numeric(12,2);
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS product_name_snapshot text;
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS unit_snapshot text;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS discount numeric(12,2) DEFAULT 0;
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS discount_snapshot numeric(12,2) DEFAULT 0;
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS tax_snapshot numeric(12,2) DEFAULT 0;
+UPDATE order_items SET
+  item_code = COALESCE(item_code, sku),
+  sku = COALESCE(sku, item_code),
+  name = COALESCE(name, product_name_snapshot, item_code, 'صنف'),
+  product_name_snapshot = COALESCE(product_name_snapshot, name, item_code, 'صنف'),
+  unit_type = COALESCE(unit_type, unit_snapshot, 'piece'),
+  unit_snapshot = COALESCE(unit_snapshot, unit_type, 'piece'),
+  unit_price = COALESCE(unit_price, unit_price_snapshot, 0),
+  discount = COALESCE(discount, discount_snapshot, 0);
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS customer_code text;
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS customer_name_snapshot text;
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS main_description text;
@@ -164,6 +232,47 @@ CREATE TABLE IF NOT EXISTS outbox_events (
   last_error text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Forward-compatible aliases for databases that already have the legacy pricing/outbox tables.
+ALTER TABLE pricing_rules ADD COLUMN IF NOT EXISTS price_level text;
+ALTER TABLE pricing_rules ADD COLUMN IF NOT EXISTS calculation_method text;
+ALTER TABLE pricing_rules ADD COLUMN IF NOT EXISTS value numeric(14,4);
+ALTER TABLE pricing_rules ADD COLUMN IF NOT EXISTS active boolean;
+ALTER TABLE pricing_rules ADD COLUMN IF NOT EXISTS min_quantity integer;
+UPDATE pricing_rules SET
+  price_level = COALESCE(price_level, CASE WHEN scope_type = 'retail' THEN 'retail' WHEN scope_type = 'wholesale' THEN 'wholesale' ELSE 'both' END),
+  calculation_method = COALESCE(calculation_method, CASE
+    WHEN adjustment_type IN ('margin_percent','margin') THEN 'margin_percent'
+    WHEN adjustment_type IN ('fixed_price','fixed') THEN 'fixed_price'
+    WHEN adjustment_type IN ('amount_adjustment','amount','fixed_amount') THEN 'amount_adjustment'
+    ELSE 'markup_percent' END),
+  value = COALESCE(value, adjustment_value, 0),
+  active = COALESCE(active, is_active, true),
+  min_quantity = COALESCE(min_quantity, 1);
+ALTER TABLE pricing_rules ALTER COLUMN price_level SET DEFAULT 'both';
+ALTER TABLE pricing_rules ALTER COLUMN price_level SET NOT NULL;
+ALTER TABLE pricing_rules ALTER COLUMN calculation_method SET DEFAULT 'markup_percent';
+ALTER TABLE pricing_rules ALTER COLUMN calculation_method SET NOT NULL;
+ALTER TABLE pricing_rules ALTER COLUMN value SET DEFAULT 0;
+ALTER TABLE pricing_rules ALTER COLUMN value SET NOT NULL;
+ALTER TABLE pricing_rules ALTER COLUMN active SET DEFAULT true;
+ALTER TABLE pricing_rules ALTER COLUMN active SET NOT NULL;
+ALTER TABLE pricing_rules ALTER COLUMN min_quantity SET DEFAULT 1;
+ALTER TABLE pricing_rules ALTER COLUMN min_quantity SET NOT NULL;
+
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS event_key text;
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS aggregate_type text;
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS available_at timestamptz;
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS processed_at timestamptz;
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS last_error text;
+UPDATE outbox_events SET
+  event_key = COALESCE(NULLIF(event_key, ''), NULLIF(idempotency_key, ''), 'legacy:' || id::text),
+  aggregate_type = COALESCE(NULLIF(aggregate_type, ''), 'legacy'),
+  available_at = COALESCE(available_at, created_at, now());
+ALTER TABLE outbox_events ALTER COLUMN event_key SET NOT NULL;
+ALTER TABLE outbox_events ALTER COLUMN aggregate_type SET DEFAULT 'legacy';
+ALTER TABLE outbox_events ALTER COLUMN available_at SET DEFAULT now();
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_events_event_key ON outbox_events(event_key);
 
 CREATE INDEX IF NOT EXISTS idx_import_uploads_org_status ON import_uploads(organization_id, status);
 CREATE INDEX IF NOT EXISTS idx_import_records_upload ON import_records(upload_id);
