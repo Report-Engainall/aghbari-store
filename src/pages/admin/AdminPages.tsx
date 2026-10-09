@@ -100,35 +100,87 @@ export function Customers() { const { organization } = useAuth(); const [rows, s
 
 export function Catalog() { const [rows, setRows] = useState<Product[]>([]); const [query, setQuery] = useState(''); const [loading, setLoading] = useState(true); const load = () => { setLoading(true); supabase.from('products').select('*').order('created_at', { ascending: false }).limit(100).then(({ data }) => { setRows(data as Product[] || []); setLoading(false) }) }; useEffect(load, []); const filtered = rows.filter(row => `${row.name} ${row.sku}`.toLowerCase().includes(query.toLowerCase())); return <AdminPage title="الكتالوج" description="إدارة المنتجات والأسعار والمخزون" icon={Package} action={<button onClick={load} className="btn-secondary btn-sm"><RefreshCw className="h-4 w-4" /> تحديث</button>}><div className="mb-4 max-w-sm"><input className="input" value={query} onChange={event => setQuery(event.target.value)} placeholder="بحث بالاسم أو SKU" /></div>{loading ? <LoadingOverlay /> : <Table headers={['المنتج', 'SKU', 'السعر الأساسي', 'التجزئة', 'الجملة', 'المخزون', 'الحالة']} >{filtered.map(row => <tr className="border-t border-neutral-100" key={row.id}><td className="p-4 font-semibold">{row.name_ar || row.name}</td><td className="p-4 font-mono text-xs">{row.sku}</td><td className="p-4">{formatCurrency(row.base_price || row.price)}</td><td className="p-4">{formatCurrency(row.retail_price || row.price)}</td><td className="p-4">{formatCurrency(row.wholesale_price || row.bulk_price)}</td><td className="p-4">{row.stock_quantity}</td><td className="p-4"><StatusBadge status={row.is_active ? 'active' : 'inactive'} /></td></tr>)}</Table>}</AdminPage> }
 export function Pricing() {
+  const { organization, isAdmin } = useAuth()
   const { show } = useToast()
   const [rules, setRules] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ name: '', method: 'markup_percent', value: '', target: 'both', category_id: '' })
-  const load = () => { setLoading(true); supabase.from('pricing_rules').select('*').order('created_at', { ascending: false }).then(({ data }) => { setRules(data || []); setLoading(false) }) }
-  useEffect(load, [])
-  const createRule = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!form.name || !form.value) { show('warning', 'أدخل البيانات كاملة'); return }
-    const payload: Record<string, unknown> = { name: form.name, method: form.method, value: parseFloat(form.value), is_active: true }
-    if (form.target === 'retail' || form.target === 'both') payload.apply_retail = true
-    if (form.target === 'wholesale' || form.target === 'both') payload.apply_wholesale = true
-    const { error } = await supabase.from('pricing_rules').insert(payload)
-    if (error) show('error', 'تعذر إنشاء القاعدة', error.message)
-    else { show('success', 'تم إنشاء قاعدة التسعير'); setShowForm(false); setForm({ name: '', method: 'markup_percent', value: '', target: 'both', category_id: '' }); load() }
+  const [form, setForm] = useState({ name: '', calculation_method: 'markup_percent', value: '', price_level: 'both', min_quantity: '1', priority: '100' })
+  const load = async () => {
+    if (!organization?.id) { setRules([]); setLoading(false); return }
+    setLoading(true)
+    const { data, error } = await supabase.from('pricing_rules').select('*')
+      .eq('organization_id', organization.id)
+      .order('priority', { ascending: true })
+      .order('created_at', { ascending: false })
+    if (error) show('error', 'تعذر تحميل قواعد التسعير', error.message)
+    else setRules(data || [])
+    setLoading(false)
   }
-  const toggleRule = async (id: string, isActive: boolean) => { const { error } = await supabase.from('pricing_rules').update({ is_active: !isActive }).eq('id', id); if (error) show('error', 'تعذر التحديث'); else load() }
-  const deleteRule = async (id: string) => { const { error } = await supabase.from('pricing_rules').delete().eq('id', id); if (error) show('error', 'تعذر الحذف'); else { show('success', 'تم حذف القاعدة. ستعود الأسعار للسعر الأساسي.'); load() } }
-  const methodLabels: Record<string, string> = { markup_percent: 'نسبة إضافة %', margin_percent: 'هامش ربح %', fixed_price: 'سعر ثابت', amount_adjustment: 'إضافة/خصم مبلغ' }
-  return <AdminPage title="التسعير" description="قواعد التسعير للتجزئة والجملة - تطبق على العمودين معاً" icon={FileText} action={<button onClick={() => setShowForm(!showForm)} className="btn-primary btn-sm"><Plus className="h-4 w-4" /> قاعدة جديدة</button>}>
-    <div className="card p-4 mb-4 bg-primary-50 border-primary-200"><p className="text-sm text-primary-800">السعر الأساسي هو السعر الافتراضي لجميع أعمدة التسعير. عند عدم وجود قاعدة نشطة، تعود أسعار التجزئة والجملة تلقائياً لتساوي السعر الأساسي.</p></div>
+  useEffect(() => { void load() }, [organization?.id])
+  const createRule = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!organization?.id || !form.name.trim() || form.value.trim() === '') { show('warning', 'أدخل اسم القاعدة وقيمتها'); return }
+    const value = Number(form.value)
+    const minQuantity = Number(form.min_quantity)
+    const priority = Number(form.priority)
+    if (!Number.isFinite(value) || !Number.isFinite(minQuantity) || minQuantity < 1 || !Number.isInteger(minQuantity) || !Number.isInteger(priority)) {
+      show('warning', 'تحقق من القيمة والحد الأدنى والمرتبة'); return
+    }
+    if (form.calculation_method === 'margin_percent' && (value < 0 || value >= 100)) {
+      show('warning', 'هامش الربح يجب أن يكون من 0 إلى أقل من 100%'); return
+    }
+    if (form.calculation_method !== 'amount_adjustment' && value < 0) {
+      show('warning', 'لا يمكن أن تكون قيمة طريقة الاحتساب المحددة سالبة'); return
+    }
+    const { error } = await supabase.from('pricing_rules').insert({
+      organization_id: organization.id,
+      name: form.name.trim(),
+      calculation_method: form.calculation_method,
+      value,
+      price_level: form.price_level,
+      min_quantity: minQuantity,
+      priority,
+      active: true,
+      created_by: (await supabase.auth.getUser()).data.user?.id,
+    })
+    if (error) show('error', 'تعذر إنشاء قاعدة التسعير', error.message)
+    else {
+      show('success', 'تم إنشاء قاعدة التسعير', 'سيعيد الخادم احتساب أسعار الجملة والتجزئة وفق القاعدة ذات الأولوية الأعلى.')
+      setShowForm(false)
+      setForm({ name: '', calculation_method: 'markup_percent', value: '', price_level: 'both', min_quantity: '1', priority: '100' })
+      await load()
+    }
+  }
+  const toggleRule = async (id: string, active: boolean) => {
+    const { error } = await supabase.from('pricing_rules').update({ active: !active }).eq('id', id).eq('organization_id', organization?.id)
+    if (error) show('error', 'تعذر تحديث القاعدة', error.message)
+    else { show('success', !active ? 'تم تفعيل القاعدة' : 'تم إيقاف القاعدة'); await load() }
+  }
+  const deleteRule = async (id: string) => {
+    const { error } = await supabase.from('pricing_rules').delete().eq('id', id).eq('organization_id', organization?.id)
+    if (error) show('error', 'تعذر حذف القاعدة', error.message)
+    else { show('success', 'تم حذف القاعدة', 'يعيد الخادم الأسعار إلى السعر الأساسي أو إلى القاعدة النشطة التالية.'); await load() }
+  }
+  const methodLabels: Record<string, string> = {
+    markup_percent: 'نسبة إضافة % على الأساس',
+    margin_percent: 'هامش ربح % من سعر البيع',
+    fixed_price: 'سعر ثابت',
+    amount_adjustment: 'إضافة/خصم مبلغ',
+  }
+  const levelLabels: Record<string, string> = { both: 'التجزئة والجملة', retail: 'التجزئة فقط', wholesale: 'الجملة فقط' }
+  return <AdminPage title="محرك التسعير" description="قواعد مؤسسة محددة مع احتساب خادمي لأسعار الجملة والتجزئة" icon={FileText} action={<button disabled={!isAdmin || !organization} onClick={() => setShowForm(!showForm)} className="btn-primary btn-sm"><Plus className="h-4 w-4" /> قاعدة جديدة</button>}>
+    <div className="card p-4 mb-4 bg-primary-50 border-primary-200"><p className="text-sm text-primary-800">السعر الأساسي هو الأصل المرجعي. يطبق الخادم القاعدة النشطة ذات الأولوية الأصغر على مستوى السعر المحدد؛ وعند غياب القاعدة النشطة تعود أسعار الجملة والتجزئة إلى السعر الأساسي.</p></div>
     {showForm && <form onSubmit={createRule} className="card p-5 mb-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <div><label className="label">اسم القاعدة</label><input className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="مثال: تخفيض الصيف" /></div>
-      <div><label className="label">طريقة الاحتساب</label><select className="input" value={form.method} onChange={e => setForm(f => ({ ...f, method: e.target.value }))}><option value="markup_percent">نسبة إضافة % على الأساس</option><option value="margin_percent">هامش ربح % من سعر البيع</option><option value="fixed_price">سعر ثابت</option><option value="amount_adjustment">إضافة/خصم مبلغ</option></select></div>
-      <div><label className="label">القيمة</label><input type="number" step="0.01" className="input" value={form.value} onChange={e => setForm(f => ({ ...f, value: e.target.value }))} /></div>
-      <div><label className="label">التطبيق على</label><select className="input" value={form.target} onChange={e => setForm(f => ({ ...f, target: e.target.value }))}><option value="both">التجزئة والجملة</option><option value="retail">التجزئة فقط</option><option value="wholesale">الجملة فقط</option></select></div>
-      <div className="sm:col-span-2"><button type="submit" className="btn-primary">إنشاء القاعدة</button></div>
+      <div><label className="label">اسم القاعدة</label><input required className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} maxLength={120} placeholder="مثال: تسعير التجزئة" /></div>
+      <div><label className="label">طريقة الاحتساب</label><select className="input" value={form.calculation_method} onChange={e => setForm(f => ({ ...f, calculation_method: e.target.value }))}><option value="markup_percent">نسبة إضافة % على الأساس</option><option value="margin_percent">هامش ربح % من سعر البيع</option><option value="fixed_price">سعر ثابت</option><option value="amount_adjustment">إضافة/خصم مبلغ</option></select></div>
+      <div><label className="label">القيمة</label><input required type="number" step="0.01" className="input" value={form.value} onChange={e => setForm(f => ({ ...f, value: e.target.value }))} /></div>
+      <div><label className="label">تطبيق القاعدة على</label><select className="input" value={form.price_level} onChange={e => setForm(f => ({ ...f, price_level: e.target.value }))}><option value="both">التجزئة والجملة</option><option value="retail">التجزئة فقط</option><option value="wholesale">الجملة فقط</option></select></div>
+      <div><label className="label">الحد الأدنى للكمية</label><input required min="1" step="1" type="number" className="input" value={form.min_quantity} onChange={e => setForm(f => ({ ...f, min_quantity: e.target.value }))} /><p className="mt-1 text-xs text-neutral-500">يُحفظ الحد ضمن القاعدة؛ تطبيقه على شرائح كميات الطلب ما زال بحاجة إلى ربط منفصل في اختيار سعر الطلب.</p></div>
+      <div><label className="label">الأولوية (الأصغر أولاً)</label><input required step="1" type="number" className="input" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))} /></div>
+      <div className="sm:col-span-2 flex gap-2"><button type="submit" className="btn-primary">حفظ القاعدة</button><button type="button" onClick={() => setShowForm(false)} className="btn-secondary">إلغاء</button></div>
     </form>}
-    {loading ? <LoadingOverlay /> : rules.length ? <Table headers={['القاعدة', 'الطريقة', 'القيمة', 'التطبيق', 'الحالة', '']} >{rules.map(row => <tr key={String(row.id)} className="border-t border-neutral-100"><td className="p-4 font-semibold">{String(row.name)}</td><td className="p-4">{methodLabels[String(row.method)] || String(row.method)}</td><td className="p-4">{String(row.value)}</td><td className="p-4 text-xs">{row.apply_retail ? 'تجزئة ' : ''}{row.apply_wholesale ? 'جملة' : ''}</td><td className="p-4"><StatusBadge status={row.is_active ? 'active' : 'inactive'} /></td><td className="p-4"><div className="flex gap-2"><button onClick={() => toggleRule(String(row.id), Boolean(row.is_active))} className="btn-secondary btn-sm">{row.is_active ? 'إيقاف' : 'تفعيل'}</button><button onClick={() => deleteRule(String(row.id))} className="btn-danger btn-sm">حذف</button></div></td></tr>)}</Table> : <EmptyState title="لا توجد قواعد تسعير" description="أنشئ قاعدة تسعير لتطبيقها على أسعار التجزئة والجملة. بدون قواعد، الأسعار تساوي السعر الأساسي." />}
+    {loading ? <LoadingOverlay /> : rules.length ? <Table headers={['القاعدة', 'طريقة الاحتساب', 'القيمة', 'مستوى السعر', 'الأولوية', 'الحالة', 'إجراءات']}>{rules.map(row => <tr key={String(row.id)} className="border-t border-neutral-100"><td className="p-4 font-semibold">{String(row.name)}</td><td className="p-4">{methodLabels[String(row.calculation_method)] || String(row.calculation_method)}</td><td className="p-4 tabular-nums">{String(row.value)}</td><td className="p-4">{levelLabels[String(row.price_level)] || String(row.price_level)}</td><td className="p-4">{String(row.priority ?? 100)}</td><td className="p-4"><StatusBadge status={row.active ? 'active' : 'inactive'} /></td><td className="p-4"><div className="flex gap-2"><button disabled={!isAdmin} onClick={() => void toggleRule(String(row.id), Boolean(row.active))} className="btn-secondary btn-sm">{row.active ? 'إيقاف' : 'تفعيل'}</button><button disabled={!isAdmin} onClick={() => void deleteRule(String(row.id))} className="btn-danger btn-sm">حذف</button></div></td></tr>)}</Table> : <EmptyState title="لا توجد قواعد تسعير" description="بدون قواعد نشطة يعيد الخادم سعري الجملة والتجزئة إلى السعر الأساسي." />}
   </AdminPage>
 }
 export function DataCenter() { return <AdminPage title="مركز البيانات" description="مصادر البيانات وجودتها" icon={Database}><div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{[['الكتالوج', 'products'], ['الطلبات', 'orders'], ['المستخدمون', 'organization_members']].map(([label, table]) => <div className="card p-5" key={table}><Database className="h-6 w-6 text-primary-600" /><h3 className="font-bold mt-3">{label}</h3><p className="text-sm text-neutral-500 mt-1">متصل بقاعدة البيانات</p></div>)}</div></AdminPage> }
