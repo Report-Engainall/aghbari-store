@@ -357,6 +357,7 @@ export function DataCenter() { return <AdminPage title="مركز البيانا�
 export function Import() {
   const { organization, isAdmin } = useAuth()
   const { show } = useToast()
+  const { policies } = useCommercePolicies()
   const [file, setFile] = useState<File | null>(null)
   const [profiles, setProfiles] = useState<Record<string, unknown>[]>([])
   const [profileId, setProfileId] = useState('')
@@ -436,7 +437,7 @@ export function Import() {
 
   const stage = async () => {
     if (!file || !organization?.id || !profileId) { setMessage('اختر ملفاً وملف تعريف أولاً.'); return }
-    if (file.size <= 0 || file.size > 100 * 1024 * 1024) { setMessage('حجم الملف يجب ألا يتجاوز 100 ميجابايت وأن يكون أكبر من صفر.'); return }
+    if (file.size <= 0 || file.size > policies.max_file_size_mb * 1024 * 1024) { setMessage('حجم الملف يجب ألا يتجاوز ' + policies.max_file_size_mb + ' ميجابايت وأن يكون أكبر من صفر.'); return }
     const ext = file.name.split('.').pop()?.toLowerCase() || ''
     if (!['csv', 'xlsx', 'xls', 'pdf'].includes(ext)) { setMessage('الأنواع المسموحة: CSV وExcel وPDF.'); return }
     const profile = profiles.find(entry => String(entry.id) === profileId)
@@ -454,6 +455,7 @@ export function Import() {
         const result = await processCsvToSnapshot({
           file, organizationId: organization.id,
           profile: profile as unknown as CsvImportProfile, fileHash,
+          policies,
           onProgress: next => setProgress(next),
         })
         const summary = `الصفوف: ${result.totalRows}؛ المقبولة: ${result.acceptedRows}؛ التحذيرات: ${result.warningRows}؛ المرفوضة: ${result.rejectedRows}؛ المكررة: ${result.duplicateRows}؛ DQS: ${result.qualityScore ?? 'غير متاح'}/100. ${result.message}`
@@ -491,7 +493,7 @@ export function Import() {
       <div className="mb-4 rounded-xl border border-warning-200 bg-warning-50 p-4"><p className="font-bold text-warning-900">حدود المعالجة المعلنة</p><p className="mt-1 text-sm leading-6 text-warning-800">CSV يُحلّل تدريجياً إلى دفعات 500 سجل مع التطبيع والتحقق وكشف التكرار ودرجة جودة Snapshot. لا يتم دمج السجلات تلقائياً في البيانات التشغيلية. ملفات Excel وPDF تبقى للمراجعة لأن قارئهما لم يُربط بعد؛ لن تظهر نسبة تقدم مصطنعة أو حالة «مكتمل».</p></div>
       {profiles.length ? <div className="mb-4"><label className="label">ملف تعريف الاستيراد</label><select className="input" value={profileId} onChange={e => setProfileId(e.target.value)}>{profiles.map(p => <option key={String(p.id)} value={String(p.id)}>{String(p.profile_name)} v{String(p.version)}</option>)}</select></div> : <button type="button" disabled={!isAdmin || busy} className="btn-secondary mb-4" onClick={() => void createProfile()}>إنشاء ملف تعريف أساسي</button>}
       <label className="label">ملف CSV أو Excel أو PDF</label><input type="file" accept=".csv,.xlsx,.xls,.pdf" className="input" onChange={e => { setFile(e.target.files?.[0] || null); setDuplicate(null); setMessage('') }} />
-      <p className="mt-3 text-xs leading-5 text-neutral-500">حد الملف 100 ميجابايت؛ حد CSV هو 100,000 صف و100 عمود و4,000 حرف للخلية. تُحفظ بصمة SHA-256 والسجلات المنظمة وبيان Snapshot، ولا يُرفع الملف الخام إلى Storage.</p>
+      <p className="mt-3 text-xs leading-5 text-neutral-500">حد الملف {policies.max_file_size_mb} ميجابايت؛ حد CSV هو {policies.max_import_rows.toLocaleString('en-US')} صف و{policies.max_import_columns} عمود و{policies.max_cell_length} حرف للخلية. تُحفظ بصمة SHA-256 والسجلات المنظمة وبيان Snapshot، ولا يُرفع الملف الخام إلى Storage.</p>
       {progress && <div role="status" className="mt-4 rounded-lg border border-primary-100 bg-primary-50 p-3 text-sm text-primary-900"><p className="font-semibold">{progress.stage}</p><p className="mt-1">تم فحص {progress.processedRows.toLocaleString('en-US')} صف؛ تُحفظ الدفعات كل 500 سجل.</p><div className="mt-2 h-1.5 animate-pulse rounded bg-primary-200" /></div>}
       {message && <p role="status" className="mt-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-sm leading-6">{message}</p>}
       {duplicate && <div className="mt-3 rounded-xl border border-warning-200 bg-warning-50 p-4">
