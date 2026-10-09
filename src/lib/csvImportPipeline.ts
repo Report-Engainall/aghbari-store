@@ -15,8 +15,6 @@ export interface CsvImportProfile {
 export interface CsvImportProgress {
   stage: string
   processedRows: number
-  bytesRead: number
-  totalBytes: number
 }
 
 export interface CsvImportResult {
@@ -171,15 +169,13 @@ export async function processCsvToSnapshot(args: {
   }).select('id').single()
   if (createError) throw createError
   const uploadId = String(upload.id)
-  const report = (stage: string, processedRows: number) => onProgress?.({
-    stage, processedRows, bytesRead: Math.min(file.size, Math.round((processedRows / Math.max(MAX_ROWS, processedRows, 1)) * file.size)),
-    totalBytes: file.size,
-  })
+  const report = (stage: string, processedRows: number) => onProgress?.({ stage, processedRows })
 
   let totalRows = 0
   let completenessCells = 0
   let requiredCells = 0
   let validRows = 0
+  let acceptedRows = 0
   let consistentRows = 0
   let nonEmptyKeys = 0
   let duplicateRows = 0
@@ -268,6 +264,7 @@ export async function processCsvToSnapshot(args: {
         }
       }
       const status = errors.length ? 'rejected' : isDuplicate ? 'duplicate' : 'accepted'
+      if (status === 'accepted') acceptedRows++
       if (errors.length) rejectedRows++
       batch.push({
         upload_id: uploadId,
@@ -326,8 +323,8 @@ export async function processCsvToSnapshot(args: {
       manifest_version: 1, file_name: file.name, file_type: 'csv', file_size: file.size,
       file_hash: fileHash, profile_id: profile.id, profile_version: (profile as JsonRecord).version ?? null,
       headers, column_mapping: mapping, total_rows: totalRows,
-      accepted_rows: validRows - duplicateRows - rejectedRows,
-      warning_rows: qualityScore >= 75 && qualityScore < 90 ? validRows - duplicateRows - rejectedRows : 0,
+      accepted_rows: acceptedRows,
+      warning_rows: qualityScore >= 75 && qualityScore < 90 ? acceptedRows : 0,
       rejected_rows: rejectedRows, duplicate_rows: duplicateRows, dqs: qualityBreakdown,
       snapshot_at: new Date().toISOString(), raw_file_persisted: false,
       live_data_merged: false,
@@ -341,8 +338,8 @@ export async function processCsvToSnapshot(args: {
       snapshot: manifest,
     })
     return {
-      uploadId, status, totalRows, acceptedRows: validRows - duplicateRows - rejectedRows,
-      warningRows: qualityScore >= 75 && qualityScore < 90 ? validRows - duplicateRows - rejectedRows : 0,
+      uploadId, status, totalRows, acceptedRows,
+      warningRows: qualityScore >= 75 && qualityScore < 90 ? acceptedRows : 0,
       rejectedRows, duplicateRows, qualityScore, message,
     }
   } catch (error) {
