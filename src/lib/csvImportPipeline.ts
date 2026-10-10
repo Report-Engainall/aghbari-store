@@ -203,7 +203,6 @@ export async function processCsvToSnapshot(args: {
 
     const { error: clearError } = await supabase.from('import_records').delete()
       .eq('upload_id', existingUploadId)
-      .eq('organization_id', organizationId)
     if (clearError) {
       await supabase.from('import_uploads').update({
         status: 'failed',
