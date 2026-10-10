@@ -83,3 +83,11 @@
 - **Exact-SHA CI:** Build succeeded, SQL Migration Chain succeeded, and Backup Tool Safety Checks succeeded for `a6cfdabda8f9ac6a42f5a5b74d510aca99d3c6b9`. SQL workflow includes the new commercial draft audit migration and verifies purchase-order, inventory-transfer and stock-count audit entries under the expected tenant/entity.
 - **Scope:** this verifies TypeScript and production bundling plus clean PostgreSQL migration/smoke tests. It does not prove live production deployment, browser E2E, real backup/restore, or complete audit coverage for every operational path.
 - **Next exact action:** add static contracts so future changes cannot accidentally restore eager imports or remove the route loading boundary; run all three workflows on the final head and merge PR #4 only if they stay green. Keep production deployment on HOLD.
+
+
+## Entry bundle budget guard — implemented, awaiting exact-head CI
+
+- Added scripts/verify-bundle-budget.mjs; it requires exactly one non-empty Vite entry file matching index-*.js, computes actual gzip bytes, and fails the build if the uncompressed entry exceeds **500,000 bytes**.
+- The production build command now runs the guard after vite build; this converts the measured improvement into an enforced regression budget.
+- Previous measured entry = 452.62 kB / 127.61 kB gzip. The new guard should pass under that output, but it is **not marked verified until CI runs on the exact head containing this script/package change**.
+- Next action: add contract checks that package build calls the budget verifier and that the script enforces the threshold; run Build + SQL Migration Chain + Backup Tool Safety Checks on the final head, then merge PR #4 if all remain green. Deployment remains HOLD.
