@@ -20,9 +20,28 @@ for command_name in pg_dump age sha256sum awk stat date mktemp; do
   }
 done
 
-output_dir="${BACKUP_OUTPUT_DIR:-./artifacts/encrypted-backups}"
+output_dir="${BACKUP_OUTPUT_DIR:-$HOME/.local/share/aghbari/encrypted-backups}"
+if [[ "$output_dir" == "/" || "$output_dir" == "." || "$output_dir" == ".." || "$output_dir" == "$HOME" ]]; then
+  printf 'Backup blocked: output directory must be a dedicated subdirectory, not a system or project root.\\n' >&2
+  exit 1
+fi
+if [[ -L "$output_dir" ]]; then
+  printf 'Backup blocked: symbolic-link output directories are not accepted.\\n' >&2
+  exit 1
+fi
 mkdir -p "$output_dir"
-chmod 700 "$output_dir"
+canonical_output_dir="$(cd "$output_dir" && pwd -P)"
+canonical_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+if [[ "$canonical_output_dir" == "/" || "$canonical_output_dir" == "$canonical_repo_root" || "$canonical_output_dir" == "$canonical_repo_root/"* ]]; then
+  printf 'Backup blocked: keep backup artifacts outside the source repository.\\n' >&2
+  exit 1
+fi
+directory_mode="$(stat -c '%a' "$output_dir")"
+directory_mode_value=$((8#$directory_mode))
+if (( directory_mode_value & 0022 )); then
+  printf 'Backup blocked: output directory must not be group/world writable.\\n' >&2
+  exit 1
+fi
 
 temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/aghbari-backup.XXXXXX")"
 cleanup() {
