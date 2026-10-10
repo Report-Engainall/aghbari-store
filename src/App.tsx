@@ -5,6 +5,18 @@ import { StorefrontShell } from '@/components/storefront/StorefrontShell'
 import { AdminShell } from '@/components/admin/AdminShell'
 import { ProtectedRoute, AdminRoute, PublicOnlyRoute } from '@/components/guards/RouteGuards'
 import PolicyCenter from '@/pages/admin/PolicyCenter'
+import {
+  Inventory as AdminInventory,
+  Warehouses as AdminWarehouses,
+  StockMovements as AdminStockMovements,
+  Suppliers as AdminSuppliers,
+  AdminInvoices as AdminFinanceInvoices,
+  AdminPayments as AdminFinancePayments,
+  AdminStatements as AdminFinanceStatements,
+  AdminRoles as AdminRoles,
+  AdminOutbox as AdminOutbox,
+  AdminIdempotency as AdminIdempotency,
+} from '@/pages/admin/OperationsPages'
 
 // Storefront pages
 import Landing from '@/pages/storefront/Landing'
@@ -112,6 +124,16 @@ export default function App() {
             <Route path="customers" element={<AdminCustomers />} />
             <Route path="catalog" element={<AdminCatalog />} />
             <Route path="pricing" element={<AdminPricing />} />
+            <Route path="inventory" element={<AdminInventory />} />
+            <Route path="warehouses" element={<AdminWarehouses />} />
+            <Route path="inventory/movements" element={<AdminStockMovements />} />
+            <Route path="suppliers" element={<AdminSuppliers />} />
+            <Route path="invoices" element={<AdminFinanceInvoices />} />
+            <Route path="payments" element={<AdminFinancePayments />} />
+            <Route path="statements" element={<AdminFinanceStatements />} />
+            <Route path="roles" element={<AdminRoles />} />
+            <Route path="outbox" element={<AdminOutbox />} />
+            <Route path="idempotency" element={<AdminIdempotency />} />
             <Route path="data-center" element={<AdminDataCenter />} />
             <Route path="import" element={<AdminImport />} />
             <Route path="import-logs" element={<AdminImportLogs />} />
