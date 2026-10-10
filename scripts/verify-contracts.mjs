@@ -256,6 +256,7 @@ assert.ok(backupCreate.includes('age --encrypt') && backupCreate.includes('ciphe
 assert.ok(backupCreate.includes('SUPABASE_DB_URL') && !backupCreate.includes('echo "$SUPABASE_DB_URL"'), 'Database connection material must not be printed by the backup tool.')
 assert.ok(backupVerify.includes('ciphertext_sha256') && backupVerify.includes('pg_restore --list'), 'Backup verification must check the hash and recognize the decrypted archive format.')
 assert.ok(backupRestore.includes('RESTORE_CONFIRM') && backupRestore.includes('I_HAVE_VERIFIED_THE_TARGET'), 'Restore must require explicit destination confirmation.')
+assert.ok(backupRestore.includes('RESTORE_EXPECTED_HOST') && backupRestore.includes('actual_target_host'), 'Restore must match the URL against an independently specified expected hostname.')
 assert.ok(backupRestore.includes('I_ACCEPT_PRODUCTION_DATA_OVERWRITE') && backupRestore.includes('--clean'), 'Production overwrite must need a separate explicit acknowledgment.')
 assert.ok(backupRestore.includes('PGSSLMODE=require'), 'Restore must request TLS for PostgreSQL connections.')
 assert.ok(backupGuide.includes('complete Supabase-project backup') && backupGuide.includes('isolated target first'), 'Backup documentation must disclose scope and require isolated restore before claiming recovery.');
