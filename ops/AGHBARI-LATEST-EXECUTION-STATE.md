@@ -21,11 +21,12 @@
 ## Verified (repository-content level only)
 - GitHub readback confirms the changed code/docs exist in the working branch.
 - The assistant's database reads explicitly include active organization scope.
-- The assistant displays that no generative model is configured; it is a saved-record summarizer, not a functioning LLM.
+- The assistant displays that no generative model is configured; it is a deterministic saved-record summarizer, not a functioning LLM.
+- The assistant additionally reads minimal active-tenant `audit_logs` and `outbox_events` fields, merges them into a time-sorted operational activity stream, displays source/status, and identifies preliminary review candidates from explicit status/action patterns. Complete audit coverage across every app path remains open.
 - Branch comparison after canonical and pricing updates showed the feature branch ahead of main with no behind commits; refresh actual comparison because this state/progress write changes the head.
 
 ## Not proven / open
-- Latest Build and SQL Migration Chain on the feature head have not reported PASS; past queries showed queued states and subsequent heads require fresh checks.
+- The first observed Build run failed on a wrong README variable in the static contract test; after fixing the root README binding, the next observed Build failed because the source-index content lacked an explicit legacy-brand section. The source index and assertion have now been corrected; current-head Build/SQL/Backup Tool Safety Checks must be checked again. A prior SQL Migration Chain and Backup Tool Safety Checks run passed on an older SHA, not the current candidate.
 - No local `npm run build`, browser E2E, responsive/accessibility, live Supabase/RLS proof or production deploy performed by this connected GitHub-only execution.
 - PR #4 has not merged to main. Production remains HOLD / NO TOUCH.
 - Native/private AI inference runtime, sanitization pipeline, event graph, recommendation evidence/action cards, quota ledger and model governance are not yet implemented by the current assistant.
@@ -33,11 +34,11 @@
 - Full XLSX/PDF structured extraction/resumable chunks, import DQS acceptance, outbox worker/DLQ recovery and complete browser test matrix remain open.
 
 ## Exact next executable action
-1. Inspect PR #4 latest HEAD and main SHA; read exact conclusions for Build, SQL Migration Chain and Backup Tool Safety Checks. Previous lookup showed all three queued, not passed.
-2. Fix any failure from the static contracts/build/shell syntax/migration chain on the feature branch; run the relevant checks again against the resulting exact SHA. Merge remains blocked until the latest candidate passes.
-3. Configure repository Actions secret `SUPABASE_DB_URL` and public `BACKUP_AGE_RECIPIENT` securely through GitHub Settings; keep the age private key offline. Then manually run the encrypted backup workflow and verify a real artifact/manifest.
-4. Download and verify the encrypted artifact using the offline key; restore it to an isolated compatible target with independent hostname confirmation; run login/tenant/commerce/RLS smoke tests. Record the restore evidence. Do not label the capability proven before that.
-5. Continue one high-value product gap at a time: import/DQS acceptance, SSOT/Onyx, outbox/queues/search, private/local AI governance, and full E2E regression. Update this state and progress ledger after each verified cycle.
+1. Inspect the actual latest PR #4 HEAD and read Build, SQL Migration Chain and Backup Tool Safety Checks conclusions for that exact SHA; the last run was queued before the latest audit/outbox and spec updates.
+2. Fix any remaining static/build/type error and re-run all required checks against the resulting exact head. Merge remains blocked until Build + SQL chain + backup shell gate all pass.
+3. The build workflow now uses Node 22 to match the resolved Supabase package engine requirement; keep that pin unless package metadata changes.
+4. Configure repository Actions secrets `SUPABASE_DB_URL` and public `BACKUP_AGE_RECIPIENT` through GitHub Settings; keep the age private key offline. Then manually run the encrypted backup workflow, verify a real artifact/manifest and restore to an isolated compatible target with application login/tenant/commerce/RLS smoke tests.
+5. Continue through import/DQS acceptance, SSOT/Onyx, full audit/outbox coverage mapping, private/local AI governance and complete E2E regression. Record exact-SHA results after each cycle.
 
 ## Do not repeat / do not do
 - Do not rebuild from zero or delete screenshot files, specs, migrations, current modules or git history.
