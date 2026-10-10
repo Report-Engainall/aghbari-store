@@ -11,7 +11,7 @@ interface AuthContextValue {
   membership: OrganizationMember | null
   isAdmin: boolean
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
-  signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null }>
+  signUp: (email: string, password: string, fullName: string, companyName: string, phone: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
   refreshOrganization: () => Promise<void>
 }
@@ -78,25 +78,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe()
   }, [loadOrganization])
 
-  const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    return { error: error?.message ?? null }
+  const ensureCompanyForUser = async (authUser: User) => {
+    const companyName = String(authUser.user_metadata?.company_name ?? '').trim()
+    if (!companyName) return { error: null as string | null }
+
+    const { error } = await supabase.rpc('create_organization_for_current_user', {
+      p_name: companyName,
+      p_email: authUser.email ?? null,
+      p_phone: authUser.user_metadata?.phone ? String(authUser.user_metadata.phone) : null,
+    })
+    if (error) return { error: 'تعذّر تجهيز ملف الشركة بأمان. أعد تسجيل الدخول، وإذا استمرت المشكلة تواصل مع الدعم.' }
+
+    await loadOrganization(authUser.id)
+    return { error: null as string | null }
   }
 
-  const signUp = async (email: string, password: string, fullName: string) => {
+  const signIn = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) return { error: error.message }
+
+    const setup = await ensureCompanyForUser(data.user)
+    if (setup.error) {
+      await supabase.auth.signOut()
+      return setup
+    }
+    await loadOrganization(data.user.id)
+    return { error: null }
+  }
+
+  const signUp = async (
+    email: string,
+    password: string,
+    fullName: string,
+    companyName: string,
+    phone: string,
+  ) => {
+    const normalizedCompanyName = companyName.trim()
+    const normalizedPhone = phone.trim()
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName } },
+      options: {
+        data: {
+          full_name: fullName.trim(),
+          company_name: normalizedCompanyName,
+          phone: normalizedPhone || null,
+        },
+      },
     })
     if (error) return { error: error.message }
-    if (data.user) {
-      await supabase.from('audit_logs').insert({
-        action: 'signup',
-        entity_type: 'user',
-        entity_id: data.user.id,
-        details: { email, full_name: fullName },
-      })
+
+    // Email-confirmation projects return no session here. The same RPC is retried safely
+    // after the user confirms the address and signs in.
+    if (data.session && data.user) {
+      const setup = await ensureCompanyForUser(data.user)
+      if (setup.error) {
+        await supabase.auth.signOut()
+        return setup
+      }
     }
     return { error: null }
   }
