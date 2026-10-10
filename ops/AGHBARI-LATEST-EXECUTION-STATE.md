@@ -74,3 +74,12 @@
 - `.github/workflows/sql-migrations.yml` smoke test now asserts the audit record exists for each create RPC and verifies organization/entity/action linkage.
 - The integrated assistant reads the audit entry with minimal fields; existing posted/receiving/expense paths keep their earlier explicit audit entries.
 - New migration and SQL smoke test remain unverified until the current latest workflow concludes successfully.
+
+
+## Route-level code splitting — verified on SHA a6cfdabda8f9ac6a42f5a5b74d510aca99d3c6b9
+
+- **Implementation:** `src/App.tsx` now lazy-loads storefront screens and admin modules by route using React `lazy` + `Suspense`; a small Arabic RTL `role=status` fallback is rendered during module loading. Auth providers, route guards, storefront/admin shells, connectivity UX and the in-app AI module remain within the same application.
+- **Measured build output:** main `index-*.js` changed from 732.55 kB (196.43 kB gzip) on the earlier monolithic build to 452.62 kB (127.61 kB gzip) after route splitting: **279.93 kB / about 38.2% less uncompressed initial JS**. Dedicated chunks include AIAssistant 15.05 kB, OperationsPages 26.93 kB, TransactionsPages 27.83 kB, StorefrontPages 67.13 kB and AdminPages 71.06 kB.
+- **Exact-SHA CI:** Build succeeded, SQL Migration Chain succeeded, and Backup Tool Safety Checks succeeded for `a6cfdabda8f9ac6a42f5a5b74d510aca99d3c6b9`. SQL workflow includes the new commercial draft audit migration and verifies purchase-order, inventory-transfer and stock-count audit entries under the expected tenant/entity.
+- **Scope:** this verifies TypeScript and production bundling plus clean PostgreSQL migration/smoke tests. It does not prove live production deployment, browser E2E, real backup/restore, or complete audit coverage for every operational path.
+- **Next exact action:** add static contracts so future changes cannot accidentally restore eager imports or remove the route loading boundary; run all three workflows on the final head and merge PR #4 only if they stay green. Keep production deployment on HOLD.
