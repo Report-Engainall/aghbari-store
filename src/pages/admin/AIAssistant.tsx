@@ -19,6 +19,8 @@ type ActivityRecord = {
   id: string
   action?: string | null
   entity_type?: string | null
+  status?: string | null
+  source: 'audit' | 'outbox'
   created_at?: string | null
 }
 
@@ -36,7 +38,7 @@ type ChatMessage = {
 
 const welcomeMessage: ChatMessage = {
   role: 'assistant',
-  content: 'مرحبًا. أنا المساعد التشغيلي المدمج في الأغبري. أستعرض سجلات التقارير والتنبيهات والمهام وأحدث الحركات المسجلة في سجل التدقيق للمؤسسة النشطة؛ لا أرسل بياناتك إلى نموذج خارجي.',
+  content: 'مرحبًا. أنا المساعد التشغيلي المدمج في الأغبري. أستعرض سجلات التقارير والتنبيهات والمهام وأحدث الحركات المسجلة في سجل التدقيق وطابور الأحداث للمؤسسة النشطة؛ لا أرسل بياناتك إلى نموذج خارجي.',
 }
 
 const emptySnapshot: Snapshot = { reports: [], alerts: [], tasks: [], activity: [] }
@@ -73,11 +75,13 @@ function answerFromSnapshot(question: string, snapshot: Snapshot) {
   const openTasks = snapshot.tasks.filter(row => !completed(row))
   const actionLabel = (row: ActivityRecord) => String(row.action || 'إجراء غير محدد')
   const entityLabel = (row: ActivityRecord) => String(row.entity_type || 'كيان غير محدد')
+  const sourceLabel = (row: ActivityRecord) => row.source === 'outbox' ? 'حدث تشغيلي' : 'سجل تدقيق'
+  const activityStatusLabel = (row: ActivityRecord) => row.status ? ` — الحالة: ${row.status}` : ''
   const activitySummary = snapshot.activity.slice(0, 10).map((row, index) =>
-    `${index + 1}. ${actionLabel(row)} — ${entityLabel(row)} — ${timeLabel(row.created_at)}`
+    `${index + 1}. ${actionLabel(row)} — ${entityLabel(row)} — ${sourceLabel(row)}${activityStatusLabel(row)} — ${timeLabel(row.created_at)}`
   ).join('\n')
   const reviewCandidates = snapshot.activity.filter(row =>
-    /delete|deleted|deactivat|denied|reject|failed|error|price|pricing|payment|refund|stock|inventory|حذف|تعطيل|رفض|فشل|خطأ|سعر|تسعير|دفعة|مخزون|صلاحية|أمان/i.test(actionLabel(row) + ' ' + entityLabel(row))
+    /delete|deleted|deactivat|denied|reject|failed|error|dead_letter|price|pricing|payment|refund|stock|inventory|حذف|تعطيل|رفض|فشل|خطأ|سعر|تسعير|دفعة|مخزون|صلاحية|أمان/i.test(actionLabel(row) + ' ' + entityLabel(row) + ' ' + String(row.status || ''))
   )
 
   if (q.includes('تستحق') || q.includes('مراجعة') || q.includes('مقلق') || q.includes('review') || q.includes('risk')) {
@@ -95,7 +99,7 @@ function answerFromSnapshot(question: string, snapshot: Snapshot) {
     }, {})
     const grouped = Object.entries(groups).sort((a, b) => b[1] - a[1]).slice(0, 6)
       .map(([key, count]) => `• ${key}: ${count}`).join('\n')
-    return `سجل الحركة التشغيلي — أحدث ${snapshot.activity.length} حدثًا مسجلًا (بحد أقصى 50):\n\nالتوزيع حسب نوع الكيان:\n${grouped}\n\nأحدث الأحداث:\n${activitySummary}\n\nالمصدر: audit_logs للمؤسسة النشطة. هذا عرض للحركة المسجلة فقط؛ لا يثبت شمول الأحداث التي لا تنتج سجل تدقيق.`
+    return `سجل الحركة التشغيلي — أحدث ${snapshot.activity.length} حدثًا مسجلًا (بحد أقصى 50):\n\nالتوزيع حسب نوع الكيان:\n${grouped}\n\nأحدث الأحداث:\n${activitySummary}\n\nالمصادر: audit_logs وoutbox_events للمؤسسة النشطة، بعد تطبيق نطاق المؤسسة من قاعدة البيانات. هذا عرض للحركة المسجلة فقط؛ لا يثبت شمول الأحداث التي لا تنتج سجل تدقيق.`
   }  if (q.includes('تنبيه') || q.includes('تحذير') || q.includes('alert') || q.includes('خطر')) {
     if (!snapshot.alerts.length) return 'لا توجد سجلات تنبيه ضمن أحدث السجلات المحمّلة لهذا الحساب. هذا لا يثبت عدم وجود أحداث خارج الجدول أو الفترة التي تم تحميلها.'
     return `تم تحميل ${snapshot.alerts.length} سجل تنبيه حديث. أحدثها:\n\n${snapshot.alerts.slice(0, 5).map((row, index) => `${index + 1}. ${recordTitle(row)} — الحالة: ${recordStatus(row)}\n${recordDetail(row)}`).join('\n\n')}\n\nهذه خلاصة للسجلات المحفوظة؛ لم أضف استنتاجات غير موجودة في المصدر.`
@@ -144,11 +148,12 @@ export default function AIAssistant() {
     setWarnings([])
 
     try {
-      const [reportsResult, alertsResult, tasksResult, activityResult] = await Promise.all([
+      const [reportsResult, alertsResult, tasksResult, activityResult, outboxResult] = await Promise.all([
         supabase.from('ai_reports').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(50),
         supabase.from('ai_alerts').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(50),
         supabase.from('ai_tasks').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(50),
         supabase.from('audit_logs').select('id,action,entity_type,created_at').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(50),
+        supabase.from('outbox_events').select('id,event_type,aggregate_type,status,created_at').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(50),
       ])
 
       if (requestId.current !== requestNumber) return
@@ -157,13 +162,33 @@ export default function AIAssistant() {
       if (reportsResult.error) nextWarnings.push(`تعذر تحميل التقارير: ${reportsResult.error.message}`)
       if (alertsResult.error) nextWarnings.push(`تعذر تحميل التنبيهات: ${alertsResult.error.message}`)
       if (tasksResult.error) nextWarnings.push(`تعذر تحميل المهام: ${tasksResult.error.message}`)
-      if (activityResult.error) nextWarnings.push(`تعذر تحميل سجل الحركة التشغيلي: ${activityResult.error.message}`)
+      if (activityResult.error) nextWarnings.push(`تعذر تحميل سجل التدقيق: ${activityResult.error.message}`)
+      if (outboxResult.error) nextWarnings.push(`تعذر تحميل الأحداث التشغيلية: ${outboxResult.error.message}`)
+
+      const auditActivity: ActivityRecord[] = (activityResult.error ? [] : activityResult.data || []).map(row => ({
+        id: String(row.id),
+        action: row.action,
+        entity_type: row.entity_type,
+        created_at: row.created_at,
+        source: 'audit',
+      }))
+      const outboxActivity: ActivityRecord[] = (outboxResult.error ? [] : outboxResult.data || []).map(row => ({
+        id: String(row.id),
+        action: row.event_type,
+        entity_type: row.aggregate_type,
+        status: row.status,
+        created_at: row.created_at,
+        source: 'outbox',
+      }))
+      const combinedActivity = [...auditActivity, ...outboxActivity]
+        .sort((left, right) => new Date(right.created_at || 0).getTime() - new Date(left.created_at || 0).getTime())
+        .slice(0, 50)
 
       setSnapshot({
         reports: reportsResult.error ? [] : (reportsResult.data || []) as AiRecord[],
         alerts: alertsResult.error ? [] : (alertsResult.data || []) as AiRecord[],
         tasks: tasksResult.error ? [] : (tasksResult.data || []) as AiRecord[],
-        activity: activityResult.error ? [] : (activityResult.data || []) as ActivityRecord[],
+        activity: combinedActivity,
       })
       setWarnings(nextWarnings)
     } catch (cause) {
@@ -215,7 +240,7 @@ export default function AIAssistant() {
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary-50 text-primary-700"><Brain className="h-6 w-6" /></div>
           <div>
             <h1 className="text-2xl font-bold text-neutral-900">المساعد الذكي</h1>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-neutral-600">مساعد مدمج داخل لوحة الأغبري، يستخدم جلسة المؤسسة نفسها ويعرض السجلات التشغيلية المحفوظة مع ملخصات وقواعد مراجعة حتمية قابلة للتفسير.</p>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-neutral-600">مساعد مدمج داخل لوحة الأغبري، يستخدم جلسة المؤسسة نفسها ويعرض السجلات التشغيلية المحفوظة من سجل التدقيق وطابور الأحداث مع ملخصات وقواعد مراجعة حتمية قابلة للتفسير.</p>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
               <span className="inline-flex items-center gap-1 rounded-full bg-success-50 px-3 py-1 font-semibold text-success-700"><ShieldCheck className="h-3.5 w-3.5" /> نطاق المؤسسة الحالية</span>
               <span className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-3 py-1 text-neutral-600"><Sparkles className="h-3.5 w-3.5" /> ملخصات من البيانات المحفوظة</span>
