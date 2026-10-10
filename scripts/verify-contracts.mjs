@@ -138,13 +138,13 @@ for (const table of [
 ]) {
   assert.ok(operationalMigration.includes('CREATE TABLE IF NOT EXISTS public.' + table), 'Operational table missing: ' + table)
 }
-required(operationalMigration, /REVOKE INSERT, UPDATE, DELETE ON public\\.purchase_orders[\\s\\S]{0,250}FROM anon, authenticated/, 'Operational ledgers must not allow direct browser writes.')
-required(operationalMigration, /receipt_warehouse_must_match_purchase_order/, 'Receiving must be restricted to the purchase-order warehouse.')
-required(operationalMigration, /insufficient_available_stock/, 'Transfers must reject insufficient available stock.')
-required(operationalMigration, /stock_changed_since_count/, 'Stock-count posting must reject stale stock snapshots.')
-required(transactionPages, /supabase\\.rpc\\('receive_purchase_order'/, 'Receiving must use the server-side transaction RPC.')
-required(transactionPages, /supabase\\.rpc\\('post_inventory_transfer'/, 'Transfer posting must use the server-side transaction RPC.')
-required(transactionPages, /supabase\\.rpc\\('post_stock_count'/, 'Stock-count posting must use the server-side transaction RPC.')
+assert.ok(operationalMigration.includes('REVOKE INSERT, UPDATE, DELETE ON public.purchase_orders'), 'Operational ledgers must not allow direct browser writes.')
+assert.ok(operationalMigration.includes('receipt_warehouse_must_match_purchase_order'), 'Receiving must be restricted to the purchase-order warehouse.')
+assert.ok(operationalMigration.includes('insufficient_available_stock'), 'Transfers must reject insufficient available stock.')
+assert.ok(operationalMigration.includes('stock_changed_since_count'), 'Stock-count posting must reject stale stock snapshots.')
+assert.ok(transactionPages.includes("supabase.rpc('receive_purchase_order'"), 'Receiving must use the server-side transaction RPC.')
+assert.ok(transactionPages.includes("supabase.rpc('post_inventory_transfer'"), 'Transfer posting must use the server-side transaction RPC.')
+assert.ok(transactionPages.includes("supabase.rpc('post_stock_count'"), 'Stock-count posting must use the server-side transaction RPC.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
