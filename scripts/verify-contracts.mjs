@@ -13,7 +13,7 @@ const imageNames = (await readdir(referenceDir))
   .sort((a, b) => a.localeCompare(b, 'en'))
 
 assert.ok(imageNames.length > 0, 'No UI reference images were found.')
-const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration, statementMigration, utilityPages, adminScreens] =
+const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration, statementMigration, utilityPages, adminScreens, securityMigration, legacyApi] =
   await Promise.all([
     read('docs/ui-reference/README.md'),
     read('docs/ui-reference/UI-REFERENCE-ASSET-INDEX.md'),
@@ -33,6 +33,8 @@ const [readme, index, pricingMigration, safeProductSelect, storefront, store, ca
     read('supabase/migrations/20261012000000_organization_statement_rpc.sql'),
     read('src/pages/admin/UtilityPages.tsx'),
     read('src/pages/admin/AdminPages.tsx'),
+    read('supabase/migrations/20261013000000_tenant_safe_customers_and_product_prices.sql'),
+    read('src/lib/api.ts'),
   ])
 
 for (const imageName of imageNames) {
@@ -164,6 +166,18 @@ assert.ok(adminScreens.includes("supabase.from('audit_logs')"), 'Audit screen mu
 assert.ok(adminScreens.includes('supabase.auth.getUser()'), 'Health screen must verify the real authentication session.')
 assert.ok(adminScreens.includes(".eq('organization_id', organization.id)"), 'Admin business reads must be organization-scoped.')
 assert.ok(adminScreens.includes('setError(queryError.message)'), 'Admin data views must surface real query errors.')
+
+assert.ok(securityMigration.includes('ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY'), 'Customer PII table must enable RLS.')
+assert.ok(securityMigration.includes('customers_member_read'), 'Customer RLS must scope reads to the active organization or profile owner.')
+assert.ok(securityMigration.includes('REVOKE SELECT ON public.products FROM PUBLIC, anon, authenticated'), 'Product table must revoke unrestricted browser reads.')
+assert.ok(securityMigration.includes('CREATE OR REPLACE VIEW public.admin_product_catalog'), 'Staff product pricing must use the secure admin view.')
+assert.ok(securityMigration.includes('CREATE TRIGGER products_audit_catalog_changes'), 'Product changes must be auditable.')
+assert.ok(adminScreens.includes("from('admin_product_catalog')"), 'Admin catalog screens must use the tenant-authorized catalog view.')
+assert.ok(productDetail.includes("const productSource = isAdmin ? 'admin_product_catalog' : 'products'"), 'Product details must separate staff pricing reads from storefront reads.')
+assert.ok(legacyApi.includes("from('admin_product_catalog')"), 'Legacy staff product API must use the secure admin catalog view.')
+assert.ok(legacyApi.includes("update({ is_active: false })"), 'Product deletion must preserve order history through soft deactivation.')
+assert.ok(!safeProductSelect.includes('reserved_stock'), 'Customer product projection must not expose reserved inventory.')
+assert.ok(!safeProductSelect.includes('base_price') && !safeProductSelect.includes('cost_price'), 'Customer product projection must never select financial values.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
