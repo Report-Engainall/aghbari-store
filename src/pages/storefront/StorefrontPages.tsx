@@ -276,7 +276,60 @@ export function Addresses() { const { organization } = useAuth(); const [rows, s
 export function AccountSettings() { const { signOut } = useAuth(); const { show } = useToast(); const [saving, setSaving] = useState(false); const [name, setName] = useState(''); const save = async (event: FormEvent) => { event.preventDefault(); setSaving(true); const { error } = await supabase.auth.updateUser({ data: { full_name: name } }); setSaving(false); show(error ? 'error' : 'success', error ? 'تعذر الحفظ' : 'تم حفظ الإعدادات', error?.message) }; return <div className="max-w-3xl mx-auto px-4 py-6"><PageHeader title="إعدادات الحساب" description="تحكم في بيانات الحساب وتفضيلاته" icon={Settings} /><form onSubmit={save} className="card p-6 space-y-4"><div><label className="label">الاسم الظاهر</label><input className="input" value={name} onChange={event => setName(event.target.value)} placeholder="الاسم الكامل" /></div><button className="btn-primary" disabled={saving}>{saving ? 'جاري الحفظ...' : 'حفظ التغييرات'}</button></form><button onClick={() => signOut()} className="btn-danger mt-5">تسجيل الخروج</button></div> }
 export function Notifications() { const { user } = useAuth(); const [rows, setRows] = useState<Notification[]>([]); useEffect(() => { if (user) supabase.from('notifications').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).then(({ data }) => setRows(data as Notification[] || [])) }, [user]); return <div className="max-w-3xl mx-auto px-4 py-6"><PageHeader title="الإشعارات" description="آخر التحديثات المتعلقة بحسابك وطلباتك" icon={Bell} />{rows.length ? <div className="card divide-y divide-neutral-100">{rows.map(row => <div key={row.id} className="p-4"><div className="flex justify-between"><h3 className="font-semibold">{row.title}</h3><span className="text-xs text-neutral-400">{formatDate(row.created_at)}</span></div><p className="text-sm text-neutral-500 mt-1">{row.body}</p></div>)}</div> : <EmptyState icon={<Bell />} title="لا توجد إشعارات" />}</div> }
 export function Help() { const faqs = ['كيف أضيف منتجاً للسلة؟', 'كيف أتابع حالة طلبي؟', 'كيف أطلب كشف حساب؟', 'كيف أغير بيانات الشركة؟']; return <div className="max-w-4xl mx-auto px-4 py-6"><PageHeader title="مركز المساعدة" description="إجابات سريعة وطرق التواصل مع فريق الأغبري" icon={HelpCircle} /><div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">{faqs.map(question => <div className="card p-5" key={question}><h3 className="font-semibold">{question}</h3><p className="text-sm text-neutral-500 mt-2">يمكنك تنفيذ ذلك من حسابك بعد تسجيل الدخول، وإذا احتجت مساعدة تواصل معنا.</p></div>)}</div><div className="card p-6"><h2 className="font-bold mb-2">تواصل معنا</h2><p className="text-sm text-neutral-500">أرسل استفسارك إلى فريق الدعم وسنعود إليك بأقرب وقت.</p><a href="mailto:support@aghbari.com" className="btn-primary inline-flex mt-4">إرسال بريد للدعم</a></div></div> }
-export function OnboardingCompany() { const { organization, refreshOrganization } = useAuth(); const { show } = useToast(); const [name, setName] = useState(organization?.name || ''); const [saving, setSaving] = useState(false); const save = async (event: FormEvent) => { event.preventDefault(); if (!organization) return; setSaving(true); const { error } = await supabase.from('organizations').update({ name }).eq('id', organization.id); setSaving(false); if (error) show('error', 'تعذر الحفظ', error.message); else { await refreshOrganization(); show('success', 'تم تحديث بيانات الشركة') } }; return <div className="max-w-xl mx-auto px-4 py-10"><PageHeader title="استكمال بيانات الشركة" description="أكمل بيانات المؤسسة لمتابعة استخدام المنصة" icon={Building2} /><form onSubmit={save} className="card p-6 space-y-4"><div><label className="label">اسم الشركة</label><input required className="input" value={name} onChange={event => setName(event.target.value)} /></div><button disabled={saving} className="btn-primary w-full">{saving ? 'جاري الحفظ...' : 'حفظ ومتابعة'}</button></form></div> }
+export function OnboardingCompany() {
+  const { organization, refreshOrganization, user } = useAuth()
+  const { show } = useToast()
+  const navigate = useNavigate()
+  const [name, setName] = useState(organization?.name || String(user?.user_metadata?.company_name || ''))
+  const [saving, setSaving] = useState(false)
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault()
+    const normalizedName = name.trim()
+    if (!normalizedName) {
+      show('error', 'اسم الشركة مطلوب')
+      return
+    }
+
+    setSaving(true)
+    if (!organization) {
+      const { error } = await supabase.rpc('create_organization_for_current_user', {
+        p_name: normalizedName,
+        p_email: user?.email ?? null,
+        p_phone: user?.user_metadata?.phone ? String(user.user_metadata.phone) : null,
+      })
+      setSaving(false)
+      if (error) {
+        show('error', 'تعذر إرسال طلب الشركة', error.message)
+        return
+      }
+      await refreshOrganization()
+      show('success', 'تم استلام طلب الشركة', 'سيتم تفعيل الحساب بعد مراجعة الطلب.')
+      navigate('/account/pending', { replace: true })
+      return
+    }
+
+    const { error } = await supabase.from('organizations').update({ name: normalizedName }).eq('id', organization.id)
+    setSaving(false)
+    if (error) {
+      show('error', 'تعذر الحفظ', error.message)
+      return
+    }
+    await refreshOrganization()
+    show('success', 'تم تحديث بيانات الشركة')
+    if (organization.status !== 'active' || !organization.is_active) {
+      navigate('/account/pending', { replace: true })
+    }
+  }
+
+  return <div className="max-w-xl mx-auto px-4 py-10">
+    <PageHeader title="استكمال بيانات الشركة" description="أكمل بيانات المؤسسة لتقديم طلب التفعيل أو تعديل بيانات الشركة" icon={Building2} />
+    <form onSubmit={save} className="card p-6 space-y-4">
+      <div><label className="label">اسم الشركة</label><input required maxLength={160} className="input" value={name} onChange={event => setName(event.target.value)} /></div>
+      <button disabled={saving} className="btn-primary w-full">{saving ? 'جاري الحفظ...' : organization ? 'حفظ التغييرات' : 'إرسال طلب التفعيل'}</button>
+    </form>
+  </div>
+}
 export function AccountPending() { const { organization } = useAuth(); return <div className="max-w-xl mx-auto px-4 py-16 text-center"><div className="card p-10"><CheckCircle2 className="h-14 w-14 text-warning-500 mx-auto mb-4" /><h1 className="text-2xl font-bold">الحساب قيد المراجعة</h1><p className="text-neutral-500 mt-3">تم استلام طلب {organization?.name || 'شركتك'}، وسيتم إشعارك بعد اعتماد الحساب.</p><Link to="/" className="btn-secondary mt-6 inline-flex">العودة للرئيسية</Link></div></div> }
 
 export function VerifyAccount() { const { user } = useAuth(); const { show } = useToast(); const [sending, setSending] = useState(false); const resend = async () => { if (!user?.email) return; setSending(true); const { error } = await supabase.auth.resend({ type: 'signup', email: user.email }); setSending(false); show(error ? 'error' : 'success', error ? 'تعذر إرسال الرسالة' : 'تم إرسال رسالة التفعيل', error?.message) }; return <div className="max-w-xl mx-auto px-4 py-16 text-center"><div className="card p-10"><CheckCircle2 className="h-14 w-14 text-primary-600 mx-auto mb-4" /><h1 className="text-2xl font-bold">تفعيل الحساب</h1><p className="text-neutral-500 mt-3">تحقق من بريدك الإلكتروني لتفعيل الحساب. لا نعتبر الحساب مفعلاً قبل تأكيد البريد من الخدمة.</p><button className="btn-primary mt-6" disabled={sending || !user?.email} onClick={resend}>{sending ? 'جاري الإرسال...' : 'إعادة إرسال رسالة التفعيل'}</button></div></div> }
