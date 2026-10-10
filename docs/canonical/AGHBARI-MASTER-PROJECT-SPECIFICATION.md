@@ -250,7 +250,7 @@ Every recommendation includes Why, Source Metrics, Calculation/rule, Snapshot ID
 AI ledger fields: ledger_id, organization_id, request_id, model_name, input_tokens, output_tokens, estimated_cost, execution_time_ms, timestamp. Enforce request/daily/monthly budget and quota. At 100% quota, deny further model request and use an explicitly labeled deterministic rule-based fallback. Never invent model token counts or cost estimates.
 
 ## G7. Current AI status
-The initial integrated assistant summarizes saved reports/alerts/tasks; it is not a configured generative AI model. Subsequent work must add a private/local inference boundary, sanitization, governance, model routing, budget ledger, event-backed evidence, audit, action cards and evaluation only after those contracts exist. The assistant clears context when tenant changes and must ignore stale requests. All metric values remain server-derived.
+The integrated assistant summarizes saved reports/alerts/tasks and now reads the latest tenant-scoped audit activity through a minimal `id, action, entity_type, created_at` projection. It presents deterministic activity groupings and transparent review candidates based on explicit action/entity patterns, while disclosing that audit coverage is limited to operations that actually write audit logs. It is not a configured generative AI model. Remaining work includes end-to-end audit coverage for every transactional path, a private/local inference boundary, sanitization, governance, model routing, budget ledger, richer evidence-backed action cards and evaluation only after those contracts exist. The assistant clears context when tenant changes and ignores stale requests. All metric values remain server-derived.
 
 # H. Event outbox, queues, cache and Arabic search
 
@@ -330,6 +330,7 @@ Treat these as requirements to evaluate and implement incrementally with real ba
 - Operator setup and recovery runbook: `scripts/backup/README.md`.
 - Shell syntax/ShellCheck gate: `.github/workflows/backup-tools-validation.yml`.
 - The workflow requires repository secrets `SUPABASE_DB_URL` and `BACKUP_AGE_RECIPIENT`; the private age key remains offline. Artifact retention is 14 days. Missing secrets cause an explicit failed/blocked run; they never produce a fake-success backup.
+- The backup writer defaults to a dedicated directory under `$HOME/.local/share/aghbari/encrypted-backups`, rejects unsafe root/repository paths and group/world-writable output directories, and does not chmod existing output directories. The manifest verifier parses JSON and checks artifact basename, format, encryption metadata, byte size and SHA-256 digest. The restore utility requires a separate expected-host match and target confirmation; production-labelled restoration also requires the overwrite acknowledgement and creates/verifies a fresh encrypted pre-restore snapshot in a dedicated absolute directory outside the repository before destructive work.
 - Scope limitation: the encrypted logical PostgreSQL dump does not include Supabase Storage object bytes, Edge Function source/secrets, or project-level settings. No backup is proven until an actual artifact/manifest is generated; no restore is proven until decryption, archive validation, isolated restore and application smoke tests succeed.
 
 
