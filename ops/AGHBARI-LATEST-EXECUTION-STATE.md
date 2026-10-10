@@ -91,3 +91,15 @@
 - The production build command now runs the guard after vite build; this converts the measured improvement into an enforced regression budget.
 - Previous measured entry = 452.62 kB / 127.61 kB gzip. On final PR head `658382a5b09e4ef0363f7e1af11b2e0cc93581c4`, the guard printed `Bundle budget PASS: index-Bf1jHErw.js = 454026 bytes, gzip 127606 bytes; budget 500000 bytes.`
 - Next action: verify the latest post-merge main Build after this state update, then address the import-engine concurrency/tenant-switch gap. PR #4 is merged; no production deploy has occurred. Deployment remains HOLD.
+
+
+## Import tenant-switch safety — implemented, exact-head verification pending
+
+- Working branch: `fix/import-tenant-switch-race`, based on post-merge main.
+- Import profile/upload reads now increment a request token and accept results only when request token and active organization still match.
+- When the organization changes, previous profile/upload rows, selected profile, file, duplicate state and progress are cleared before new data is shown. Rendered lists use a context-ready gate, so stale tenant data is hidden even before the next request completes.
+- If a selected profile does not belong to the active tenant's loaded profile list, selection resets to the active tenant's first profile or empty.
+- Effect cleanup invalidates the pending load and aborts supported CSV processing. Post-await handlers discard stale results before updating the visible message/state.
+- Excel/PDF behavior remains unchanged: metadata-only manual review; no parser or fake successful import was added.
+- **Status:** implemented and read back from GitHub; static assertions added; not yet verified until Build, SQL Migration Chain and Backup Tool Safety Checks pass on the final PR head.
+- **Next:** create PR, inspect exact-SHA CI, fix failures, then merge only if all required gates are green.
