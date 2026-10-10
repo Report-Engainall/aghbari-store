@@ -284,8 +284,6 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.claim_import_upload(uuid, uuid, text, text, bigint, text, date, date, timestamptz, text, text, text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.claim_import_upload(uuid, uuid, text, text, bigint, text, date, date, timestamptz, text, text, text) TO authenticated;
 CREATE OR REPLACE FUNCTION public.abandon_staged_import_claim(
   p_organization_id uuid,
   p_upload_id uuid
