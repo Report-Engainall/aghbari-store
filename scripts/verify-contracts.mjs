@@ -70,6 +70,8 @@ for (const formula of ['markup_percent', 'margin_percent', 'fixed_price', 'amoun
   assert.ok(pricingMigration.includes(`WHEN '${formula}'`) || pricingMigration.includes(`'${formula}'`), `Pricing formula is missing: ${formula}`)
 }
 required(pricingMigration, /CREATE OR REPLACE FUNCTION public\.recalculate_organization_product_prices/, 'Server-side pricing recalculation function is missing.')
+required(pricingMigration, /REVOKE ALL ON FUNCTION public\\.calculate_commerce_price\\(uuid, integer, text\\) FROM authenticated/, 'The internal price evaluator must not be client-callable.')
+assert.equal((pricingMigration.match(/GRANT EXECUTE ON FUNCTION public\\.calculate_commerce_price[^\\n]*authenticated/gi) || []).length, 0, 'Clients must not be able to call the internal price evaluator directly.')
 required(pricingMigration, /AFTER INSERT OR UPDATE OR DELETE ON pricing_rules/, 'Price recalculation must respond to rule activation, update and deletion.')
 required(pricingMigration, /LIMIT 1\s*\),\s*p\.base_price,\s*0\)/, 'Pricing must fall back to base price when no matching active rule exists.')
 required(pricingMigration, /CREATE OR REPLACE FUNCTION public\.approve_order_quantities/, 'Atomic quantity approval RPC is missing.')
