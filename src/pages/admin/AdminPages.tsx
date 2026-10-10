@@ -549,7 +549,7 @@ export function Import() {
     abortControllerRef.current?.abort()
   }
 
-  const load = async () => {
+  const load = async (preserveMessage = false) => {
     const requestNumber = ++loadRequestIdRef.current
     const organizationId = organization?.id
     if (!organizationId) {
@@ -612,7 +612,7 @@ export function Import() {
 
       if (!p.error && !u.error) {
         setReadyOrganizationId(organizationId)
-        if (organizationChanged) setMessage('')
+        if (organizationChanged || !preserveMessage) setMessage('')
       }
     } catch (cause) {
       if (loadRequestIdRef.current !== requestNumber || loadedOrganizationIdRef.current !== organizationId) return
@@ -727,14 +727,14 @@ export function Import() {
       show(result.status === 'rejected' ? 'warning' : 'success', 'انتهت إعادة معالجة CSV', summary)
       setDuplicate(null)
       setFile(null)
-      await load()
+      await load(true)
     } catch (err) {
       if (!isCurrentImportContext(organizationId, requestNumber)) return
       const reason = err instanceof Error ? err.message : 'تعذر إعادة المعالجة.'
       const cancelled = reason === 'IMPORT_CANCELLED'
       setMessage(cancelled ? 'أُلغيت المعالجة. السجلات الجزئية ستُنظف قبل المحاولة التالية.' : reason === 'FILE_HASH_CHANGED' ? 'الملف المختار لا يطابق البصمة الأصلية.' : reason)
       show(cancelled ? 'warning' : 'error', cancelled ? 'أُلغيت المعالجة' : 'تعذرت إعادة المعالجة')
-      await load()
+      await load(true)
     } finally {
       abortControllerRef.current = null
       pausedRef.current = false
@@ -811,7 +811,7 @@ export function Import() {
       }
       setFile(null)
       setProgress(null)
-      await load()
+      await load(true)
     } catch (err) {
       if (!isCurrentImportContext(organizationId, requestNumber)) return
       const reason = err instanceof Error ? err.message : 'تعذر معالجة الملف.'
