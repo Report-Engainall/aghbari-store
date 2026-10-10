@@ -14,7 +14,7 @@ fi
 
 case "$RESTORE_DB_URL" in
   *sslmode=disable*|*sslmode=allow*|*sslmode=prefer*)
-    printf 'Restore blocked: the target connection string explicitly requests non-required TLS.\\n' >&2
+    printf 'Restore blocked: the target connection string explicitly requests non-required TLS.\n' >&2
     exit 1
     ;;
 esac
