@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { LayoutDashboard, ShoppingCart, Users, Package, Database, Brain, ChartBar as BarChart3, Settings, Shield, LogOut, Menu, X, Bell, Search, FileText, Warehouse, ChevronLeft, Wrench, ArrowRight, SlidersHorizontal, Boxes, ArrowLeftRight, Truck, CreditCard, Wallet, ShieldCheck, Activity, ClipboardCheck, ShoppingBag, PackageCheck, ReceiptText, ScanLine, Download } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, Users, Package, Database, Brain, ChartBar as BarChart3, Settings, Shield, LogOut, Menu, X, Bell, Search, FileText, Warehouse, ChevronLeft, Wrench, ArrowRight, SlidersHorizontal, Boxes, ArrowLeftRight, Truck, CreditCard, Wallet, ShieldCheck, Activity, ClipboardCheck, ShoppingBag, PackageCheck, ReceiptText, ScanLine, Download, MessageCircle } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
 
@@ -58,7 +58,8 @@ const adminNav: { section: string; items: { to: string; label: string; icon: typ
   {
     section: 'الذكاء الاصطناعي',
     items: [
-      { to: '/admin/ai', label: 'مركز AI', icon: Brain },
+      { to: '/admin/ai', label: 'مركز AI', icon: Brain, exact: true },
+      { to: '/admin/ai/assistant', label: 'المساعد الذكي', icon: MessageCircle },
       { to: '/admin/ai/reports', label: 'تقارير AI', icon: BarChart3 },
       { to: '/admin/ai/alerts', label: 'تنبيهات AI', icon: Bell },
       { to: '/admin/ai/tasks', label: 'مهام AI', icon: Brain },

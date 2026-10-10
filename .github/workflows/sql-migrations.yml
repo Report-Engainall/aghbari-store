@@ -317,6 +317,12 @@ jobs:
               jsonb_build_array(jsonb_build_object('product_id',v_product,'quantity_ordered',5,'unit_cost',3.25)),
               'CI purchase-to-receipt smoke test'
             );
+            IF NOT EXISTS (
+              SELECT 1 FROM public.audit_logs
+              WHERE organization_id = v_org AND entity_type = 'purchase_order'
+                AND entity_id = v_purchase AND action = 'purchase_order_created'
+                AND new_value->>'purchase_number' IS NOT NULL
+            ) THEN RAISE EXCEPTION 'purchase order creation audit event missing'; END IF;
             SELECT id INTO v_purchase_item FROM public.purchase_order_items
             WHERE purchase_order_id = v_purchase;
             IF v_purchase_item IS NULL THEN RAISE EXCEPTION 'purchase order line was not persisted'; END IF;
@@ -347,6 +353,12 @@ jobs:
               jsonb_build_array(jsonb_build_object('product_id',v_product,'quantity',4)),
               'CI atomic transfer'
             );
+            IF NOT EXISTS (
+              SELECT 1 FROM public.audit_logs
+              WHERE organization_id = v_org AND entity_type = 'inventory_transfer'
+                AND entity_id = v_transfer AND action = 'inventory_transfer_created'
+                AND new_value->>'transfer_number' IS NOT NULL
+            ) THEN RAISE EXCEPTION 'inventory transfer creation audit event missing'; END IF;
             v_result := public.post_inventory_transfer(v_org,v_transfer);
             SELECT quantity_on_hand INTO v_stock1 FROM public.inventory_balances WHERE product_id=v_product AND warehouse_id=v_wh1;
             SELECT quantity_on_hand INTO v_stock2 FROM public.inventory_balances WHERE product_id=v_product AND warehouse_id=v_wh2;
@@ -360,6 +372,12 @@ jobs:
               jsonb_build_array(jsonb_build_object('product_id',v_product,'counted_quantity',20)),
               'CI stock count'
             );
+            IF NOT EXISTS (
+              SELECT 1 FROM public.audit_logs
+              WHERE organization_id = v_org AND entity_type = 'stock_count'
+                AND entity_id = v_count AND action = 'stock_count_created'
+                AND new_value->>'count_number' IS NOT NULL
+            ) THEN RAISE EXCEPTION 'stock count creation audit event missing'; END IF;
             v_result := public.post_stock_count(v_org,v_count);
             SELECT quantity_on_hand INTO v_stock1 FROM public.inventory_balances WHERE product_id=v_product AND warehouse_id=v_wh1;
             IF v_stock1 <> 20 THEN RAISE EXCEPTION 'stock count did not reconcile the counted balance'; END IF;
