@@ -239,6 +239,7 @@ assert.ok(aiAssistant.includes(".eq('organization_id', organizationId)"), 'AI as
 assert.ok(aiAssistant.includes("from('audit_logs')"), 'Integrated AI assistant must read recent persisted operational activity.')
 assert.ok(aiAssistant.includes("select('id,action,entity_type,created_at')"), 'Operational activity must use a minimal audit projection instead of reading event payloads or unnecessary identifiers.')
 assert.ok(aiAssistant.includes('reviewCandidates') && aiAssistant.includes('لا يثبت شمول الأحداث'), 'Activity review flags must be deterministic and explicitly disclose incomplete audit coverage.')
+assert.ok(aiAssistant.indexOf("q.includes('تستحق')") < aiAssistant.indexOf("q.includes('حركة')"), 'Explicit risk/review questions must reach review-candidate rules before the generic activity summary handler.')
 assert.ok(aiAssistant.includes('setMessages([welcomeMessage])'), 'The assistant must discard conversation context when the active organization changes.')
 assert.ok(aiAssistant.includes('requestId.current !== requestNumber'), 'The assistant must ignore stale responses after organization or request changes.')
 assert.ok(aiAssistant.includes('لا يوجد نموذج توليدي مفعّل لهذا المساعد'), 'The assistant must disclose that no generative provider is configured.')
