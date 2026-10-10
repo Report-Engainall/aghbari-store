@@ -4,7 +4,8 @@ import { ToastProvider } from '@/components/ui/Toast'
 import { ConnectivityStatus } from '@/components/ui/ConnectivityStatus'
 import { StorefrontShell } from '@/components/storefront/StorefrontShell'
 import { AdminShell } from '@/components/admin/AdminShell'
-import { ProtectedRoute, AdminRoute, PublicOnlyRoute } from '@/components/guards/RouteGuards'
+import { ProtectedRoute, AdminRoute, PublicOnlyRoute, PlatformAdminRoute } from '@/components/guards/RouteGuards'
+import OrganizationApprovals from '@/pages/admin/OrganizationApprovals'
 import PolicyCenter from '@/pages/admin/PolicyCenter'
 import {
   Inventory as AdminInventory,
@@ -125,6 +126,7 @@ export default function App() {
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/verify" element={<VerifyAccount />} />
           <Route path="/invite/:token" element={<InvitePage />} />
+          <Route path="/platform/organizations" element={<PlatformAdminRoute><OrganizationApprovals /></PlatformAdminRoute>} />
 
           {/* Admin */}
           <Route path="/admin" element={<AdminRoute><AdminShell /></AdminRoute>}>
