@@ -597,7 +597,7 @@ BEGIN
       AND (k.response_reference IS NULL OR existing_order.user_id = v_user_id)
     FOR UPDATE OF k;
 
-    IF v_existing_context_hash IS DISTINCT FROM v_context_hash THEN
+    IF v_existing_context_hash IS NOT NULL AND v_existing_context_hash IS DISTINCT FROM v_context_hash THEN
       RAISE EXCEPTION 'idempotency_key_reused_with_different_request';
     END IF;
     IF v_existing IS NOT NULL AND v_existing_status = 'completed' THEN RETURN v_existing; END IF;
