@@ -1583,3 +1583,136 @@ USING (
 -- direct insert/update/delete access that could rewrite replay protection state.
 
 
+
+
+
+-- Final direct-table access policy pass: UI guards are not authorization.
+-- Admin-only data stays tenant-scoped; idempotency and outbox writes are available through RPCs only.
+DO $$
+DECLARE policy_row record;
+BEGIN
+  FOR policy_row IN
+    SELECT schemaname, tablename, policyname
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename IN (
+        'commerce_policy_settings',
+        'import_profiles','import_uploads','import_chunks','import_records',
+        'pricing_rules','idempotency_keys','outbox_events'
+      )
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I.%I',
+      policy_row.policyname, policy_row.schemaname, policy_row.tablename);
+  END LOOP;
+END;
+$$;
+
+CREATE POLICY commerce_policy_settings_admin_all
+ON public.commerce_policy_settings FOR ALL TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = commerce_policy_settings.organization_id
+    AND om.user_id = auth.uid() AND om.status = 'active'
+    AND om.role IN ('owner','admin')
+))
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = commerce_policy_settings.organization_id
+    AND om.user_id = auth.uid() AND om.status = 'active'
+    AND om.role IN ('owner','admin')
+));
+
+CREATE POLICY import_profiles_admin_all
+ON public.import_profiles FOR ALL TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = import_profiles.organization_id
+    AND om.user_id = auth.uid() AND om.status = 'active'
+    AND om.role IN ('owner','admin')
+))
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = import_profiles.organization_id
+    AND om.user_id = auth.uid() AND om.status = 'active'
+    AND om.role IN ('owner','admin')
+));
+
+CREATE POLICY import_uploads_admin_all
+ON public.import_uploads FOR ALL TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = import_uploads.organization_id
+    AND om.user_id = auth.uid() AND om.status = 'active'
+    AND om.role IN ('owner','admin')
+))
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = import_uploads.organization_id
+    AND om.user_id = auth.uid() AND om.status = 'active'
+    AND om.role IN ('owner','admin')
+));
+
+CREATE POLICY import_chunks_admin_all
+ON public.import_chunks FOR ALL TO authenticated
+USING (EXISTS (
+  SELECT 1
+  FROM public.import_uploads u
+  JOIN public.organization_members om ON om.organization_id = u.organization_id
+  WHERE u.id = import_chunks.upload_id
+    AND om.user_id = auth.uid() AND om.status = 'active'
+    AND om.role IN ('owner','admin')
+))
+WITH CHECK (EXISTS (
+  SELECT 1
+  FROM public.import_uploads u
+  JOIN public.organization_members om ON om.organization_id = u.organization_id
+  WHERE u.id = import_chunks.upload_id
+    AND om.user_id = auth.uid() AND om.status = 'active'
+    AND om.role IN ('owner','admin')
+));
+
+CREATE POLICY import_records_admin_all
+ON public.import_records FOR ALL TO authenticated
+USING (EXISTS (
+  SELECT 1
+  FROM public.import_uploads u
+  JOIN public.organization_members om ON om.organization_id = u.organization_id
+  WHERE u.id = import_records.upload_id
+    AND om.user_id = auth.uid() AND om.status = 'active'
+    AND om.role IN ('owner','admin')
+))
+WITH CHECK (EXISTS (
+  SELECT 1
+  FROM public.import_uploads u
+  JOIN public.organization_members om ON om.organization_id = u.organization_id
+  WHERE u.id = import_records.upload_id
+    AND om.user_id = auth.uid() AND om.status = 'active'
+    AND om.role IN ('owner','admin')
+));
+
+CREATE POLICY pricing_rules_admin_all
+ON public.pricing_rules FOR ALL TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = pricing_rules.organization_id
+    AND om.user_id = auth.uid() AND om.status = 'active'
+    AND om.role IN ('owner','admin')
+))
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = pricing_rules.organization_id
+    AND om.user_id = auth.uid() AND om.status = 'active'
+    AND om.role IN ('owner','admin')
+));
+
+-- The admin view is read-only for direct access. Insert/update/delete are RPC-only.
+CREATE POLICY outbox_events_admin_read
+ON public.outbox_events FOR SELECT TO authenticated
+USING (
+  organization_id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = outbox_events.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin')
+  )
+);
