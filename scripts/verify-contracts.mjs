@@ -94,6 +94,10 @@ required(pricingMigration, /CREATE OR REPLACE FUNCTION public\.audit_pricing_rul
 required(pricingMigration, /CREATE POLICY orders_customer_read_own/, 'Customer order visibility must be owner-scoped.')
 required(pricingMigration, /cross_organization_cart_product/, 'The server must reject cart products belonging to a different organization.')
 required(pricingMigration, /v_unit_price := public\.calculate_commerce_price\([\s\S]{0,180}v_price_level/, 'Order prices must use the server-derived customer tier.')
+assert.ok(pricingMigration.includes("AND c.status = 'approved'"), 'Order pricing must derive the tier from an approved customer record that exists in the canonical schema.')
+assert.ok(!pricingMigration.includes('c.is_active = true'), 'Do not reference a customer is_active column that is absent from the canonical customers table.')
+assert.ok(pricingMigration.includes('ADD COLUMN IF NOT EXISTS request_context_hash text'), 'Order idempotency must persist a cart-independent request context hash for retry after cart clearing.')
+assert.ok(pricingMigration.includes('request_context_hash = EXCLUDED.request_context_hash'), 'Order idempotency upsert must retain the request context hash.')
 for (const view of [
   'customer_order_summaries',
   'customer_order_item_summaries',
