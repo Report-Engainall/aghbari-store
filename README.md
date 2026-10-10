@@ -2,6 +2,10 @@
 
 [![Open in Bolt](https://bolt.new/static/open-in-bolt.svg)](https://bolt.new/~/sb1-b5g7dtki)
 
+## Canonical project instructions
+
+Before implementation, read [PROJECT_MEMORY.md](./PROJECT_MEMORY.md), the [canonical master specification](./docs/canonical/AGHBARI-MASTER-PROJECT-SPECIFICATION.md), the [requirements preservation index](./docs/canonical/AGHBARI-SOURCE-REQUIREMENTS-INDEX.md), the [latest execution state](./ops/AGHBARI-LATEST-EXECUTION-STATE.md), and the [development progress ledger](./ops/AGHBARI-DEVELOPMENT-PROGRESS.md). Preserve existing work, retain original screenshot evidence, and verify exact-SHA tests before merging.
+
 Arabic-first, RTL-friendly B2B commerce application built with React, TypeScript, Vite, and Supabase.
 
 ## Run locally
