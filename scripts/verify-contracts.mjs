@@ -13,7 +13,7 @@ const imageNames = (await readdir(referenceDir))
   .sort((a, b) => a.localeCompare(b, 'en'))
 
 assert.ok(imageNames.length > 0, 'No UI reference images were found.')
-const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration, statementMigration, utilityPages] =
+const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration, statementMigration, utilityPages, adminScreens] =
   await Promise.all([
     read('docs/ui-reference/README.md'),
     read('docs/ui-reference/UI-REFERENCE-ASSET-INDEX.md'),
@@ -32,6 +32,7 @@ const [readme, index, pricingMigration, safeProductSelect, storefront, store, ca
     read('supabase/migrations/20261011000000_inventory_procurement_finance_operations.sql'),
     read('supabase/migrations/20261012000000_organization_statement_rpc.sql'),
     read('src/pages/admin/UtilityPages.tsx'),
+    read('src/pages/admin/AdminPages.tsx'),
   ])
 
 for (const imageName of imageNames) {
@@ -158,6 +159,11 @@ assert.ok(utilityPages.includes(".eq('organization_id', organizationId)"), 'CSV 
 assert.ok(utilityPages.includes('Prevent spreadsheet formula injection'), 'CSV exports must mitigate spreadsheet formula injection.')
 assert.ok(utilityPages.includes(".eq('barcode', code)"), 'Barcode lookup must use the actual database barcode column.')
 assert.ok(adminOperations.includes("supabase.rpc('confirm_order_payment'"), 'Admin payment review must use the authorized confirmation RPC.')
+required(adminScreens, /supabase\\.from\\('customers'\\)/, 'Admin customer screen must read the customers table, not organization-members.')
+required(adminScreens, /supabase\\.from\\('audit_logs'\\)/, 'Audit screen must read the persisted audit log.')
+required(adminScreens, /supabase\\.auth\\.getUser\\(\\)/, 'Health screen must verify the real authentication session.')
+required(adminScreens, /eq\\('organization_id', organization\\.id\\)/, 'Admin business reads must be organization-scoped.')
+required(adminScreens, /setError\\(queryError\\.message\\)/, 'Admin data views must surface real query errors.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
