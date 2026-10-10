@@ -77,3 +77,10 @@ Use one entry per execution run. Keep implementation, verification, proof and de
 - **Previous failures fixed before this pass:** root README assertion variable mismatch; missing explicit legacy-brand rule in source index; resume heading assertion mismatch and a punctuation typo; `useCallback` missing import and `unknown` timestamp JSX type; static AI route assertions updated for lazy loading.
 - **Not proven:** live hosted deployment, browser E2E, live Supabase run, actual encrypted backup/decryption/restore, full audit-event coverage for all app flows.
 - **Next:** keep a contract against accidental eager route imports, rerun all three gates on the resulting exact head, then merge PR #4 if the final checks pass. Deployment remains HOLD.
+
+
+## Run update — enforced entry-bundle regression budget (2026-10-10)
+
+- **Implementation:** added scripts/verify-bundle-budget.mjs; after vite build, CI measures the single Vite entry JavaScript file and its gzip bytes and fails if raw entry exceeds 500,000 bytes or the entry is missing/ambiguous/empty.
+- **Why:** route splitting reduced main JS from 732.55 kB to 452.62 kB. The build now enforces that improvement instead of relying on a non-fatal Vite warning.
+- **Status:** code and package wiring were read back from GitHub. The budget guard is **implemented, not yet proven on the new exact head**; next Build CI run must show the expected bundle-budget PASS output.
