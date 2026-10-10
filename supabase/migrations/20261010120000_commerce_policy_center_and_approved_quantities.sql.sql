@@ -1776,7 +1776,7 @@ BEGIN
   IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS audit_pricing_rule_change_after_write ON public.pricing_rules;
 CREATE TRIGGER audit_pricing_rule_change_after_write
