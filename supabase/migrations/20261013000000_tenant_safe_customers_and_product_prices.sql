@@ -33,10 +33,12 @@ ALTER TABLE public.ai_tasks ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS ai_tasks_member_read ON public.ai_tasks;
 CREATE POLICY ai_tasks_member_read ON public.ai_tasks FOR SELECT TO authenticated
 USING (
-  organization_id IS NOT NULL AND EXISTS (
+  NULLIF(COALESCE(to_jsonb(ai_tasks)->>'organization_id', to_jsonb(ai_tasks)->>'org_id'), '') IS NOT NULL
+  AND EXISTS (
     SELECT 1 FROM public.organization_members om
-    WHERE om.organization_id = ai_tasks.organization_id AND om.user_id = auth.uid()
-      AND om.status = 'active' AND om.role IN ('owner','admin','manager')
+    WHERE om.organization_id = NULLIF(COALESCE(to_jsonb(ai_tasks)->>'organization_id', to_jsonb(ai_tasks)->>'org_id'), '')::uuid
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin','manager')
   )
 );
 
@@ -44,10 +46,12 @@ ALTER TABLE public.ai_alerts ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS ai_alerts_member_read ON public.ai_alerts;
 CREATE POLICY ai_alerts_member_read ON public.ai_alerts FOR SELECT TO authenticated
 USING (
-  organization_id IS NOT NULL AND EXISTS (
+  NULLIF(COALESCE(to_jsonb(ai_alerts)->>'organization_id', to_jsonb(ai_alerts)->>'org_id'), '') IS NOT NULL
+  AND EXISTS (
     SELECT 1 FROM public.organization_members om
-    WHERE om.organization_id = ai_alerts.organization_id AND om.user_id = auth.uid()
-      AND om.status = 'active' AND om.role IN ('owner','admin','manager')
+    WHERE om.organization_id = NULLIF(COALESCE(to_jsonb(ai_alerts)->>'organization_id', to_jsonb(ai_alerts)->>'org_id'), '')::uuid
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin','manager')
   )
 );
 
