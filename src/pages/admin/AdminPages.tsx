@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Activity, AlertTriangle, BarChart3, Bell, Brain, CheckCircle2, CreditCard, Database, FileText, HeartPulse, Package, Plus, RefreshCw, UserPlus, Search, Settings as SettingsIcon, ShoppingCart, Shield, Upload, Users, XCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -798,7 +798,7 @@ function AiList({ table, title, icon: Icon }: { table: string; title: string; ic
   }, [load])
 
   return <AdminPage title={title} description="سجلات محفوظة للمؤسسة النشطة" icon={Icon} action={<button type="button" onClick={() => void load()} disabled={loading} className="btn-secondary btn-sm"><RefreshCw className="h-4 w-4" /> تحديث</button>}>
-    {loading ? <LoadingOverlay /> : error ? <ErrorState description={error} onRetry={() => void load()} /> : rows.length ? <div className="space-y-3">{rows.map(row => <div className="card flex items-start gap-3 p-4" key={String(row.id)}><Icon className="mt-0.5 h-5 w-5 text-warning-500" /><div className="min-w-0 flex-1"><h3 className="font-semibold">{String(row.title || row.name || 'سجل')}</h3><p className="mt-1 text-sm text-neutral-500">{String(row.description || row.body || row.result || 'لا توجد تفاصيل إضافية')}</p>{row.created_at && <p className="mt-2 text-xs text-neutral-400">{formatDate(String(row.created_at))}</p>}</div><StatusBadge status={String(row.status || row.severity || 'info')} /></div>)}</div> : <EmptyState title={`لا توجد ${title}`} description="لم تُرجع قاعدة البيانات سجلات لهذا القسم؛ لا تُعرض بيانات تجريبية." />}
+    {loading ? <LoadingOverlay /> : error ? <ErrorState description={error} onRetry={() => void load()} /> : rows.length ? <div className="space-y-3">{rows.map(row => <div className="card flex items-start gap-3 p-4" key={String(row.id)}><Icon className="mt-0.5 h-5 w-5 text-warning-500" /><div className="min-w-0 flex-1"><h3 className="font-semibold">{String(row.title || row.name || 'سجل')}</h3><p className="mt-1 text-sm text-neutral-500">{String(row.description || row.body || row.result || 'لا توجد تفاصيل إضافية')}</p>{typeof row.created_at === 'string' && <p className="mt-2 text-xs text-neutral-400">{formatDate(row.created_at)}</p>}</div><StatusBadge status={String(row.status || row.severity || 'info')} /></div>)}</div> : <EmptyState title={`لا توجد ${title}`} description="لم تُرجع قاعدة البيانات سجلات لهذا القسم؛ لا تُعرض بيانات تجريبية." />}
   </AdminPage>
 }
 export function AIReports() { return <AiList table="ai_reports" title="تقارير AI" icon={BarChart3} /> }
