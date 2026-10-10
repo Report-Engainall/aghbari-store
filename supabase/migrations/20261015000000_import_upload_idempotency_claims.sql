@@ -40,6 +40,35 @@ ON CONFLICT (organization_id, profile_id, file_hash, period_key) DO NOTHING;
 ALTER TABLE public.import_upload_claims ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.import_upload_claims FROM PUBLIC, anon, authenticated;
 
+-- Upload identity determines the idempotency key and cannot be edited after claim.
+-- Browser roles may update processing metadata but cannot bypass the claim RPC to
+-- create or delete upload history directly.
+CREATE OR REPLACE FUNCTION public.guard_import_upload_identity()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $
+BEGIN
+  IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.profile_id IS DISTINCT FROM OLD.profile_id
+     OR NEW.file_hash IS DISTINCT FROM OLD.file_hash
+     OR NEW.period_start IS DISTINCT FROM OLD.period_start
+     OR NEW.period_end IS DISTINCT FROM OLD.period_end
+     OR NEW.uploaded_at IS DISTINCT FROM OLD.uploaded_at THEN
+    RAISE EXCEPTION 'import_upload_identity_immutable';
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+REVOKE ALL ON FUNCTION public.guard_import_upload_identity() FROM PUBLIC, anon, authenticated;
+DROP TRIGGER IF EXISTS import_upload_identity_immutable ON public.import_uploads;
+CREATE TRIGGER import_upload_identity_immutable
+BEFORE UPDATE ON public.import_uploads
+FOR EACH ROW EXECUTE FUNCTION public.guard_import_upload_identity();
+
+REVOKE INSERT, DELETE ON public.import_uploads FROM PUBLIC, anon, authenticated;
+
 CREATE OR REPLACE FUNCTION public.claim_import_upload(
   p_organization_id uuid,
   p_profile_id uuid,
