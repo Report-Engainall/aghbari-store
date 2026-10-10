@@ -190,6 +190,30 @@ jobs:
           VALUES ('a7000000-0000-4000-8000-000000000098', 'a1000000-0000-4000-8000-000000000099',
                   'CI-CUSTOMER-B-001', 'CI Tenant B Customer', 'wholesale', 'approved');
 
+          INSERT INTO public.addresses (id, organization_id, user_id, line1, city)
+          SELECT 'a8000000-0000-4000-8000-000000000099', id,
+                 'a2000000-0000-4000-8000-000000000099', 'CI Tenant A Address', 'Sana''a'
+          FROM public.organizations WHERE email = 'aghbari-ci-org-create@example.invalid';
+          INSERT INTO public.addresses (id, organization_id, user_id, line1, city)
+          VALUES ('a8000000-0000-4000-8000-000000000098', 'a1000000-0000-4000-8000-000000000099',
+                  'a2000000-0000-4000-8000-000000000099', 'CI Tenant B Address', 'Taiz');
+
+          INSERT INTO public.reorder_templates (id, user_id, organization_id, name, items)
+          SELECT 'a9000000-0000-4000-8000-000000000099',
+                 'a2000000-0000-4000-8000-000000000099', id, 'CI Tenant A Reorder', '[]'::jsonb
+          FROM public.organizations WHERE email = 'aghbari-ci-org-create@example.invalid';
+          INSERT INTO public.reorder_templates (id, user_id, organization_id, name, items)
+          VALUES ('a9000000-0000-4000-8000-000000000098',
+                  'a2000000-0000-4000-8000-000000000099', 'a1000000-0000-4000-8000-000000000099',
+                  'CI Tenant B Reorder', '[]'::jsonb);
+
+          INSERT INTO public.price_tiers (organization_id, product_id, tier_price, min_quantity)
+          SELECT o.id, 'a4000000-0000-4000-8000-000000000099', 9, 1
+          FROM public.organizations o WHERE o.email = 'aghbari-ci-org-create@example.invalid';
+          INSERT INTO public.price_tiers (organization_id, product_id, tier_price, min_quantity)
+          VALUES ('a1000000-0000-4000-8000-000000000099',
+                  'a4000000-0000-4000-8000-000000000098', 19, 1);
+
           SELECT set_config('request.jwt.claim.sub', 'a2000000-0000-4000-8000-000000000099', false);
           SET ROLE authenticated;
           DO $tenant_row_isolation$
@@ -213,6 +237,48 @@ jobs:
               OR has_column_privilege('authenticated', 'public.products', 'wholesale_price', 'SELECT')
               OR has_column_privilege('anon', 'public.products', 'cost_price', 'SELECT') THEN
               RAISE EXCEPTION 'financial product columns remain readable by browser roles';
+            END IF;
+
+            INSERT INTO public.cart_items (user_id, product_id, quantity, unit_type)
+            VALUES (auth.uid(), 'a4000000-0000-4000-8000-000000000099', 1, 'piece');
+
+            SELECT count(*) INTO v_count FROM public.addresses WHERE id = 'a8000000-0000-4000-8000-000000000099';
+            IF v_count <> 1 THEN RAISE EXCEPTION 'tenant member cannot read own address'; END IF;
+            SELECT count(*) INTO v_count FROM public.addresses WHERE id = 'a8000000-0000-4000-8000-000000000098';
+            IF v_count <> 0 THEN RAISE EXCEPTION 'cross-tenant address leaked'; END IF;
+
+            SELECT count(*) INTO v_count FROM public.reorder_templates WHERE id = 'a9000000-0000-4000-8000-000000000099';
+            IF v_count <> 1 THEN RAISE EXCEPTION 'tenant owner cannot read own reorder template'; END IF;
+            SELECT count(*) INTO v_count FROM public.reorder_templates WHERE id = 'a9000000-0000-4000-8000-000000000098';
+            IF v_count <> 0 THEN RAISE EXCEPTION 'cross-tenant reorder template leaked'; END IF;
+
+            SELECT count(*) INTO v_count FROM public.price_tiers WHERE organization_id = (
+              SELECT id FROM public.organizations WHERE email = 'aghbari-ci-org-create@example.invalid'
+            );
+            IF v_count <> 1 THEN RAISE EXCEPTION 'tenant member cannot read own price tier'; END IF;
+            SELECT count(*) INTO v_count FROM public.price_tiers WHERE organization_id = 'a1000000-0000-4000-8000-000000000099';
+            IF v_count <> 0 THEN RAISE EXCEPTION 'cross-tenant price tier leaked'; END IF;
+
+            v_count := 0;
+            BEGIN
+              INSERT INTO public.cart_items (user_id, product_id, quantity, unit_type)
+              VALUES (auth.uid(), 'a4000000-0000-4000-8000-000000000098', 1, 'piece');
+            EXCEPTION WHEN insufficient_privilege THEN v_count := 1;
+            END;
+            IF v_count <> 1 THEN RAISE EXCEPTION 'cross-tenant product was accepted into cart'; END IF;
+
+            v_count := 0;
+            BEGIN
+              INSERT INTO public.wishlist_items (user_id, product_id)
+              VALUES (auth.uid(), 'a4000000-0000-4000-8000-000000000098');
+            EXCEPTION WHEN insufficient_privilege THEN v_count := 1;
+            END;
+            IF v_count <> 1 THEN RAISE EXCEPTION 'cross-tenant product was accepted into wishlist'; END IF;
+
+            IF has_table_privilege('authenticated', 'public.order_status_history', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.order_status_history', 'UPDATE')
+              OR has_table_privilege('authenticated', 'public.order_status_history', 'DELETE') THEN
+              RAISE EXCEPTION 'browser roles can directly tamper with immutable order history';
             END IF;
           END
           $tenant_row_isolation$;
