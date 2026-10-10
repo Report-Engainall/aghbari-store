@@ -73,6 +73,27 @@ DROP POLICY IF EXISTS implog_select_auth ON public.import_logs;
 REVOKE ALL ON SCHEMA private FROM PUBLIC, anon;
 GRANT USAGE ON SCHEMA private TO authenticated, service_role;
 
+-- A membership is operational only after the tenant itself has been approved and activated.
+-- A new owner can still read their own pending organization through the separate read policy below.
+CREATE OR REPLACE FUNCTION private.is_org_member(p_organization_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $is_org_member$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.organization_members om
+    JOIN public.organizations o ON o.id = om.organization_id
+    WHERE om.organization_id = p_organization_id
+      AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND o.status = 'active'
+      AND o.is_active = true
+  );
+$is_org_member$;
+
 CREATE OR REPLACE FUNCTION private.is_org_admin(p_organization_id uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -83,10 +104,13 @@ AS $is_org_admin$
   SELECT EXISTS (
     SELECT 1
     FROM public.organization_members om
+    JOIN public.organizations o ON o.id = om.organization_id
     WHERE om.organization_id = p_organization_id
       AND om.user_id = auth.uid()
       AND om.status = 'active'
       AND om.role IN ('owner', 'admin')
+      AND o.status = 'active'
+      AND o.is_active = true
   );
 $is_org_admin$;
 
@@ -110,13 +134,46 @@ ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS org_select_authenticated ON public.organizations;
 CREATE POLICY org_select_authenticated
 ON public.organizations FOR SELECT TO authenticated
-USING (private.is_org_member(id));
+USING (
+  private.is_org_member(id)
+  OR EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = organizations.id
+      AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role = 'owner'
+  )
+);
 
 DROP POLICY IF EXISTS org_update_owner ON public.organizations;
 CREATE POLICY org_update_owner
 ON public.organizations FOR UPDATE TO authenticated
 USING (private.is_org_admin(id))
 WITH CHECK (private.is_org_admin(id));
+
+DROP POLICY IF EXISTS organizations_pending_owner_update_name ON public.organizations;
+CREATE POLICY organizations_pending_owner_update_name
+ON public.organizations FOR UPDATE TO authenticated
+USING (
+  status = 'pending' AND is_active = false
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = organizations.id
+      AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role = 'owner'
+  )
+)
+WITH CHECK (
+  status = 'pending' AND is_active = false
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = organizations.id
+      AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role = 'owner'
+  )
+);
 
 -- Keep company verification/activation and financial controls server-managed.
 REVOKE INSERT, DELETE ON public.organizations FROM PUBLIC, anon, authenticated;
@@ -178,8 +235,8 @@ BEGIN
     RAISE EXCEPTION 'organization_membership_requires_review';
   END IF;
 
-  INSERT INTO public.organizations (name, email, phone, status)
-  VALUES (v_name, v_email, v_phone, 'pending')
+  INSERT INTO public.organizations (name, email, phone, status, is_active)
+  VALUES (v_name, v_email, v_phone, 'pending', false)
   RETURNING id INTO v_organization_id;
 
   INSERT INTO public.organization_members (organization_id, user_id, role, status)
