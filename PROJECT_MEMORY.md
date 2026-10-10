@@ -44,3 +44,8 @@ The integrated AI should observe and explain authorized application activity: ca
 ## Active follow-on implementation
 
 PR #5 for fix/import-tenant-switch-race merged into main via squash SHA 33ccd26fb666977a74d6b99e8c123210d6b3183b. Exact PR head e1d429d824a97bed6e91ab924df30ce27bdbe0fb passed Build, SQL Migration Chain and Backup Tool Safety Checks. The post-merge Build and Backup Tool Safety Checks also passed on merge SHA 33ccd26fb666977a74d6b99e8c123210d6b3183b. Import reads now use request/tenant identity guards, clear and hide prior tenant state, abort supported CSV processing, reset the selected profile, and keep writes disabled until current-tenant data finishes loading. Remaining next gap: concurrent duplicate-upload idempotency/race control; do not confuse it with the now-merged UI tenant-switch fix.
+
+
+## Active follow-on: database-enforced import idempotency
+
+Branch `fix/import-upload-idempotency` adds a stable non-null import claim key to arbitrate simultaneous uploads, backfills one canonical pointer per existing tenant/profile/hash/period without deleting duplicate historical rows, routes all CSV/Excel/PDF staging through a server RPC, uses a compare-and-swap RPC for failed CSV retries, revokes direct browser INSERT/DELETE on `import_uploads`, and protects upload identity columns from mutation. The PostgreSQL workflow now launches parallel claims/retries and tests one-upload/one-winner outcomes, audit emission and recovery of a claim abandoned by an organization switch. Do not mark verified until Build, SQL Migration Chain and Backup Tool Safety Checks pass on the final exact head.
