@@ -26,7 +26,9 @@ export function AdminRoute({ children }: { children: ReactNode }) {
 
   if (loading) return <FullPageLoader message="جاري التحقق من الصلاحيات..." />
   if (!user) return <Navigate to="/login" state={{ from: location }} replace />
-  if (isPlatformAdmin) return <Navigate to="/platform/organizations" replace />
+  if (isPlatformAdmin && (!organization || organization.status !== 'active' || !organization.is_active || !isAdmin)) {
+    return <Navigate to="/platform/organizations" replace />
+  }
   if (!organization) return <Navigate to="/onboarding/company" replace />
   if (organization.status !== 'active' || !organization.is_active) return <Navigate to="/account/pending" replace />
   if (!isAdmin) return <Navigate to="/store" replace />
