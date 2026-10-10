@@ -13,7 +13,7 @@ const imageNames = (await readdir(referenceDir))
   .sort((a, b) => a.localeCompare(b, 'en'))
 
 assert.ok(imageNames.length > 0, 'No UI reference images were found.')
-const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration, statementMigration, utilityPages, adminScreens, securityMigration, legacyApi, offlineWorker, offlineUi, mainEntry, webManifest, htmlShell, offlineBoundary] =
+const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration, statementMigration, utilityPages, adminScreens, securityMigration, legacyApi, offlineWorker, offlineUi, mainEntry, webManifest, htmlShell, offlineBoundary, tenantSecurityMigration, authContext, registerPage] =
   await Promise.all([
     read('docs/ui-reference/README.md'),
     read('docs/ui-reference/UI-REFERENCE-ASSET-INDEX.md'),
@@ -41,6 +41,9 @@ const [readme, index, pricingMigration, safeProductSelect, storefront, store, ca
     read('public/manifest.webmanifest'),
     read('index.html'),
     read('docs/OFFLINE-BOUNDARY.md'),
+    read('supabase/migrations/20261014000000_harden_legacy_tenant_policies_and_org_creation.sql'),
+    read('src/context/AuthContext.tsx'),
+    read('src/pages/storefront/Register.tsx'),
   ])
 
 for (const imageName of imageNames) {
@@ -199,6 +202,18 @@ assert.ok(offlineUi.includes('لن تُحفظ الطلبات أو المدفوع
 assert.ok(offlineBoundary.includes('لا يخزّن عامل الخدمة استجابات Supabase/API أو بيانات العملاء'), 'Offline policy must prohibit caching private business data.')
 assert.ok(offlineBoundary.includes('لا توجد قائمة انتظار محلية للطلبات أو الدفع'), 'Offline policy must record that sensitive transaction queues are not implemented.')
 assert.ok(appRoutes.includes('<ConnectivityStatus />'), 'Global offline status must be wired into the application tree.')
+
+required(tenantSecurityMigration, /DROP POLICY IF EXISTS orgmem_insert_self/, 'Legacy self-service owner-membership escalation policy must be removed.')
+required(tenantSecurityMigration, /CREATE OR REPLACE FUNCTION public\.create_organization_for_current_user/, 'Company creation must use a server-side onboarding RPC.')
+required(tenantSecurityMigration, /REVOKE INSERT, UPDATE, DELETE ON public\.organization_members FROM PUBLIC, anon, authenticated/, 'Browser clients must not directly mutate tenant membership.')
+required(tenantSecurityMigration, /CREATE POLICY products_member_read[\s\S]*private\.is_org_member\(organization_id\)/, 'Product reads must be tenant-scoped.')
+required(tenantSecurityMigration, /DROP POLICY IF EXISTS prod_select_all/, 'Global product read policy must be removed.')
+assert.ok(tenantSecurityMigration.includes("policyname LIKE 'anon"), 'Legacy permissive anon policies must be removed dynamically.')
+assert.ok(!registerPage.includes("from('organizations').insert"), 'Registration must not directly insert organizations from the browser.')
+assert.ok(!registerPage.includes("from('organization_members').insert"), 'Registration must not directly create owner memberships from the browser.')
+assert.ok(registerPage.includes('form.companyName, form.phone'), 'Registration must pass company metadata to the secure signup flow.')
+required(authContext, /create_organization_for_current_user/, 'Authenticated signup/sign-in must use the secure organization creation RPC.')
+assert.ok(!authContext.includes("from('audit_logs').insert"), 'Signup must not write an incompatible audit-log shape directly from the browser.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
