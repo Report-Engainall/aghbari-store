@@ -17,6 +17,11 @@ BEGIN
   ELSE
     UPDATE public.organizations SET status = 'pending' WHERE status IS NULL;
   END IF;
+  -- Pending/suspended tenants must never remain operational because of a legacy
+  -- is_active=true default. Active/inactive legacy states are preserved above.
+  UPDATE public.organizations
+  SET is_active = false
+  WHERE status IN ('pending', 'suspended', 'inactive');
   ALTER TABLE public.organizations ALTER COLUMN status SET DEFAULT 'pending';
   ALTER TABLE public.organizations ALTER COLUMN status SET NOT NULL;
 END
