@@ -168,6 +168,15 @@ BEGIN
   INSERT INTO public.organization_members (organization_id, user_id, role, status)
   VALUES (v_organization_id, v_user_id, 'owner', 'active');
 
+  INSERT INTO public.audit_logs (
+    organization_id, actor_id, action, entity_type, entity_id, old_value, new_value
+  ) VALUES (
+    v_organization_id,
+    (SELECT p.id FROM public.profiles p WHERE p.auth_user_id = v_user_id LIMIT 1),
+    'organization.created', 'organization', v_organization_id, NULL,
+    pg_catalog.jsonb_build_object('name', v_name, 'status', 'pending')
+  );
+
   RETURN v_organization_id;
 END
 $create_organization$;
