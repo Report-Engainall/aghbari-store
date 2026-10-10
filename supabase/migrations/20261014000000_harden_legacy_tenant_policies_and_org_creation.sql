@@ -590,12 +590,17 @@ GRANT SELECT ON public.order_status_history TO authenticated;
 DROP POLICY IF EXISTS ord_select_org ON public.orders;
 DROP POLICY IF EXISTS ord_insert_org ON public.orders;
 DROP POLICY IF EXISTS ord_update_org ON public.orders;
+DROP POLICY IF EXISTS orders_read_staff_only ON public.orders;
+DROP POLICY IF EXISTS orders_update_admin_only ON public.orders;
+DROP POLICY IF EXISTS orders_customer_read_own ON public.orders;
 DROP POLICY IF EXISTS orders_active_tenant_read ON public.orders;
 CREATE POLICY orders_active_tenant_read
 ON public.orders FOR SELECT TO authenticated
 USING (private.is_org_member(organization_id));
 
 DROP POLICY IF EXISTS orditem_select_org ON public.order_items;
+DROP POLICY IF EXISTS order_items_read_staff_only ON public.order_items;
+DROP POLICY IF EXISTS order_items_customer_read_own ON public.order_items;
 DROP POLICY IF EXISTS order_items_active_tenant_read ON public.order_items;
 CREATE POLICY order_items_active_tenant_read
 ON public.order_items FOR SELECT TO authenticated
@@ -606,12 +611,16 @@ USING (EXISTS (
 ));
 
 DROP POLICY IF EXISTS inv_select_org ON public.invoices;
+DROP POLICY IF EXISTS invoices_read_staff_only ON public.invoices;
+DROP POLICY IF EXISTS invoices_customer_read_own ON public.invoices;
 DROP POLICY IF EXISTS invoices_active_tenant_read ON public.invoices;
 CREATE POLICY invoices_active_tenant_read
 ON public.invoices FOR SELECT TO authenticated
 USING (private.is_org_member(organization_id));
 
 DROP POLICY IF EXISTS pay_select_org ON public.payments;
+DROP POLICY IF EXISTS payments_read_staff_only ON public.payments;
+DROP POLICY IF EXISTS payments_customer_read_own ON public.payments;
 DROP POLICY IF EXISTS payments_active_tenant_read ON public.payments;
 CREATE POLICY payments_active_tenant_read
 ON public.payments FOR SELECT TO authenticated
@@ -630,6 +639,18 @@ REVOKE ALL ON
 GRANT SELECT ON
   public.orders, public.order_items, public.invoices, public.payments
   TO authenticated;
+
+-- Replace permissive historical outbox and audit readers with active-admin tenant scope.
+DROP POLICY IF EXISTS outbox_select_org ON public.outbox_events;
+DROP POLICY IF EXISTS outbox_events_admin_read ON public.outbox_events;
+CREATE POLICY outbox_events_admin_read
+ON public.outbox_events FOR SELECT TO authenticated
+USING (organization_id IS NOT NULL AND private.is_org_admin(organization_id));
+
+DROP POLICY IF EXISTS audit_logs_admin_read ON public.audit_logs;
+CREATE POLICY audit_logs_admin_read
+ON public.audit_logs FOR SELECT TO authenticated
+USING (organization_id IS NOT NULL AND private.is_org_admin(organization_id));
 
 -- Audit and outbox records are immutable to browser clients. Database triggers and the
 -- privileged transaction RPCs remain the only write paths.
