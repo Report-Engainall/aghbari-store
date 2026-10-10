@@ -204,11 +204,12 @@ export async function processCsvToSnapshot(args: {
     const { error: clearError } = await supabase.from('import_records').delete()
       .eq('upload_id', existingUploadId)
     if (clearError) {
-      await supabase.from('import_uploads').update({
+      const { error: restoreError } = await supabase.from('import_uploads').update({
         status: 'failed',
         error_code: 'IMPORT_RETRY_CLEANUP_FAILED',
         error_message: clearError.message,
       }).eq('id', existingUploadId).eq('organization_id', organizationId)
+      if (restoreError) throw new Error(`IMPORT_RETRY_CLEANUP_FAILED: ${clearError.message}; status recovery also failed: ${restoreError.message}`)
       throw clearError
     }
     uploadId = existingUploadId
