@@ -13,7 +13,7 @@ const imageNames = (await readdir(referenceDir))
   .sort((a, b) => a.localeCompare(b, 'en'))
 
 assert.ok(imageNames.length > 0, 'No UI reference images were found.')
-const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration, statementMigration, utilityPages, adminScreens, securityMigration, legacyApi, offlineWorker, offlineUi, mainEntry, webManifest, htmlShell, offlineBoundary, tenantSecurityMigration, authContext, registerPage, routeGuards, loginPage] =
+const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration, statementMigration, utilityPages, adminScreens, securityMigration, legacyApi, offlineWorker, offlineUi, mainEntry, webManifest, htmlShell, offlineBoundary, tenantSecurityMigration, authContext, registerPage, routeGuards, loginPage, approvalPage, migrationWorkflow] =
   await Promise.all([
     read('docs/ui-reference/README.md'),
     read('docs/ui-reference/UI-REFERENCE-ASSET-INDEX.md'),
@@ -46,6 +46,8 @@ const [readme, index, pricingMigration, safeProductSelect, storefront, store, ca
     read('src/pages/storefront/Register.tsx'),
     read('src/components/guards/RouteGuards.tsx'),
     read('src/pages/storefront/Login.tsx'),
+    read('src/pages/admin/OrganizationApprovals.tsx'),
+    read('.github/workflows/sql-migrations.yml'),
   ])
 
 for (const imageName of imageNames) {
@@ -236,6 +238,18 @@ required(tenantSecurityMigration, /CREATE POLICY organizations_pending_owner_upd
 required(routeGuards, /organization\.status !== 'active' \|\| !organization\.is_active/, 'Protected and admin routes must block pending tenant access.')
 required(loginPage, /navigate\(redirectTo \|\|/, 'Login must honor the server-verified pending-organization redirect.')
 required(storefront, /export function OnboardingCompany[\s\S]*create_organization_for_current_user/, 'The company onboarding page must support secure RPC-based creation when membership is missing.')
+required(tenantSecurityMigration, /CREATE OR REPLACE FUNCTION private\.is_platform_admin[\s\S]*ur\.role = 'system_admin'/, 'Global platform approval must use a server-verified non-tenant role.')
+required(tenantSecurityMigration, /CREATE OR REPLACE FUNCTION public\.list_pending_organizations[\s\S]*platform_admin_required/, 'Only platform administrators can enumerate pending tenant applications.')
+required(tenantSecurityMigration, /CREATE OR REPLACE FUNCTION public\.review_organization[\s\S]*organization\.approved[\s\S]*organization\.rejected/, 'Company decisions must be validated and audited in a privileged transactional RPC.')
+required(tenantSecurityMigration, /REVOKE ALL ON public\.user_roles FROM PUBLIC, anon, authenticated/, 'Browser users cannot grant themselves a system-wide platform role.')
+required(approvalPage, /supabase\.rpc\('list_pending_organizations'\)/, 'The platform screen must load its queue from the authorized server RPC.')
+required(approvalPage, /supabase\.rpc\('review_organization'/, 'The platform screen must submit decisions through the audited server RPC.')
+required(approvalPage, /if \(!window\.confirm/, 'Company approval/rejection requires an explicit confirmation.')
+required(appRoutes, /path="\/platform\/organizations" element={<PlatformAdminRoute/, 'The platform approval route must be protected separately from tenant administration.')
+required(routeGuards, /export function PlatformAdminRoute[\s\S]*isPlatformAdmin/, 'Platform routes must be guarded by the loaded platform-role state.')
+required(authContext, /data: platformAccess[\s\S]*is_platform_admin/, 'Platform-role discovery must be verified by the server on sign-in.')
+required(adminShell, /isPlatformAdmin &&[\s\S]*\/platform\/organizations/, 'A platform administrator must have a visible navigation entry for company approvals.')
+required(migrationWorkflow, /platform_approval_smoke[\s\S]*review_organization[\s\S]*organization\.rejected/, 'PostgreSQL CI must prove both approved and rejected tenant lifecycle outcomes.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
