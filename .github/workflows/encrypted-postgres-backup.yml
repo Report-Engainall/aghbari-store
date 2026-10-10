@@ -31,11 +31,11 @@ jobs:
           set -eu
           missing=0
           if [ -z "$SUPABASE_DB_URL" ]; then
-            echo "- BLOCKED: configure repository secret `SUPABASE_DB_URL` with a PostgreSQL connection string using SSL." >> "$GITHUB_STEP_SUMMARY"
+            printf '%s\n' '- BLOCKED: configure repository secret SUPABASE_DB_URL with a PostgreSQL connection string using SSL.' >> "$GITHUB_STEP_SUMMARY"
             missing=1
           fi
           if [ -z "$BACKUP_AGE_RECIPIENT" ]; then
-            echo "- BLOCKED: configure repository secret `BACKUP_AGE_RECIPIENT` with the age public recipient. Keep the private key offline." >> "$GITHUB_STEP_SUMMARY"
+            printf '%s\n' '- BLOCKED: configure repository secret BACKUP_AGE_RECIPIENT with the age public recipient. Keep the private key offline.' >> "$GITHUB_STEP_SUMMARY"
             missing=1
           fi
           if [ "$missing" -ne 0 ]; then
