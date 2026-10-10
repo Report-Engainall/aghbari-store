@@ -5,6 +5,14 @@ umask 077
 : "${SUPABASE_DB_URL:?Set SUPABASE_DB_URL in the trusted runtime environment}"
 : "${BACKUP_AGE_RECIPIENT:?Set BACKUP_AGE_RECIPIENT to the offline-held age public recipient}"
 
+# Reject explicit plaintext transport. PGSSLMODE=require is also set for libpq.
+case "$SUPABASE_DB_URL" in
+  *sslmode=disable*|*sslmode=allow*|*sslmode=prefer*)
+    printf 'Backup blocked: the connection string explicitly requests non-required TLS.\\n' >&2
+    exit 1
+    ;;
+esac
+
 for command_name in pg_dump age sha256sum awk stat date mktemp; do
   command -v "$command_name" >/dev/null 2>&1 || {
     printf 'Required backup utility missing: %s\n' "$command_name" >&2
