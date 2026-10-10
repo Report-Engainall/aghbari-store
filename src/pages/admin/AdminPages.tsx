@@ -15,13 +15,31 @@ import { sha256File } from '@/lib/sha256File'
 function AdminPage({ title, description, icon: Icon, children, action }: { title: string; description: string; icon: typeof Activity; children: ReactNode; action?: ReactNode }) { return <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto"><div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6"><div className="flex items-start gap-3"><div className="h-11 w-11 shrink-0 rounded-xl bg-primary-50 text-primary-600 flex items-center justify-center"><Icon className="h-5 w-5" /></div><div><h1 className="text-2xl font-bold text-neutral-900">{title}</h1><p className="text-sm text-neutral-500 mt-1">{description}</p></div></div>{action}</div>{children}</div> }
 function Notice({ message }: { message: string }) { return <div className="card p-5 text-center text-neutral-600">{message}</div> }
 function Table({ headers, children }: { headers: string[]; children: ReactNode }) { return <div className="card overflow-x-auto"><table className="w-full text-sm text-right"><thead className="bg-neutral-50"><tr>{headers.map(header => <th className="p-4 text-neutral-500 whitespace-nowrap" key={header}>{header}</th>)}</tr></thead><tbody>{children}</tbody></table></div> }
-function useCount(table: string, filter?: { column: string; value: string }) { const [count, setCount] = useState(0); useEffect(() => { let query = supabase.from(table).select('id', { count: 'exact', head: true }); if (filter) query = query.eq(filter.column, filter.value); query.then(({ count: value }) => setCount(value || 0)) }, [table, filter?.column, filter?.value]); return count }
+type CountFilter = { column: string; value: string | boolean }
+function useCount(table: string, filters?: CountFilter[]) {
+  const [count, setCount] = useState<number | null>(null)
+  const filterKey = filters?.map(filter => `${filter.column}:${String(filter.value)}`).join('|') || ''
+  useEffect(() => {
+    let cancelled = false
+    if (!filterKey) {
+      setCount(null)
+      return () => { cancelled = true }
+    }
+    let query = supabase.from(table).select('id', { count: 'exact', head: true })
+    for (const filter of filters || []) query = query.eq(filter.column, filter.value)
+    query.then(({ count: value, error }) => {
+      if (!cancelled) setCount(error ? null : value ?? 0)
+    })
+    return () => { cancelled = true }
+  }, [table, filterKey])
+  return count ?? '—'
+}
 
 export function Dashboard() {
   const { organization } = useAuth()
-  const products = useCount('products', { column: 'is_active', value: 'true' })
-  const orders = useCount('orders', organization ? { column: 'organization_id', value: organization.id } : undefined)
-  const customers = useCount('organization_members', organization ? { column: 'organization_id', value: organization.id } : undefined)
+  const products = useCount('products', organization ? [{ column: 'organization_id', value: organization.id }, { column: 'is_active', value: true }] : undefined)
+  const orders = useCount('orders', organization ? [{ column: 'organization_id', value: organization.id }] : undefined)
+  const customers = useCount('customers', organization ? [{ column: 'organization_id', value: organization.id }] : undefined)
   const [recent, setRecent] = useState<Order[]>([])
   const [lowStock, setLowStock] = useState<Product[]>([])
   const [alerts, setAlerts] = useState<Record<string, unknown>[]>([])
@@ -35,11 +53,11 @@ export function Dashboard() {
     { label: 'العملاء', value: customers, icon: Users, tone: 'text-primary-700 bg-primary-50' },
     { label: 'المنتجات', value: products, icon: Package, tone: 'text-accent-700 bg-accent-50' },
     { label: 'الطلبات', value: orders, icon: ShoppingCart, tone: 'text-success-700 bg-success-50' },
-    { label: 'الطلبات الجديدة', value: recent.filter(order => order.status === 'pending').length, icon: FileText, tone: 'text-warning-700 bg-warning-50' },
-    { label: 'المبيعات', value: recent.length ? formatCurrency(recent.reduce((sum, order) => sum + Number(order.total || 0), 0)) : '—', icon: BarChart3, tone: 'text-primary-700 bg-primary-50' },
-    { label: 'أصناف منخفضة', value: lowStock.length, icon: AlertTriangle, tone: 'text-error-700 bg-error-50' },
-    { label: 'تنبيهات ذكية', value: alerts.length, icon: Brain, tone: 'text-accent-700 bg-accent-50' },
-    { label: 'حالة النظام', value: 'سليم', icon: Activity, tone: 'text-success-700 bg-success-50' },
+    { label: 'طلبات معلّقة (أحدث 5)', value: recent.filter(order => order.status === 'pending').length, icon: FileText, tone: 'text-warning-700 bg-warning-50' },
+    { label: 'قيمة أحدث الطلبات المعروضة', value: recent.length ? formatCurrency(recent.reduce((sum, order) => sum + Number(order.total || 0), 0)) : '—', icon: BarChart3, tone: 'text-primary-700 bg-primary-50' },
+    { label: 'أصناف منخفضة (عينة)', value: lowStock.length, icon: AlertTriangle, tone: 'text-error-700 bg-error-50' },
+    { label: 'تنبيهات AI (عينة)', value: alerts.length, icon: Brain, tone: 'text-accent-700 bg-accent-50' },
+    { label: 'حالة النظام', value: 'غير متحقق', icon: Activity, tone: 'text-neutral-700 bg-neutral-100' },
   ]
   const quickActions = [
     { label: 'إضافة طلب جديد', to: '/admin/orders', icon: Plus },
@@ -713,7 +731,40 @@ export function Import() {
 }
 export function ImportLogs() { const { organization } = useAuth(); const [rows, setRows] = useState<Record<string, unknown>[]>([]); useEffect(() => { if (organization) supabase.from('import_uploads').select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }).then(({ data }) => setRows(data as any || [])) }, [organization]); return <AdminPage title="سجلات الاستيراد" description="تاريخ عمليات إدخال البيانات" icon={FileText}>{rows.length ? <Table headers={['الملف', 'النوع', 'الحالة', 'الجودة', 'التاريخ']}>{rows.map(row => <tr className="border-t border-neutral-100" key={String(row.id)}><td className="p-4">{String(row.file_name || '—')}</td><td className="p-4">{String(row.file_type || '—')}</td><td className="p-4"><StatusBadge status={String(row.status)} /></td><td className="p-4">{row.quality_score != null ? `${row.quality_score}/100` : '—'}</td><td className="p-4">{row.created_at ? formatDate(String(row.created_at)) : '—'}</td></tr>)}</Table> : <EmptyState title="لا توجد عمليات استيراد" description="ستظهر السجلات بعد تشغيل أول عملية استيراد." />}</AdminPage> }
 export function AI() { return <AdminPage title="مركز الذكاء الاصطناعي" description="مركز متكامل داخل بوابة الأغبري للتقارير والتنبيهات والمهام والمساعد التشغيلي" icon={Brain}><div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">{[{ label: 'المساعد الذكي', to: '/admin/ai/assistant', Icon: Brain }, { label: 'التنبيهات', to: '/admin/ai/alerts', Icon: AlertTriangle }, { label: 'التقارير', to: '/admin/ai/reports', Icon: BarChart3 }, { label: 'المهام', to: '/admin/ai/tasks', Icon: CheckCircle2 }].map(item => <Link to={item.to} className="card-hover p-5" key={item.to}><item.Icon className="h-7 w-7 text-primary-600" /><h3 className="mt-4 font-bold">{item.label}</h3><p className="mt-1 text-sm text-neutral-500">فتح مساحة العمل داخل التطبيق</p></Link>)}</div><p className="mt-5 rounded-xl border border-primary-100 bg-primary-50 p-4 text-sm leading-6 text-primary-900">تعتمد نتائج المساعد على السجلات الفعلية المتاحة للمؤسسة. لا تظهر أرقام تجريبية، ولا تُرسل بيانات المؤسسة إلى نموذج خارجي غير مهيأ.</p></AdminPage> }
-function AiList({ table, title, icon: Icon }: { table: string; title: string; icon: typeof AlertTriangle }) { const { organization } = useAuth(); const [rows, setRows] = useState<Record<string, unknown>[]>([]); useEffect(() => { if (organization) supabase.from(table).select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(50).then(({ data }) => setRows(data as any || [])) }, [organization, table]); return <AdminPage title={title} description="بيانات النظام الفعلية" icon={Icon}>{rows.length ? <div className="space-y-3">{rows.map(row => <div className="card p-4 flex items-start gap-3" key={String(row.id)}><Icon className="h-5 w-5 text-warning-500 mt-0.5" /><div className="flex-1"><h3 className="font-semibold">{String(row.title || row.name || 'سجل')}</h3><p className="text-sm text-neutral-500 mt-1">{String(row.description || row.body || row.result || 'لا توجد تفاصيل إضافية')}</p></div><StatusBadge status={String(row.status || row.severity || 'info')} /></div>)}</div> : <EmptyState title={`لا توجد ${title}`} description="لا توجد سجلات مطابقة حالياً." />}</AdminPage> }
+function AiList({ table, title, icon: Icon }: { table: string; title: string; icon: typeof AlertTriangle }) {
+  const { organization } = useAuth()
+  const [rows, setRows] = useState<Record<string, unknown>[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    if (!organization?.id) {
+      setRows([])
+      setError('لا توجد مؤسسة نشطة ضمن الجلسة الحالية.')
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError('')
+    const { data, error: queryError } = await supabase.from(table).select('*')
+      .eq('organization_id', organization.id)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    if (queryError) {
+      setRows([])
+      setError(queryError.message)
+    } else {
+      setRows((data || []) as Record<string, unknown>[])
+    }
+    setLoading(false)
+  }, [organization?.id, table])
+
+  useEffect(() => { void load() }, [load])
+
+  return <AdminPage title={title} description="سجلات محفوظة للمؤسسة النشطة" icon={Icon} action={<button type="button" onClick={() => void load()} disabled={loading} className="btn-secondary btn-sm"><RefreshCw className="h-4 w-4" /> تحديث</button>}>
+    {loading ? <LoadingOverlay /> : error ? <ErrorState description={error} onRetry={() => void load()} /> : rows.length ? <div className="space-y-3">{rows.map(row => <div className="card flex items-start gap-3 p-4" key={String(row.id)}><Icon className="mt-0.5 h-5 w-5 text-warning-500" /><div className="min-w-0 flex-1"><h3 className="font-semibold">{String(row.title || row.name || 'سجل')}</h3><p className="mt-1 text-sm text-neutral-500">{String(row.description || row.body || row.result || 'لا توجد تفاصيل إضافية')}</p>{row.created_at && <p className="mt-2 text-xs text-neutral-400">{formatDate(String(row.created_at))}</p>}</div><StatusBadge status={String(row.status || row.severity || 'info')} /></div>)}</div> : <EmptyState title={`لا توجد ${title}`} description="لم تُرجع قاعدة البيانات سجلات لهذا القسم؛ لا تُعرض بيانات تجريبية." />}
+  </AdminPage>
+}
 export function AIReports() { return <AiList table="ai_reports" title="تقارير AI" icon={BarChart3} /> }
 export function AIAlerts() { return <AiList table="ai_alerts" title="تنبيهات AI" icon={AlertTriangle} /> }
 export function AITasks() { return <AiList table="ai_tasks" title="مهام AI" icon={Brain} /> }
