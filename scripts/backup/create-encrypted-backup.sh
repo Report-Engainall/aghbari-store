@@ -8,7 +8,7 @@ umask 077
 # Reject explicit plaintext transport. PGSSLMODE=require is also set for libpq.
 case "$SUPABASE_DB_URL" in
   *sslmode=disable*|*sslmode=allow*|*sslmode=prefer*)
-    printf 'Backup blocked: the connection string explicitly requests non-required TLS.\\n' >&2
+    printf 'Backup blocked: the connection string explicitly requests non-required TLS.\n' >&2
     exit 1
     ;;
 esac
