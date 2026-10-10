@@ -21,6 +21,55 @@ $drop_legacy_open_policies$;
 DROP POLICY IF EXISTS "orgmem_insert_self" ON public.organization_members;
 DROP POLICY IF EXISTS "orgmem_update_self" ON public.organization_members;
 DROP POLICY IF EXISTS "orgmem_delete_self" ON public.organization_members;
+DROP POLICY IF EXISTS "org_select_authenticated" ON public.organizations;
+DROP POLICY IF EXISTS "orgmem_select_member" ON public.organization_members;
+
+CREATE OR REPLACE FUNCTION public.can_read_organization(p_organization_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $
+  SELECT auth.uid() IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = p_organization_id
+      AND om.user_id = auth.uid()
+      AND om.status = 'active'
+  );
+$;
+
+CREATE OR REPLACE FUNCTION public.can_manage_organization_members(p_organization_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $
+  SELECT auth.uid() IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = p_organization_id
+      AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role IN ('owner','admin')
+  );
+$;
+
+REVOKE ALL ON FUNCTION public.can_read_organization(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.can_read_organization(uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.can_manage_organization_members(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.can_manage_organization_members(uuid) TO authenticated;
+
+ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS organizations_member_read ON public.organizations;
+CREATE POLICY organizations_member_read ON public.organizations FOR SELECT TO authenticated
+USING (public.can_read_organization(id));
+
+CREATE POLICY orgmem_select_member ON public.organization_members FOR SELECT TO authenticated
+USING (
+  user_id = auth.uid()
+  OR public.can_manage_organization_members(organization_id)
+);
 
 -- The earlier RLS migration also installed authenticated-wide read policies; these
 -- must not OR-bypass the later organization-scoped policies.
