@@ -209,6 +209,7 @@ required(tenantSecurityMigration, /REVOKE INSERT, UPDATE, DELETE ON public\.orga
 required(tenantSecurityMigration, /CREATE POLICY products_member_read[\s\S]*private\.is_org_member\(organization_id\)/, 'Product reads must be tenant-scoped.')
 required(tenantSecurityMigration, /DROP POLICY IF EXISTS prod_select_all/, 'Global product read policy must be removed.')
 assert.ok(tenantSecurityMigration.includes("left(policyname, 5) = 'anon_'"), 'Legacy permissive anon policies must be removed dynamically.')
+assert.ok(tenantSecurityMigration.includes('GRANT USAGE ON SCHEMA private TO authenticated, service_role'), 'Authenticated RLS policies must be able to invoke only granted private security helpers.')
 assert.ok(tenantSecurityMigration.includes('REVOKE SELECT (') && tenantSecurityMigration.includes('FROM PUBLIC, anon, authenticated;'), 'Previously granted customer-visible product columns must be explicitly revoked before re-granting the safe projection.')
 assert.ok(!registerPage.includes("from('organizations').insert"), 'Registration must not directly insert organizations from the browser.')
 assert.ok(!registerPage.includes("from('organization_members').insert"), 'Registration must not directly create owner memberships from the browser.')
