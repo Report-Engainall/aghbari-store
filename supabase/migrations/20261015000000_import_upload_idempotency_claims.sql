@@ -47,7 +47,7 @@ CREATE OR REPLACE FUNCTION public.guard_import_upload_identity()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = ''
-AS $
+AS $guard_import_upload_identity$
 BEGIN
   IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
      OR NEW.profile_id IS DISTINCT FROM OLD.profile_id
@@ -59,7 +59,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$guard_import_upload_identity$;
 
 REVOKE ALL ON FUNCTION public.guard_import_upload_identity() FROM PUBLIC, anon, authenticated;
 DROP TRIGGER IF EXISTS import_upload_identity_immutable ON public.import_uploads;
@@ -292,7 +292,7 @@ RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = ''
-AS $
+AS $abandon_staged_import_claim$
 DECLARE
   v_user_id uuid := auth.uid();
   v_actor_profile_id uuid;
@@ -339,7 +339,7 @@ BEGIN
 
   RETURN v_abandoned_id IS NOT NULL;
 END;
-$;
+$abandon_staged_import_claim$;
 
 REVOKE ALL ON FUNCTION public.claim_import_upload(uuid, uuid, text, text, bigint, text, date, date, timestamptz, text, text, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.claim_import_upload(uuid, uuid, text, text, bigint, text, date, date, timestamptz, text, text, text) TO authenticated;
