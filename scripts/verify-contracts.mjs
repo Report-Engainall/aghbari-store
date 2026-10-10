@@ -215,6 +215,7 @@ for (const table of ['ai_reports', 'ai_alerts', 'ai_tasks']) {
 }
 assert.ok(aiAssistant.includes(".eq('organization_id', organizationId)"), 'AI assistant queries must explicitly scope records to the active organization.')
 assert.ok(aiAssistant.includes('setMessages([welcomeMessage])'), 'The assistant must discard conversation context when the active organization changes.')
+assert.ok(aiAssistant.includes('requestId.current !== requestNumber'), 'The assistant must ignore stale responses after organization or request changes.')
 assert.ok(aiAssistant.includes('لا يوجد نموذج توليدي مفعّل لهذا المساعد'), 'The assistant must disclose that no generative provider is configured.')
 assert.ok(aiIntegration.includes('ليست منتجًا مستقلًا أو تطبيقًا منفصلًا'), 'The integration decision must explicitly prohibit treating AI as a separate application.')
 
