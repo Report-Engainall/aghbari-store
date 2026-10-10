@@ -501,6 +501,22 @@ jobs:
             IF v_admin_catalog_other <> 0 THEN
               RAISE EXCEPTION 'admin product catalog view exposes another tenant';
             END IF;
+
+            IF EXISTS (
+              SELECT 1 FROM pg_catalog.pg_policies
+              WHERE schemaname = 'public' AND left(policyname, 5) = 'anon_'
+            ) THEN
+              RAISE EXCEPTION 'legacy permissive anon_* RLS policies remain in public schema';
+            END IF;
+
+            IF EXISTS (
+              SELECT 1 FROM pg_catalog.pg_policies
+              WHERE schemaname = 'public'
+                AND policyname IN ('orgmem_insert_self','orgmem_update_self','orgmem_delete_self',
+                                   'audit_select_auth','ai_select_auth','aialert_select_auth','implog_select_auth')
+            ) THEN
+              RAISE EXCEPTION 'legacy self-escalation or cross-tenant authenticated-wide policy remains';
+            END IF;
           END;
           $ci_tenant_price_boundary$;
 
