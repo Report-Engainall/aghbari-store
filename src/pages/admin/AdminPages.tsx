@@ -732,8 +732,17 @@ export function Import() {
       if (!isCurrentImportContext(organizationId, requestNumber)) return
       const reason = err instanceof Error ? err.message : 'تعذر إعادة المعالجة.'
       const cancelled = reason === 'IMPORT_CANCELLED'
-      setMessage(cancelled ? 'أُلغيت المعالجة. السجلات الجزئية ستُنظف قبل المحاولة التالية.' : reason === 'FILE_HASH_CHANGED' ? 'الملف المختار لا يطابق البصمة الأصلية.' : reason)
-      show(cancelled ? 'warning' : 'error', cancelled ? 'أُلغيت المعالجة' : 'تعذرت إعادة المعالجة')
+      const retryAlreadyClaimed = reason === 'IMPORT_RETRY_ALREADY_CLAIMED'
+      if (retryAlreadyClaimed) setDuplicate(current => current ? { ...current, status: 'detecting' } : current)
+      const userMessage = cancelled
+        ? 'أُلغيت المعالجة. السجلات الجزئية ستُنظف قبل المحاولة التالية.'
+        : reason === 'FILE_HASH_CHANGED'
+          ? 'الملف المختار لا يطابق البصمة الأصلية.'
+          : retryAlreadyClaimed
+            ? 'إعادة معالجة هذا الملف بدأت بالفعل في جلسة أخرى؛ لن نشغّل محاولة متزامنة ثانية.'
+            : reason
+      setMessage(userMessage)
+      show(cancelled ? 'warning' : 'error', cancelled ? 'أُلغيت المعالجة' : retryAlreadyClaimed ? 'إعادة المعالجة جارية' : 'تعذرت إعادة المعالجة')
       await load(true)
     } finally {
       abortControllerRef.current = null
