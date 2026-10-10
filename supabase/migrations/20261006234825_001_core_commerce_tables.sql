@@ -364,6 +364,15 @@ UPDATE public.notifications
 SET read = COALESCE(is_read, false);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications(user_id);
 
+-- Backward-compatible user ownership for legacy notifications that were keyed by profile_id.
+-- Newer API/RLS contracts use auth.users.id as user_id; keep legacy rows reachable by their owner.
+ALTER TABLE public.notifications
+  ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE;
+UPDATE public.notifications n
+SET user_id = p.auth_user_id
+FROM public.profiles p
+WHERE n.profile_id = p.id AND n.user_id IS NULL;
+
 -- INDEXES
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand_id);
