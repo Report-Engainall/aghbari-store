@@ -32,3 +32,14 @@ Use one entry per execution run. Keep implementation, verification, proof and de
 - **New contract assertions:** durable memory/spec/index/state/progress files remain present; source acceptance IDs remain documented; retail/wholesale target logic and rule recalculation trigger remain guarded; pricing error/retry/confirm/admin behavior remains guarded.
 - **Verification status:** code/document readback succeeded; no claim of local build, live SQL, browser E2E or production proof. Re-fetch GitHub Actions for the final branch head because every follow-up commit changes the checked SHA.
 - **Deployment:** HOLD / not merged / not deployed.
+
+
+## Run update — encrypted backup and guarded restore tooling (2026-10-10)
+
+- **Implemented:** daily/manual GitHub Actions PostgreSQL logical backup workflow; encrypted artifact writer using age public-key encryption; SHA-256 manifest; offline-key verification utility; guarded restore utility; operator runbook; shell syntax/ShellCheck workflow; static contract assertions.
+- **Security properties in code:** DB URL is not intentionally printed or stored in the manifest; encrypted artifact only is uploaded; private age key is kept offline; explicit insecure TLS connection options are rejected; restore requires an expected-host match and an operator confirmation sentinel; production-labelled restore has an additional overwrite acknowledgement.
+- **Scope honesty:** this is a PostgreSQL logical database dump, not a complete Supabase-project backup. Storage object bytes, Edge Function source/secrets and project configuration are excluded. Artifact retention is 14 days unless the repository policy limits it further.
+- **Configuration blocker:** a real execution needs repository Actions secrets `SUPABASE_DB_URL` and `BACKUP_AGE_RECIPIENT`. The offline age private key must be generated and kept outside the repository. These credentials were not supplied and were not written into source.
+- **Verification:** repository files read back; contract assertions added; Backup Tool Safety Checks, Build and SQL Migration Chain reported queued on the previously inspected candidate and must be rechecked on latest PR head. No actual backup artifact, decryption, isolated restore, browser E2E or live database test is claimed.
+- **Deployment:** HOLD / not merged / not deployed.
+- **Next:** check exact-head Actions; fix shell/static/build/migration failures; configure secrets securely; run the first encrypted backup; verify with offline key; perform and record isolated restore + application smoke tests. Only then call backup/restore operationally proven.
