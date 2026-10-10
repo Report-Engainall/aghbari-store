@@ -1073,6 +1073,296 @@ WITH CHECK (
 REVOKE ALL ON public.customers FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.customers TO authenticated;
 
+-- Procurement/inventory read permissions are job-role scoped as well as tenant scoped.
+-- (The parent and item rows use the same helper so tenant suspension takes effect immediately.)
+DROP POLICY IF EXISTS purchase_orders_read_member ON public.purchase_orders;
+CREATE POLICY purchase_orders_read_member ON public.purchase_orders FOR SELECT TO authenticated
+USING (
+  private.is_org_member(organization_id)
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = purchase_orders.organization_id AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role IN ('owner','admin','manager','warehouse','accountant','sales')
+  )
+);
+
+DROP POLICY IF EXISTS purchase_order_items_read_member ON public.purchase_order_items;
+CREATE POLICY purchase_order_items_read_member ON public.purchase_order_items FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.purchase_orders po
+  WHERE po.id = purchase_order_items.purchase_order_id
+    AND private.is_org_member(po.organization_id)
+    AND EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = po.organization_id AND om.user_id = auth.uid()
+        AND om.status = 'active'
+        AND om.role IN ('owner','admin','manager','warehouse','accountant','sales')
+    )
+));
+
+DROP POLICY IF EXISTS goods_receipts_read_member ON public.goods_receipts;
+CREATE POLICY goods_receipts_read_member ON public.goods_receipts FOR SELECT TO authenticated
+USING (
+  private.is_org_member(organization_id)
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = goods_receipts.organization_id AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role IN ('owner','admin','manager','warehouse','accountant')
+  )
+);
+
+DROP POLICY IF EXISTS goods_receipt_items_read_member ON public.goods_receipt_items;
+CREATE POLICY goods_receipt_items_read_member ON public.goods_receipt_items FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.goods_receipts gr
+  WHERE gr.id = goods_receipt_items.goods_receipt_id
+    AND private.is_org_member(gr.organization_id)
+    AND EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = gr.organization_id AND om.user_id = auth.uid()
+        AND om.status = 'active'
+        AND om.role IN ('owner','admin','manager','warehouse','accountant')
+    )
+));
+
+DROP POLICY IF EXISTS inventory_transfers_read_member ON public.inventory_transfers;
+CREATE POLICY inventory_transfers_read_member ON public.inventory_transfers FOR SELECT TO authenticated
+USING (
+  private.is_org_member(organization_id)
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = inventory_transfers.organization_id AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role IN ('owner','admin','manager','warehouse')
+  )
+);
+
+DROP POLICY IF EXISTS inventory_transfer_items_read_member ON public.inventory_transfer_items;
+CREATE POLICY inventory_transfer_items_read_member ON public.inventory_transfer_items FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.inventory_transfers t
+  WHERE t.id = inventory_transfer_items.transfer_id
+    AND private.is_org_member(t.organization_id)
+    AND EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = t.organization_id AND om.user_id = auth.uid()
+        AND om.status = 'active'
+        AND om.role IN ('owner','admin','manager','warehouse')
+    )
+));
+
+DROP POLICY IF EXISTS stock_counts_read_member ON public.stock_counts;
+CREATE POLICY stock_counts_read_member ON public.stock_counts FOR SELECT TO authenticated
+USING (
+  private.is_org_member(organization_id)
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = stock_counts.organization_id AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role IN ('owner','admin','manager','warehouse')
+  )
+);
+
+DROP POLICY IF EXISTS stock_count_items_read_member ON public.stock_count_items;
+CREATE POLICY stock_count_items_read_member ON public.stock_count_items FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.stock_counts sc
+  WHERE sc.id = stock_count_items.stock_count_id
+    AND private.is_org_member(sc.organization_id)
+    AND EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = sc.organization_id AND om.user_id = auth.uid()
+        AND om.status = 'active'
+        AND om.role IN ('owner','admin','manager','warehouse')
+    )
+));
+
+DROP POLICY IF EXISTS expenses_read_member ON public.expenses;
+CREATE POLICY expenses_read_member ON public.expenses FOR SELECT TO authenticated
+USING (
+  private.is_org_member(organization_id)
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = expenses.organization_id AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role IN ('owner','admin','accountant')
+  )
+);
+
+-- Defense in depth: SECURITY DEFINER business RPCs must not write transactional rows for
+-- pending/suspended tenants even if a future function forgets an activation check.
+CREATE OR REPLACE FUNCTION private.guard_active_organization_write()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $guard_active_organization_write$
+DECLARE
+  v_organization_id uuid;
+  v_status text;
+  v_is_active boolean;
+BEGIN
+  v_organization_id := NULLIF(pg_catalog.to_jsonb(NEW)->>'organization_id', '')::uuid;
+  IF v_organization_id IS NULL THEN
+    RAISE EXCEPTION 'organization_id_required';
+  END IF;
+
+  SELECT o.status, o.is_active
+    INTO v_status, v_is_active
+  FROM public.organizations o
+  WHERE o.id = v_organization_id;
+
+  IF NOT FOUND OR v_status IS DISTINCT FROM 'active' OR v_is_active IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'organization_not_active';
+  END IF;
+
+  RETURN NEW;
+END
+$guard_active_organization_write$;
+
+REVOKE ALL ON FUNCTION private.guard_active_organization_write() FROM PUBLIC, anon, authenticated;
+
+DO $active_org_write_triggers$
+DECLARE
+  table_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'orders', 'invoices', 'payments', 'statements',
+    'purchase_orders', 'goods_receipts', 'inventory_transfers', 'stock_counts', 'expenses'
+  ]
+  LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS require_active_organization_write ON public.%I', table_name);
+    EXECUTE format(
+      'CREATE TRIGGER require_active_organization_write BEFORE INSERT OR UPDATE ON public.%I '
+      || 'FOR EACH ROW EXECUTE FUNCTION private.guard_active_organization_write()',
+      table_name
+    );
+  END LOOP;
+END
+$active_org_write_triggers$;
+
+CREATE OR REPLACE FUNCTION private.guard_active_parent_write()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $guard_active_parent_write$
+DECLARE
+  v_parent_id uuid;
+  v_organization_id uuid;
+  v_status text;
+  v_is_active boolean;
+BEGIN
+  CASE TG_TABLE_NAME
+    WHEN 'order_items' THEN
+      v_parent_id := (pg_catalog.to_jsonb(NEW)->>'order_id')::uuid;
+      SELECT o.organization_id INTO v_organization_id FROM public.orders o WHERE o.id = v_parent_id;
+    WHEN 'purchase_order_items' THEN
+      v_parent_id := (pg_catalog.to_jsonb(NEW)->>'purchase_order_id')::uuid;
+      SELECT po.organization_id INTO v_organization_id FROM public.purchase_orders po WHERE po.id = v_parent_id;
+    WHEN 'goods_receipt_items' THEN
+      v_parent_id := (pg_catalog.to_jsonb(NEW)->>'goods_receipt_id')::uuid;
+      SELECT gr.organization_id INTO v_organization_id FROM public.goods_receipts gr WHERE gr.id = v_parent_id;
+    WHEN 'inventory_transfer_items' THEN
+      v_parent_id := (pg_catalog.to_jsonb(NEW)->>'transfer_id')::uuid;
+      SELECT t.organization_id INTO v_organization_id FROM public.inventory_transfers t WHERE t.id = v_parent_id;
+    WHEN 'stock_count_items' THEN
+      v_parent_id := (pg_catalog.to_jsonb(NEW)->>'stock_count_id')::uuid;
+      SELECT sc.organization_id INTO v_organization_id FROM public.stock_counts sc WHERE sc.id = v_parent_id;
+    ELSE
+      RAISE EXCEPTION 'unsupported_active_parent_table';
+  END CASE;
+
+  IF v_organization_id IS NULL THEN
+    RAISE EXCEPTION 'active_parent_required';
+  END IF;
+
+  SELECT o.status, o.is_active
+    INTO v_status, v_is_active
+  FROM public.organizations o
+  WHERE o.id = v_organization_id;
+
+  IF NOT FOUND OR v_status IS DISTINCT FROM 'active' OR v_is_active IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'organization_not_active';
+  END IF;
+
+  RETURN NEW;
+END
+$guard_active_parent_write$;
+
+REVOKE ALL ON FUNCTION private.guard_active_parent_write() FROM PUBLIC, anon, authenticated;
+
+DO $active_parent_write_triggers$
+DECLARE
+  table_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'order_items', 'purchase_order_items', 'goods_receipt_items',
+    'inventory_transfer_items', 'stock_count_items'
+  ]
+  LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS require_active_parent_write ON public.%I', table_name);
+    EXECUTE format(
+      'CREATE TRIGGER require_active_parent_write BEFORE INSERT OR UPDATE ON public.%I '
+      || 'FOR EACH ROW EXECUTE FUNCTION private.guard_active_parent_write()',
+      table_name
+    );
+  END LOOP;
+END
+$active_parent_write_triggers$;
+
+-- Inventory ledger rows span a product and warehouse rather than carrying organization_id.
+CREATE OR REPLACE FUNCTION private.guard_active_inventory_write()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $guard_active_inventory_write$
+DECLARE
+  v_product_organization uuid;
+  v_warehouse_organization uuid;
+  v_status text;
+  v_is_active boolean;
+  v_product_id uuid := (pg_catalog.to_jsonb(NEW)->>'product_id')::uuid;
+  v_warehouse_id uuid := (pg_catalog.to_jsonb(NEW)->>'warehouse_id')::uuid;
+BEGIN
+  SELECT p.organization_id INTO v_product_organization
+  FROM public.products p WHERE p.id = v_product_id;
+
+  SELECT w.organization_id INTO v_warehouse_organization
+  FROM public.warehouses w WHERE w.id = v_warehouse_id;
+
+  IF v_product_organization IS NULL
+     OR v_warehouse_organization IS NULL
+     OR v_product_organization IS DISTINCT FROM v_warehouse_organization THEN
+    RAISE EXCEPTION 'inventory_product_warehouse_tenant_mismatch';
+  END IF;
+
+  SELECT o.status, o.is_active INTO v_status, v_is_active
+  FROM public.organizations o WHERE o.id = v_product_organization;
+
+  IF NOT FOUND OR v_status IS DISTINCT FROM 'active' OR v_is_active IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'organization_not_active';
+  END IF;
+
+  RETURN NEW;
+END
+$guard_active_inventory_write$;
+
+REVOKE ALL ON FUNCTION private.guard_active_inventory_write() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS require_active_inventory_write ON public.inventory_balances;
+CREATE TRIGGER require_active_inventory_write
+BEFORE INSERT OR UPDATE ON public.inventory_balances
+FOR EACH ROW EXECUTE FUNCTION private.guard_active_inventory_write();
+
+DROP TRIGGER IF EXISTS require_active_inventory_write ON public.inventory_movements;
+CREATE TRIGGER require_active_inventory_write
+BEFORE INSERT OR UPDATE ON public.inventory_movements
+FOR EACH ROW EXECUTE FUNCTION private.guard_active_inventory_write();
+
 -- Price history, stock ledgers, AI operations and import job details are read-only in the browser.
 ALTER TABLE public.price_change_log ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS price_change_log_admin_read ON public.price_change_log;
