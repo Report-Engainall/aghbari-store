@@ -84,3 +84,13 @@ Use one entry per execution run. Keep implementation, verification, proof and de
 - **Implementation:** added scripts/verify-bundle-budget.mjs; after vite build, CI measures the single Vite entry JavaScript file and its gzip bytes and fails if raw entry exceeds 500,000 bytes or the entry is missing/ambiguous/empty.
 - **Why:** route splitting reduced main JS from 732.55 kB to 452.62 kB. The build now enforces that improvement instead of relying on a non-fatal Vite warning.
 - **Status:** code and package wiring were read back from GitHub. The budget guard is **implemented, not yet proven on the new exact head**; next Build CI run must show the expected bundle-budget PASS output.
+
+
+## Run update — verified merge to main (2026-10-10)
+
+- **PR:** #4 merged by squash; merge commit SHA `2dbc96fd5cb51b42924238d8d3cead955d90b1e6`.
+- **Exact pre-merge PR head:** `658382a5b09e4ef0363f7e1af11b2e0cc93581c4` — Build PASS; SQL Migration Chain PASS; Backup Tool Safety Checks PASS.
+- **Bundle budget:** production guard passed on that PR head: entry file `index-Bf1jHErw.js`, raw 454,026 bytes, gzip 127,606 bytes, budget 500,000 bytes. Static contracts, TypeScript and Vite build passed.
+- **Post-merge checks:** Build and Backup Tool Safety Checks passed on merge commit `2dbc96fd5cb51b42924238d8d3cead955d90b1e6`. The SQL chain passed on the pre-merge PR head whose source/migrations were merged unchanged.
+- **No overclaim:** no production deployment, live hosted Supabase verification, browser E2E or actual database backup/decryption/restore is claimed.
+- **Next executable gap:** tenant-switch stale-response safety and duplicate-upload race/idempotency in the unified import UI/engine; keep Excel/PDF manual review and do not fake live-data merge.
