@@ -38,8 +38,9 @@ export default function ProductDetail() {
         setError(true)
         return
       }
+      const productSource = isAdmin ? 'admin_product_catalog' : 'products'
       const productSelect = isAdmin ? '*, category:categories(*), brand:brands(*)' : CUSTOMER_PRODUCT_SELECT
-      const { data, error: productError } = await supabase.from('products')
+      const { data, error: productError } = await supabase.from(productSource)
         .select(productSelect)
         .eq('organization_id', organization.id)
         .eq('id', id)
@@ -58,7 +59,7 @@ export default function ProductDetail() {
 
       if (loadedProduct.category_id) {
         const { data: relatedProducts } = await supabase.from('products')
-          .select(productSelect)
+          .select(CUSTOMER_PRODUCT_SELECT)
           .eq('organization_id', organization.id)
           .eq('category_id', loadedProduct.category_id)
           .eq('is_active', true)
