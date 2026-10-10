@@ -121,7 +121,7 @@ ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS search_p95_target_
 ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_daily_token_quota bigint NOT NULL DEFAULT 0;
 ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_monthly_token_quota bigint NOT NULL DEFAULT 0;
 ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_request_budget_usd numeric(10,4) NOT NULL DEFAULT 0;
-DO $
+DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'commerce_policy_limits_check') THEN
     ALTER TABLE commerce_policy_settings ADD CONSTRAINT commerce_policy_limits_check CHECK (
