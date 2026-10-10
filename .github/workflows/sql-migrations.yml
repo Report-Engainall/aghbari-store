@@ -506,7 +506,9 @@ jobs:
           claim_two="$(tr -d '\r\n' <"$tmpdir/claim-two.out")"
           claim_one_id="${claim_one%%|*}"
           claim_two_id="${claim_two%%|*}"
-          created_count="$({ printf '%s\\n' "$claim_one" "$claim_two"; } | awk -F'|' '$2 == "t" { n++ } END { print n+0 }')"
+          created_count=0
+          [[ "${claim_one##*|}" == "t" ]] && created_count=$((created_count + 1))
+          [[ "${claim_two##*|}" == "t" ]] && created_count=$((created_count + 1))
           if [[ -z "$claim_one_id" || "$claim_one_id" != "$claim_two_id" || "$created_count" != "1" ]]; then
             printf 'FAIL: concurrent upload claims diverged. response one=%s response two=%s\\n' "$claim_one" "$claim_two" >&2
             exit 1
