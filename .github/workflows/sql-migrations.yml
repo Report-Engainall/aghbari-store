@@ -562,7 +562,10 @@ jobs:
             IF NOT EXISTS (
               SELECT 1 FROM public.audit_logs
               WHERE organization_id='a1000000-0000-4000-8000-000000000001'
-                AND actor_id='a3000000-0000-4000-8000-000000000001'
+                AND actor_id = (
+                  SELECT id FROM public.profiles
+                  WHERE auth_user_id='a2000000-0000-4000-8000-000000000001'
+                )
                 AND action='organization_member.role_changed'
                 AND entity_id='a2000000-0000-4000-8000-000000000002'
             ) THEN
