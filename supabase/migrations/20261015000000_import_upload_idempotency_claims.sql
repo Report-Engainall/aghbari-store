@@ -67,7 +67,8 @@ CREATE TRIGGER import_upload_identity_immutable
 BEFORE UPDATE ON public.import_uploads
 FOR EACH ROW EXECUTE FUNCTION public.guard_import_upload_identity();
 
-REVOKE INSERT, DELETE ON public.import_uploads FROM PUBLIC, anon, authenticated;
+REVOKE ALL PRIVILEGES ON TABLE public.import_uploads FROM PUBLIC, anon, authenticated;
+GRANT SELECT, UPDATE ON TABLE public.import_uploads TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.claim_import_upload(
   p_organization_id uuid,
