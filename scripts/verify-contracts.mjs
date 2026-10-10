@@ -255,7 +255,7 @@ assert.ok(rootReadme.includes('PROJECT_MEMORY.md'), 'Root README must direct dev
 assert.ok(projectMemory.includes('AI belongs inside Aghbari'), 'Persistent memory must preserve the integrated local/private AI directive.')
 assert.ok(canonicalSpec.includes('Unified Import Engine') || canonicalSpec.includes('Unified import engine') || canonicalSpec.includes('E1. Single official pipeline'), 'Canonical specification must preserve the single import-engine requirement.')
 assert.ok(canonicalSpec.includes('REQ-IMP-001') && canonicalSpec.includes('REQ-AI-001') && canonicalSpec.includes('REQ-SEC-001'), 'Canonical specification must preserve the mandatory acceptance scenarios.')
-assert.ok(sourceIndex.includes('Legacy product identity') || sourceIndex.includes('Legacy'), 'Source index must preserve product-identity history and instruction provenance.')
+assert.ok(sourceIndex.includes('الأغبري | Aghbari Commerce') && sourceIndex.includes('العامري') && sourceIndex.includes('بوابة العامري الذكية'), 'Source index must preserve the sole product identity and legacy-brand exclusion rule.')
 assert.ok(executionState.includes('Next executable action'), 'Execution state must preserve a durable resume pointer.')
 assert.ok(progressLedger.includes('Status vocabulary'), 'Progress ledger must preserve evidence-based status semantics.')
 assert.ok(backupWorkflow.includes("cron: '17 2 * * *'"), 'Encrypted database backup must have a daily schedule.')
