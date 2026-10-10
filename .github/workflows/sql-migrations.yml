@@ -532,6 +532,18 @@ jobs:
             printf 'FAIL: expected one upload and one claim, observed uploads=%s claims=%s\\n' "$upload_count" "$claim_count" >&2
             exit 1
           }
+          audit_count="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT count(*) FROM public.audit_logs
+          WHERE organization_id = '$org_id'::uuid
+            AND entity_type = 'import_upload'
+            AND entity_id = '$claim_one_id'::uuid
+            AND action = 'import_upload_claimed';
+          SQL
+          )"
+          [[ "$audit_count" == "1" ]] || {
+            printf 'FAIL: first-time import claim must emit exactly one audit event; observed=%s\\n' "$audit_count" >&2
+            exit 1
+          }
 
           psql --set ON_ERROR_STOP=1 <<SQL
           UPDATE public.import_uploads SET status = 'failed'
