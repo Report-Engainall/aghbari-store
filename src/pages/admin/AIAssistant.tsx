@@ -87,7 +87,7 @@ function answerFromSnapshot(question: string, snapshot: Snapshot) {
   if (q.includes('تستحق') || q.includes('مراجعة') || q.includes('مقلق') || q.includes('review') || q.includes('risk')) {
     if (!snapshot.activity.length) return 'لا أستطيع تحديد مرشحات مراجعة من دون سجلات تدقيق متاحة. لم أستخدم بيانات افتراضية.'
     if (!reviewCandidates.length) return `تم فحص أحدث ${snapshot.activity.length} حدثًا مسجلًا. لم تطابق أسماء الإجراءات أو الكيانات قواعد المراجعة الحتمية الحالية. هذا لا يثبت خلو النظام من المخاطر؛ هذه قواعد أولية وليست محرك كشف شاملًا.`
-    return `وجدت ${reviewCandidates.length} حدثًا ضمن آخر ${snapshot.activity.length} حدثًا تطابق قواعد المراجعة الأولية (حذف/رفض/فشل/خطأ أو تغيير تسعير/دفعة/مخزون/صلاحية). هذه مؤشرات للفحص وليست أحكامًا مؤكدة:\n\n${reviewCandidates.slice(0, 10).map((row, index) => `${index + 1}. ${actionLabel(row)} — ${entityLabel(row)} — ${timeLabel(row.created_at)}`).join('\n')}\n\nلم أضف مبالغ أو أسبابًا غير موجودة في سجل المصدر.`
+    return `وجدت ${reviewCandidates.length} حدثًا ضمن آخر ${snapshot.activity.length} حدثًا تطابق قواعد المراجعة الأولية (حذف/رفض/فشل/خطأ أو تغيير تسعير/دفعة/مخزون/صلاحية). هذه مؤشرات للفحص وليست أحكامًا مؤكدة:\n\n${reviewCandidates.slice(0, 10).map((row, index) => `${index + 1}. ${actionLabel(row)} — ${entityLabel(row)} — ${sourceLabel(row)}${activityStatusLabel(row)} — ${timeLabel(row.created_at)}`).join('\n')}\n\nلم أضف مبالغ أو أسبابًا غير موجودة في سجل المصدر.`
   }
 
   if (q.includes('حركة') || q.includes('نشاط') || q.includes('تغيير') || q.includes('سجل التدقيق') || q.includes('movement') || q.includes('activity')) {
@@ -230,7 +230,7 @@ export default function AIAssistant() {
     { label: 'التقارير الحديثة', value: snapshot.reports.length, icon: FileText },
     { label: 'التنبيهات الحديثة', value: snapshot.alerts.length, icon: AlertTriangle },
     { label: 'المهام الحديثة', value: snapshot.tasks.length, icon: CheckCircle2 },
-    { label: 'حركات التدقيق المسجلة', value: snapshot.activity.length, icon: ShieldCheck },
+    { label: 'الأحداث التشغيلية المسجلة', value: snapshot.activity.length, icon: ShieldCheck },
   ]
 
   return (
