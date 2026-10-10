@@ -26,6 +26,11 @@ type ChatMessage = {
   content: string
 }
 
+const welcomeMessage: ChatMessage = {
+  role: 'assistant',
+  content: 'مرحبًا. أنا المساعد التشغيلي المدمج في بوابة الأغبري. أستند إلى سجلات المؤسسة المحفوظة في التقارير والتنبيهات والمهام؛ لا أرسل بياناتك إلى نموذج خارجي.',
+}
+
 const emptySnapshot: Snapshot = { reports: [], alerts: [], tasks: [] }
 const suggestions = ['لخص أحدث التنبيهات', 'ما المهام المفتوحة؟', 'ما أحدث التقارير؟', 'أعطني ملخص حالة مركز الذكاء الاصطناعي']
 
@@ -84,10 +89,7 @@ function answerFromSnapshot(question: string, snapshot: Snapshot) {
 export default function AIAssistant() {
   const { organization } = useAuth()
   const [snapshot, setSnapshot] = useState<Snapshot>(emptySnapshot)
-  const [messages, setMessages] = useState<ChatMessage[]>([{
-    role: 'assistant',
-    content: 'مرحبًا. أنا المساعد التشغيلي المدمج في بوابة الأغبري. أستند إلى سجلات المؤسسة المحفوظة في التقارير والتنبيهات والمهام؛ لا أرسل بياناتك إلى نموذج خارجي.',
-  }])
+  const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage])
   const [question, setQuestion] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -134,7 +136,10 @@ export default function AIAssistant() {
   }, [organization?.id])
 
   useEffect(() => {
+    // Clear in-memory chat context whenever the active organization changes.
     setSnapshot(emptySnapshot)
+    setMessages([welcomeMessage])
+    setQuestion('')
     void loadSnapshot()
   }, [loadSnapshot])
 
