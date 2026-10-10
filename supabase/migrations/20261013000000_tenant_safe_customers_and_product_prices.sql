@@ -2,6 +2,17 @@
 -- The catalog's public surface exposes descriptive/availability columns only.
 -- Authorized staff use admin_product_catalog, whose WHERE clause enforces active tenant membership.
 
+-- Remove the legacy bootstrap's permissive policies, which were USING (true) /
+-- WITH CHECK (true) and otherwise OR together with tenant-specific policies.
+DROP POLICY IF EXISTS "anon_select_customers" ON public.customers;
+DROP POLICY IF EXISTS "anon_insert_customers" ON public.customers;
+DROP POLICY IF EXISTS "anon_update_customers" ON public.customers;
+DROP POLICY IF EXISTS "anon_delete_customers" ON public.customers;
+DROP POLICY IF EXISTS "anon_select_products" ON public.products;
+DROP POLICY IF EXISTS "anon_insert_products" ON public.products;
+DROP POLICY IF EXISTS "anon_update_products" ON public.products;
+DROP POLICY IF EXISTS "anon_delete_products" ON public.products;
+
 ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS customers_member_read ON public.customers;
