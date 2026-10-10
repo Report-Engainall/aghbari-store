@@ -11,6 +11,13 @@ fi
 : "${RESTORE_TARGET_LABEL:?Set RESTORE_TARGET_LABEL so the operator identifies the destination}"
 : "${AGE_IDENTITY_FILE:?Set AGE_IDENTITY_FILE to a private key kept outside the repository}"
 : "${RESTORE_CONFIRM:?Set RESTORE_CONFIRM=I_HAVE_VERIFIED_THE_TARGET after checking the destination}"
+
+case "$RESTORE_DB_URL" in
+  *sslmode=disable*|*sslmode=allow*|*sslmode=prefer*)
+    printf 'Restore blocked: the target connection string explicitly requests non-required TLS.\\n' >&2
+    exit 1
+    ;;
+esac
 if [[ "$RESTORE_CONFIRM" != "I_HAVE_VERIFIED_THE_TARGET" ]]; then
   printf 'Restore blocked: explicit target confirmation is required.\n' >&2
   exit 1
