@@ -3,7 +3,7 @@
 **State updated:** 2026-10-10  
 **Repository:** `Report-Engainall/aghbari-store`  
 **Base/main last verified:** `a5f3924d30423f327b4c12fde8341daa446d682a`  
-**Last source-inspected candidate before this state refresh:** `00bcb59f4c99f30dfcf2a2bd6e97b6f90a424136`  
+**Last source-inspected candidate before this state refresh:** `254fbdd8c47c3f1dfd52254beae13ebc19cc5274`  
 **Working branch / PR:** `feat/integrated-ai-assistant` / [PR #4](https://github.com/Report-Engainall/aghbari-store/pull/4)  
 **Resume protocol:** retrieve live main SHA, PR head SHA, changed file list and Actions conclusions before executing. This file's write itself changes branch HEAD, so never infer current HEAD from this stored value.
 
