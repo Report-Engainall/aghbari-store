@@ -736,8 +736,10 @@ function AiList({ table, title, icon: Icon }: { table: string; title: string; ic
   const [rows, setRows] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const requestId = useRef(0)
 
   const load = useCallback(async () => {
+    const requestNumber = ++requestId.current
     if (!organization?.id) {
       setRows([])
       setError('لا توجد مؤسسة نشطة ضمن الجلسة الحالية.')
@@ -746,20 +748,32 @@ function AiList({ table, title, icon: Icon }: { table: string; title: string; ic
     }
     setLoading(true)
     setError('')
-    const { data, error: queryError } = await supabase.from(table).select('*')
-      .eq('organization_id', organization.id)
-      .order('created_at', { ascending: false })
-      .limit(50)
-    if (queryError) {
-      setRows([])
-      setError(queryError.message)
-    } else {
-      setRows((data || []) as Record<string, unknown>[])
+    try {
+      const { data, error: queryError } = await supabase.from(table).select('*')
+        .eq('organization_id', organization.id)
+        .order('created_at', { ascending: false })
+        .limit(50)
+      if (requestId.current !== requestNumber) return
+      if (queryError) {
+        setRows([])
+        setError(queryError.message)
+      } else {
+        setRows((data || []) as Record<string, unknown>[])
+      }
+    } catch (cause) {
+      if (requestId.current === requestNumber) {
+        setRows([])
+        setError(cause instanceof Error ? cause.message : 'تعذر تحميل سجلات هذا القسم.')
+      }
+    } finally {
+      if (requestId.current === requestNumber) setLoading(false)
     }
-    setLoading(false)
   }, [organization?.id, table])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    void load()
+    return () => { requestId.current += 1 }
+  }, [load])
 
   return <AdminPage title={title} description="سجلات محفوظة للمؤسسة النشطة" icon={Icon} action={<button type="button" onClick={() => void load()} disabled={loading} className="btn-secondary btn-sm"><RefreshCw className="h-4 w-4" /> تحديث</button>}>
     {loading ? <LoadingOverlay /> : error ? <ErrorState description={error} onRetry={() => void load()} /> : rows.length ? <div className="space-y-3">{rows.map(row => <div className="card flex items-start gap-3 p-4" key={String(row.id)}><Icon className="mt-0.5 h-5 w-5 text-warning-500" /><div className="min-w-0 flex-1"><h3 className="font-semibold">{String(row.title || row.name || 'سجل')}</h3><p className="mt-1 text-sm text-neutral-500">{String(row.description || row.body || row.result || 'لا توجد تفاصيل إضافية')}</p>{row.created_at && <p className="mt-2 text-xs text-neutral-400">{formatDate(String(row.created_at))}</p>}</div><StatusBadge status={String(row.status || row.severity || 'info')} /></div>)}</div> : <EmptyState title={`لا توجد ${title}`} description="لم تُرجع قاعدة البيانات سجلات لهذا القسم؛ لا تُعرض بيانات تجريبية." />}
