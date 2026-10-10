@@ -22,11 +22,11 @@
 - GitHub readback confirms the changed code/docs exist in the working branch.
 - The assistant's database reads explicitly include active organization scope.
 - The assistant displays that no generative model is configured; it is a deterministic saved-record summarizer, not a functioning LLM.
-- The assistant additionally reads minimal active-tenant `audit_logs` and `outbox_events` fields, merges them into a time-sorted operational activity stream, displays source/status, and identifies preliminary review candidates from explicit status/action patterns. Complete audit coverage across every app path remains open.
+- The assistant additionally reads minimal active-tenant `audit_logs` and `outbox_events` fields, merges them into a time-sorted operational activity stream, displays source/status, and identifies preliminary review candidates from explicit status/action patterns. A new migration uses one shared metadata-only trigger to log creation of purchase-order, transfer and stock-count drafts; SQL CI now asserts each audit entry. Complete audit coverage across every app path remains open.
 - Branch comparison after canonical and pricing updates showed the feature branch ahead of main with no behind commits; refresh actual comparison because this state/progress write changes the head.
 
 ## Not proven / open
-- The first observed Build run failed on a wrong README variable in the static contract test; after fixing the root README binding, the next observed Build failed because the source-index content lacked an explicit legacy-brand section. The source index and assertion have now been corrected; current-head Build/SQL/Backup Tool Safety Checks must be checked again. A prior SQL Migration Chain and Backup Tool Safety Checks run passed on an older SHA, not the current candidate.
+- The first observed Build run failed on a wrong README variable in the static contract test; after fixing the root README binding, the next observed Build failed because the source-index content lacked an explicit legacy-brand section. Both roots are corrected. A final current-head run is now in progress for Build, SQL Migration Chain (including the new audit migration) and Backup Tool Safety Checks; capture exact conclusions before merge.
 - No local `npm run build`, browser E2E, responsive/accessibility, live Supabase/RLS proof or production deploy performed by this connected GitHub-only execution.
 - PR #4 has not merged to main. Production remains HOLD / NO TOUCH.
 - Native/private AI inference runtime, sanitization pipeline, event graph, recommendation evidence/action cards, quota ledger and model governance are not yet implemented by the current assistant.
@@ -65,3 +65,12 @@
 - **Required configuration:** repository Actions secrets `SUPABASE_DB_URL` and `BACKUP_AGE_RECIPIENT`; offline age private key; PostgreSQL client and age tools on the runner.
 - **Protection:** encryption before artifact upload, manifest digest, explicit restore host/confirmation gates, separate production overwrite acknowledgement, explicit exclusion of Supabase Storage object bytes and edge/project configuration.
 - **Unresolved proof:** first real backup artifact, checksum/decryption validation, restore into isolated target, application smoke/regression test and evidence record.
+
+
+## Additional operational audit coverage
+
+- New migration: `supabase/migrations/20261014000000_audit_commercial_draft_creation.sql`.
+- One shared `SECURITY DEFINER` trigger function with `search_path = ''` records metadata-only creation events for `purchase_orders`, `inventory_transfers` and `stock_counts`. It does not copy notes, payloads or item lines.
+- `.github/workflows/sql-migrations.yml` smoke test now asserts the audit record exists for each create RPC and verifies organization/entity/action linkage.
+- The integrated assistant reads the audit entry with minimal fields; existing posted/receiving/expense paths keep their earlier explicit audit entries.
+- New migration and SQL smoke test remain unverified until the current latest workflow concludes successfully.
