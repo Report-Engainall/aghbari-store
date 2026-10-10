@@ -519,6 +519,13 @@ export function Import() {
   const abortControllerRef = useRef<AbortController | null>(null)
   const pausedRef = useRef(false)
   const resumeRef = useRef<(() => void) | null>(null)
+  const loadRequestIdRef = useRef(0)
+  const loadedOrganizationIdRef = useRef<string | null>(null)
+  const importContextReady = Boolean(organization?.id && loadedOrganizationIdRef.current === organization.id)
+  const isCurrentImportContext = (organizationId: string, requestNumber: number) =>
+    Boolean(organizationId) && loadedOrganizationIdRef.current === organizationId && loadRequestIdRef.current === requestNumber
+  const visibleProfiles = importContextReady ? profiles : []
+  const visibleUploads = importContextReady ? uploads : []
   const waitIfPaused = async () => {
     while (pausedRef.current && !abortControllerRef.current?.signal.aborted) {
       await new Promise<void>(resolve => { resumeRef.current = resolve })
@@ -542,24 +549,82 @@ export function Import() {
   }
 
   const load = async () => {
-    if (!organization?.id) return
-    const [p, u] = await Promise.all([
-      supabase.from('import_profiles').select('*').eq('organization_id', organization.id).eq('status', 'active').order('profile_name'),
-      supabase.from('import_uploads').select('*').eq('organization_id', organization.id).order('uploaded_at', { ascending: false }).limit(10),
-    ])
-    if (p.error) setMessage(p.error.message)
-    else {
-      const list = p.data as Record<string, unknown>[] || []
-      setProfiles(list)
-      if (!profileId && list.length) setProfileId(String(list[0].id))
+    const requestNumber = ++loadRequestIdRef.current
+    const organizationId = organization?.id
+    if (!organizationId) {
+      loadedOrganizationIdRef.current = null
+      setProfiles([])
+      setProfileId('')
+      setUploads([])
+      setDuplicate(null)
+      setFile(null)
+      setProgress(null)
+      setMessage('لا توجد مؤسسة نشطة ضمن الجلسة الحالية.')
+      return
     }
-    if (u.error) setMessage(u.error.message)
-    else setUploads(u.data as Record<string, unknown>[] || [])
+
+    const organizationChanged = loadedOrganizationIdRef.current !== organizationId
+    if (organizationChanged) {
+      loadedOrganizationIdRef.current = organizationId
+      setProfiles([])
+      setProfileId('')
+      setUploads([])
+      setDuplicate(null)
+      setFile(null)
+      setProgress(null)
+      setMessage('')
+      pausedRef.current = false
+      resumeRef.current?.()
+      resumeRef.current = null
+      abortControllerRef.current?.abort()
+    }
+
+    try {
+      const [p, u] = await Promise.all([
+        supabase.from('import_profiles').select('*').eq('organization_id', organizationId).eq('status', 'active').order('profile_name'),
+        supabase.from('import_uploads').select('*').eq('organization_id', organizationId).order('uploaded_at', { ascending: false }).limit(10),
+      ])
+      if (loadRequestIdRef.current !== requestNumber || loadedOrganizationIdRef.current !== organizationId) return
+
+      if (p.error) {
+        setProfiles([])
+        setProfileId('')
+        setMessage(p.error.message)
+      } else {
+        const list = p.data as Record<string, unknown>[] || []
+        setProfiles(list)
+        setProfileId(current => list.some(entry => String(entry.id) === current)
+          ? current
+          : list.length ? String(list[0].id) : '')
+      }
+
+      if (u.error) {
+        setUploads([])
+        setMessage(u.error.message)
+      } else {
+        setUploads(u.data as Record<string, unknown>[] || [])
+      }
+    } catch (cause) {
+      if (loadRequestIdRef.current !== requestNumber || loadedOrganizationIdRef.current !== organizationId) return
+      setProfiles([])
+      setProfileId('')
+      setUploads([])
+      setMessage(cause instanceof Error ? cause.message : 'تعذر تحميل بيانات الاستيراد للمؤسسة النشطة.')
+    }
   }
-  useEffect(() => { void load() }, [organization?.id])
+  useEffect(() => {
+    void load()
+    return () => {
+      loadRequestIdRef.current += 1
+      abortControllerRef.current?.abort()
+      pausedRef.current = false
+      resumeRef.current?.()
+      resumeRef.current = null
+    }
+  }, [organization?.id])
 
   const createProfile = async () => {
-    if (!organization?.id || !isAdmin) return
+    if (!organization?.id || !isAdmin || !importContextReady) return
     const { data, error } = await supabase.from('import_profiles').insert({
       organization_id: organization.id, profile_name: 'استيراد عام', report_type: 'generic_catalog',
       source: 'manual', version: 1, required_columns: ['item_code'],
@@ -575,7 +640,7 @@ export function Import() {
   const hashFile = async (selected: File) => sha256File(selected)
 
   const createProfileVersion = async () => {
-    if (!organization?.id || !isAdmin || !duplicate) return
+    if (!organization?.id || !isAdmin || !duplicate || !importContextReady) return
     const current = profiles.find(entry => String(entry.id) === duplicate.profileId)
     if (!current) { setMessage('ملف التعريف الأصلي غير موجود.'); return }
     setBusy(true)
@@ -611,7 +676,7 @@ export function Import() {
   }
 
   const retryFailedImport = async () => {
-    if (!file || !organization?.id || !profileId || !duplicate?.uploadId) return
+    if (!file || !organization?.id || !profileId || !duplicate?.uploadId || !importContextReady) return
     const selectedProfile = profiles.find(entry => String(entry.id) === profileId)
     if (!selectedProfile) { setMessage('ملف التعريف المحدد غير متاح.'); return }
     if (file.name.split('.').pop()?.toLowerCase() !== 'csv') { setMessage('إعادة المحاولة متاحة حالياً لمعالجة CSV فقط.'); return }
@@ -656,6 +721,7 @@ export function Import() {
   }
 
   const stage = async () => {
+    if (!importContextReady) { setMessage('جارٍ تحميل بيانات المؤسسة النشطة؛ انتظر اكتمال التحميل ثم أعد المحاولة.'); return }
     if (!file || !organization?.id || !profileId) { setMessage('اختر ملفاً وملف تعريف أولاً.'); return }
     if (file.size <= 0 || file.size > policies.max_file_size_mb * 1024 * 1024) { setMessage('حجم الملف يجب ألا يتجاوز ' + policies.max_file_size_mb + ' ميجابايت وأن يكون أكبر من صفر.'); return }
     const ext = file.name.split('.').pop()?.toLowerCase() || ''
@@ -726,7 +792,7 @@ export function Import() {
   return <AdminPage title="محرك الاستيراد الموحد" description="فحص CSV فعلياً على دفعات، وتوجيه Excel/PDF للمراجعة دون تخمين" icon={Upload}>
     <div className="card mb-5 max-w-2xl p-6">
       <div className="mb-4 rounded-xl border border-warning-200 bg-warning-50 p-4"><p className="font-bold text-warning-900">حدود المعالجة المعلنة</p><p className="mt-1 text-sm leading-6 text-warning-800">CSV يُحلّل تدريجياً إلى دفعات بحجم ${policies.processing_chunk_size} سجل مع التطبيع والتحقق وكشف التكرار ودرجة جودة Snapshot. لا يتم دمج السجلات تلقائياً في البيانات التشغيلية. ملفات Excel وPDF تبقى للمراجعة لأن قارئهما لم يُربط بعد؛ لن تظهر نسبة تقدم مصطنعة أو حالة «مكتمل».</p></div>
-      {profiles.length ? <div className="mb-4"><label className="label">ملف تعريف الاستيراد</label><select className="input" value={profileId} onChange={e => setProfileId(e.target.value)}>{profiles.map(p => <option key={String(p.id)} value={String(p.id)}>{String(p.profile_name)} v{String(p.version)}</option>)}</select></div> : <button type="button" disabled={!isAdmin || busy} className="btn-secondary mb-4" onClick={() => void createProfile()}>إنشاء ملف تعريف أساسي</button>}
+      {profiles.length ? <div className="mb-4"><label className="label">ملف تعريف الاستيراد</label><select className="input" value={profileId} onChange={e => setProfileId(e.target.value)}>{visibleProfiles.map(p => <option key={String(p.id)} value={String(p.id)}>{String(p.profile_name)} v{String(p.version)}</option>)}</select></div> : <button type="button" disabled={!isAdmin || busy || !importContextReady} className="btn-secondary mb-4" onClick={() => void createProfile()}>إنشاء ملف تعريف أساسي</button>}
       <label className="label">ملف CSV أو Excel أو PDF</label><input type="file" accept=".csv,.xlsx,.xls,.pdf" className="input" onChange={e => { setFile(e.target.files?.[0] || null); setDuplicate(null); setMessage('') }} />
       <p className="mt-3 text-xs leading-5 text-neutral-500">حد الملف {policies.max_file_size_mb} ميجابايت؛ حد CSV هو {policies.max_import_rows.toLocaleString('en-US')} صف و{policies.max_import_columns} عمود و{policies.max_cell_length} حرف للخلية. تُحفظ بصمة SHA-256 والسجلات المنظمة وبيان Snapshot، ولا يُرفع الملف الخام إلى Storage.</p>
       {progress && <div role="status" className="mt-4 rounded-lg border border-primary-100 bg-primary-50 p-3 text-sm text-primary-900"><p className="font-semibold">{progress.stage}</p><p className="mt-1">تم فحص {progress.processedRows.toLocaleString('en-US')} صف؛ تُحفظ الدفعات كل 500 سجل.</p><div className="mt-2 h-1.5 animate-pulse rounded bg-primary-200" /></div>}
@@ -743,12 +809,12 @@ export function Import() {
         <p className="mt-2 text-xs text-warning-800">الاستبدال والدمج متوقفان حتى وجود تنفيذ خادمي ذري؛ لن يظهرا كوظيفتين شكليتين.</p>
       </div>}
       <div className="mt-5 flex flex-wrap gap-2">
-        <button disabled={!file || !profileId || busy || !isAdmin || !!duplicate} onClick={() => void stage()} className="btn-primary">{busy ? (paused ? 'المعالجة متوقفة مؤقتاً' : 'جارٍ الفحص والمعالجة…') : 'فحص / تسجيل الملف'}</button>
+        <button disabled={!file || !profileId || busy || !isAdmin || !!duplicate || !importContextReady} onClick={() => void stage()} className="btn-primary">{busy ? (paused ? 'المعالجة متوقفة مؤقتاً' : 'جارٍ الفحص والمعالجة…') : 'فحص / تسجيل الملف'}</button>
         {busy && abortControllerRef.current && <button type="button" onClick={togglePause} className="btn-secondary">{paused ? 'متابعة المعالجة' : 'إيقاف مؤقت'}</button>}
         {busy && abortControllerRef.current && <button type="button" onClick={cancelImport} className="btn-danger">إلغاء المعالجة</button>}
       </div>
     </div>
-    {uploads.length > 0 && <Table headers={['الملف', 'النوع', 'الحالة', 'الجودة', 'SHA-256', 'التاريخ']}>{uploads.map(row => <tr key={String(row.id)} className="border-t border-neutral-100"><td className="p-4">{String(row.file_name || '—')}</td><td className="p-4">{String(row.file_type || '—')}</td><td className="p-4"><StatusBadge status={String(row.status)} /></td><td className="p-4">{row.quality_score != null ? `${row.quality_score}/100` : '—'}</td><td className="p-4 font-mono text-xs">{String(row.file_hash || '—').slice(0, 16)}…</td><td className="p-4 text-neutral-500">{row.uploaded_at ? formatDate(String(row.uploaded_at)) : '—'}</td></tr>)}</Table>}
+    {visibleUploads.length > 0 && <Table headers={['الملف', 'النوع', 'الحالة', 'الجودة', 'SHA-256', 'التاريخ']}>{visibleUploads.map(row => <tr key={String(row.id)} className="border-t border-neutral-100"><td className="p-4">{String(row.file_name || '—')}</td><td className="p-4">{String(row.file_type || '—')}</td><td className="p-4"><StatusBadge status={String(row.status)} /></td><td className="p-4">{row.quality_score != null ? `${row.quality_score}/100` : '—'}</td><td className="p-4 font-mono text-xs">{String(row.file_hash || '—').slice(0, 16)}…</td><td className="p-4 text-neutral-500">{row.uploaded_at ? formatDate(String(row.uploaded_at)) : '—'}</td></tr>)}</Table>}
   </AdminPage>
 }
 export function ImportLogs() { const { organization } = useAuth(); const [rows, setRows] = useState<Record<string, unknown>[]>([]); useEffect(() => { if (organization) supabase.from('import_uploads').select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }).then(({ data }) => setRows(data as any || [])) }, [organization]); return <AdminPage title="سجلات الاستيراد" description="تاريخ عمليات إدخال البيانات" icon={FileText}>{rows.length ? <Table headers={['الملف', 'النوع', 'الحالة', 'الجودة', 'التاريخ']}>{rows.map(row => <tr className="border-t border-neutral-100" key={String(row.id)}><td className="p-4">{String(row.file_name || '—')}</td><td className="p-4">{String(row.file_type || '—')}</td><td className="p-4"><StatusBadge status={String(row.status)} /></td><td className="p-4">{row.quality_score != null ? `${row.quality_score}/100` : '—'}</td><td className="p-4">{row.created_at ? formatDate(String(row.created_at)) : '—'}</td></tr>)}</Table> : <EmptyState title="لا توجد عمليات استيراد" description="ستظهر السجلات بعد تشغيل أول عملية استيراد." />}</AdminPage> }
