@@ -45,6 +45,13 @@ const [readme, index, pricingMigration, safeProductSelect, storefront, store, ca
 
 const aiAssistant = await read('src/pages/admin/AIAssistant.tsx')
 const aiIntegration = await read('docs/AI-PORTAL-INTEGRATION.md')
+const [projectMemory, canonicalSpec, sourceIndex, executionState, progressLedger] = await Promise.all([
+  read('PROJECT_MEMORY.md'),
+  read('docs/canonical/AGHBARI-MASTER-PROJECT-SPECIFICATION.md'),
+  read('docs/canonical/AGHBARI-SOURCE-REQUIREMENTS-INDEX.md'),
+  read('ops/AGHBARI-LATEST-EXECUTION-STATE.md'),
+  read('ops/AGHBARI-DEVELOPMENT-PROGRESS.md'),
+])
 
 for (const imageName of imageNames) {
   assert.ok(index.includes(`[${imageName}](./${imageName})`), `Reference index is missing ${imageName}`)
@@ -218,6 +225,13 @@ assert.ok(aiAssistant.includes('setMessages([welcomeMessage])'), 'The assistant 
 assert.ok(aiAssistant.includes('requestId.current !== requestNumber'), 'The assistant must ignore stale responses after organization or request changes.')
 assert.ok(aiAssistant.includes('لا يوجد نموذج توليدي مفعّل لهذا المساعد'), 'The assistant must disclose that no generative provider is configured.')
 assert.ok(aiIntegration.includes('ليست منتجًا مستقلًا أو تطبيقًا منفصلًا'), 'The integration decision must explicitly prohibit treating AI as a separate application.')
+assert.ok(readme.includes('PROJECT_MEMORY.md'), 'README must direct developers to persistent project memory.')
+assert.ok(projectMemory.includes('AI belongs inside Aghbari'), 'Persistent memory must preserve the integrated local/private AI directive.')
+assert.ok(canonicalSpec.includes('Unified Import Engine') || canonicalSpec.includes('Unified import engine') || canonicalSpec.includes('E1. Single official pipeline'), 'Canonical specification must preserve the single import-engine requirement.')
+assert.ok(canonicalSpec.includes('REQ-IMP-001') && canonicalSpec.includes('REQ-AI-001') && canonicalSpec.includes('REQ-SEC-001'), 'Canonical specification must preserve the mandatory acceptance scenarios.')
+assert.ok(sourceIndex.includes('Legacy product identity') || sourceIndex.includes('Legacy'), 'Source index must preserve product-identity history and instruction provenance.')
+assert.ok(executionState.includes('Next executable action'), 'Execution state must preserve a durable resume pointer.')
+assert.ok(progressLedger.includes('Status vocabulary'), 'Progress ledger must preserve evidence-based status semantics.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
