@@ -1,8 +1,7 @@
 import { useState, type FormEvent } from 'react'
-import { Download, FileSpreadsheet, PackageSearch, RefreshCw, ScanLine, Search, Warehouse } from 'lucide-react'
+import { Download, FileSpreadsheet, RefreshCw, ScanLine, Search, Warehouse } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
-import { formatCurrency } from '@/lib/utils'
 
 type ProductResult = {
   id: string
@@ -74,6 +73,9 @@ function csvEscape(value: unknown) {
   if (value === null || value === undefined) text = ''
   else if (typeof value === 'object') text = JSON.stringify(value)
   else text = String(value)
+  // Prevent spreadsheet formula injection from untrusted text fields.
+  if (typeof value === 'string' && /^[\\s]*[=+@]/.test(text)) text = "'" + text
+  if (typeof value === 'string' && /^[\\s]*-[0-9]/.test(text)) text = "'" + text
   return '"' + text.replace(/"/g, '""') + '"'
 }
 
@@ -153,7 +155,7 @@ export function DataExports() {
         const page = (data || []) as unknown as CsvRow[]
         rows.push(...page)
         if (page.length < pageSize) break
-        if (rows.length >= 20000) throw new Error('وصل التصدير إلى حد 20,000 سجل في الملف الواحد. استخدم مرشحًا أضيق أو صدّر على دفعات.')
+        if (rows.length > 20000) throw new Error('وصل التصدير إلى حد 20,000 سجل في الملف الواحد. استخدم مرشحًا أضيق أو صدّر على دفعات.')
       }
       const fields = csvFields[kind]
       const lines = [fields.map(field=>csvEscape(field.label)).join(','), ...rows.map(row=>fields.map(field=>csvEscape(row[field.key])).join(','))]
@@ -162,7 +164,7 @@ export function DataExports() {
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = url; anchor.download = filename; anchor.style.display = 'none'
-      document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url)
+      document.body.appendChild(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000)
       setResult({ kind, count: rows.length, filename })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'فشل تصدير البيانات. لم يتم تنزيل ملف.')
