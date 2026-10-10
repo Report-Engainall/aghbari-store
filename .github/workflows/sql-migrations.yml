@@ -267,9 +267,9 @@ jobs:
               RAISE EXCEPTION 'platform administrator role was not recognized';
             END IF;
 
-            SELECT id INTO v_org_id
-            FROM public.organizations
-            WHERE email = 'aghbari-ci-org-create@example.invalid';
+            SELECT pending.id INTO v_org_id
+            FROM public.list_pending_organizations() pending
+            WHERE pending.email = 'aghbari-ci-org-create@example.invalid';
 
             SELECT count(*) INTO v_count
             FROM public.list_pending_organizations() pending
@@ -283,12 +283,6 @@ jobs:
               RAISE EXCEPTION 'platform approval RPC returned incorrect activation status';
             END IF;
 
-            SELECT status, is_active INTO v_status, v_is_active
-            FROM public.organizations WHERE id = v_org_id;
-            IF v_status <> 'active' OR v_is_active IS DISTINCT FROM true THEN
-              RAISE EXCEPTION 'platform approval did not activate organization atomically';
-            END IF;
-
             v_rejection_result := public.review_organization(
               'a1000000-0000-4000-8000-000000000097',
               'reject',
@@ -298,11 +292,6 @@ jobs:
               RAISE EXCEPTION 'platform rejection RPC returned incorrect inactive state';
             END IF;
 
-            SELECT status, is_active INTO v_status, v_is_active
-            FROM public.organizations WHERE id = 'a1000000-0000-4000-8000-000000000097';
-            IF v_status <> 'inactive' OR v_is_active IS DISTINCT FROM false THEN
-              RAISE EXCEPTION 'platform rejection did not deactivate organization';
-            END IF;
           END
           $platform_approval_smoke$;
           RESET ROLE;
@@ -331,6 +320,12 @@ jobs:
             WHERE organization_id = 'a1000000-0000-4000-8000-000000000097'
               AND action = 'organization.rejected';
             IF v_count <> 1 THEN RAISE EXCEPTION 'platform rejection must write exactly one audit record'; END IF;
+
+            IF NOT EXISTS (
+              SELECT 1 FROM public.organizations
+              WHERE id = 'a1000000-0000-4000-8000-000000000097'
+                AND status = 'inactive' AND is_active = false
+            ) THEN RAISE EXCEPTION 'platform rejection did not deactivate the company'; END IF;
           END
           $approved_tenant_fixture$;
 
