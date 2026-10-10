@@ -34,11 +34,12 @@
 - Full XLSX/PDF structured extraction/resumable chunks, import DQS acceptance, outbox worker/DLQ recovery and complete browser test matrix remain open.
 
 ## Exact next executable action
-1. Verify the current PR head for `fix/import-upload-idempotency`; Build, PostgreSQL 17 SQL Migration Chain, and Backup Tool Safety Checks must pass on the exact latest SHA. The branch includes a new import-claim migration and a new concurrent SQL smoke step, so prior main tests do not count as proof.
-2. Inspect the SQL smoke output for two concurrent same-hash claims returning one shared ID with exactly one creator, two simultaneous failed retries with exactly one winner, direct browser INSERT/DELETE being denied, immutable upload identity being enforced, and stale staged claims becoming retryable with an audit event.
-3. Merge only if all three required gates pass on the latest PR head. On merge, update main state/progress with the merge SHA and re-check the post-merge Build.
-4. Keep production HOLD. A real encrypted backup, offline-key decryption, isolated restore and application/RLS smoke test remain unproven; no browser E2E is claimed.
-5. Next after this: validate DQS edge cases and full import/merge review policy; continue mapping operational workflows to audit/outbox events; continue private/local AI governance and regression tests.
+1. Check post-merge Build and Backup Tool Safety Checks on the current main head after the state/progress updates. Import idempotency PR #6 is merged at `b940e3a8b5581b63b72589b4354687781574ece5`; the exact pre-merge PR head passed all three required gates.
+2. Continue from the next import correctness gap: add deterministic DQS edge-case tests (empty/malformed CSV, duplicate-key normalization, conflicting duplicate records, temporal validation with and without date evidence, and quality-threshold boundaries). Preserve the rule that a Snapshot is not a live-data merge.
+3. Make merge/review actions explicit: until a validated transactional merge RPC and rollback/audit contract exist, import rows stay staged/manual-review; no UI should claim data has been replaced or merged.
+4. Continue mapping transaction, import and finance actions to audit/outbox evidence. Keep tenant-scoped event queries and avoid selecting unnecessary payload/PII. Do not claim full audit coverage without an end-to-end mapping and SQL assertions.
+5. Configure repository Actions secrets `SUPABASE_DB_URL` and public `BACKUP_AGE_RECIPIENT` via GitHub Settings; keep the age private key offline. Run and verify a real encrypted backup, offline-key decryption and isolated restore with login/tenant/commerce/RLS smoke tests.
+6. Keep production deployment on HOLD until real deployment, browser E2E and recovery evidence exist.
 
 
 ## Do not repeat / do not do
@@ -115,13 +116,22 @@
 - Next issue is explicitly distinct from tenant switching: concurrent duplicate upload idempotency. Database's nullable period columns can undermine uniqueness for general files; implement and concurrently test a durable arbitration path before claiming deduplication is race-safe.
 
 
-## Import upload idempotency claims — implemented, exact-head verification pending (2026-10-10)
+## Import upload idempotency claims — verified and merged (2026-10-10)
 
-- Branch: `fix/import-upload-idempotency`; based on main after PR #5 merge.
+- PR #6 merged to main via squash commit `b940e3a8b5581b63b72589b4354687781574ece5`; source branch `fix/import-upload-idempotency` is merged.
 - Migration: `supabase/migrations/20261015000000_import_upload_idempotency_claims.sql`. It creates a unique non-null claim key `(organization_id, profile_id, file_hash, period_key)`; NULL-period general files are normalized to a deterministic key instead of relying on PostgreSQL NULL uniqueness semantics.
 - Backfill uses the newest existing upload as the canonical claim pointer per key while retaining all historical upload rows; it does not delete duplicate history.
 - All new CSV, Excel and PDF metadata claims use `claim_import_upload`; it reserves the key, inserts the upload row and emits one audit event in the same transaction. Browser roles cannot insert/delete upload rows directly, and identity fields cannot be edited after claim.
 - Failed CSV retries call `claim_failed_import_retry`, an atomic compare-and-swap from `failed` to `detecting`; only one concurrent retry can proceed. Retry cleanup remains associated with the organization-scoped upload claim.
 - If a new CSV claim returns after the active organization changed before parsing began, `abandon_staged_import_claim` converts the unstarted staged row to a retryable failed record and audits the abandonment. The UI has an organization-scoped fallback if the audited RPC is unavailable.
 - PostgreSQL CI now runs two simultaneous same-hash claim requests and asserts one upload/one claim/one audit event, two simultaneous failed retries and one winner, direct browser write privileges denied, immutable identity protected, and abandoned-stage recovery recorded.
-- **Status:** implemented and contract-covered; not marked verified until the latest PR Build, SQL Migration Chain and Backup Tool Safety Checks all conclude successfully on the exact head. Duplicate-upload race is not considered closed until the concurrent workflow actually passes.
+- **Exact-SHA proof:** PR head `e68403226836040dbfe5d4b77c0a9b0d22b02acc` passed Build, PostgreSQL 17 SQL Migration Chain, and Backup Tool Safety Checks. The concurrent SQL stage passed end-to-end, including shared upload ID/one creator, one retry winner, direct browser write denial, immutable identity, single audit event and abandoned-claim recovery. Post-merge Build and Backup Tool Safety Checks were triggered on `b940e3a8b5581b63b72589b4354687781574ece5`; confirm their final outcomes after the remaining execution-state commits.
+
+
+## Post-merge CI follow-up — import idempotency (2026-10-10)
+
+- PR #6 merged: `b940e3a8b5581b63b72589b4354687781574ece5`.
+- Exact PR head `e68403226836040dbfe5d4b77c0a9b0d22b02acc`: Build PASS; SQL Migration Chain PASS; Backup Tool Safety Checks PASS.
+- Concurrent SQL smoke step passed: same hash/key -> same upload ID with one creator; failed retry CAS -> one winner; anon/authenticated direct INSERT/DELETE denied; upload file hash immutable; abandoned claim converted to `failed|IMPORT_CONTEXT_CHANGED` with one audit event.
+- Post-merge Build and Backup Tool Safety Checks have been triggered on merge SHA. Their conclusions must be re-checked after the state/progress documentation commits, which themselves create new main heads.
+- Next product gap is DQS edge-case and threshold acceptance; upload idempotency race is closed only for the claim/retry contract demonstrated by the PostgreSQL test, not for a full live browser E2E workflow.
