@@ -97,11 +97,12 @@ jobs:
               WHERE schemaname = 'public'
                 AND (
                   (tablename = 'products' AND policyname IN ('products_staff_insert', 'products_staff_update'))
-                  OR (tablename = 'orders' AND policyname IN ('ord_select_org', 'ord_insert_org', 'ord_update_org'))
-                  OR (tablename = 'order_items' AND policyname = 'orditem_select_org')
-                  OR (tablename = 'invoices' AND policyname = 'inv_select_org')
-                  OR (tablename = 'payments' AND policyname = 'pay_select_org')
+                  OR (tablename = 'orders' AND policyname IN ('ord_select_org', 'ord_insert_org', 'ord_update_org', 'orders_read_staff_only', 'orders_update_admin_only', 'orders_customer_read_own'))
+                  OR (tablename = 'order_items' AND policyname IN ('orditem_select_org', 'order_items_read_staff_only', 'order_items_customer_read_own'))
+                  OR (tablename = 'invoices' AND policyname IN ('inv_select_org', 'invoices_read_staff_only', 'invoices_customer_read_own'))
+                  OR (tablename = 'payments' AND policyname IN ('pay_select_org', 'payments_read_staff_only', 'payments_customer_read_own'))
                   OR (tablename = 'statements' AND policyname = 'stmt_select_org')
+                  OR (tablename = 'outbox_events' AND policyname = 'outbox_select_org')
                   OR (tablename = 'customers' AND policyname IN ('customers_staff_insert', 'customers_staff_update'))
                 )
             ) THEN
