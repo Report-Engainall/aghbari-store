@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { evaluateImportDqs } from '@/lib/importQuality'
 
 type JsonRecord = Record<string, unknown>
 
@@ -147,10 +148,6 @@ async function* csvRows(file: File): AsyncGenerator<string[]> {
   } finally {
     reader.releaseLock()
   }
-}
-
-function safeRatio(numerator: number, denominator: number): number {
-  return denominator <= 0 ? 100 : Math.max(0, Math.min(100, (numerator / denominator) * 100))
 }
 
 async function setUpload(uploadId: string, organizationId: string, patch: JsonRecord): Promise<void> {
@@ -341,40 +338,42 @@ export async function processCsvToSnapshot(args: {
     if (totalRows === 0) throw new Error('CSV_HAS_NO_DATA_ROWS')
 
     await setUpload(uploadId, organizationId, { status: 'deduplicating' })
-    const completeness = safeRatio(completenessCells, requiredCells)
-    const validity = safeRatio(validRows, totalRows)
-    const uniqueness = safeRatio(totalRows - duplicateRows, totalRows)
-    const consistency = safeRatio(consistentRows, totalRows)
-    const temporalIntegrity = temporalTotal > 0 ? safeRatio(temporalValid, temporalTotal) : 100
-    const temporalHasEvidence = temporalApplicable && temporalTotal > 0
-    const matchingKeyCoverage = safeRatio(nonEmptyKeys, totalRows)
-    const activeWeight = 0.25 + 0.25 + 0.20 + 0.10 + 0.10 + (temporalHasEvidence ? 0.10 : 0)
-    const weightedScore = completeness * 0.25 + validity * 0.25 + uniqueness * 0.20 + consistency * 0.10 + matchingKeyCoverage * 0.10 + (temporalHasEvidence ? temporalIntegrity * 0.10 : 0)
-    const qualityScore = Math.round((weightedScore / activeWeight) * 100) / 100
-
-    const qualityBreakdown = {
-      score: qualityScore,
-      completeness, validity, uniqueness, consistency,
-      matching_key_coverage: matchingKeyCoverage,
-      temporal_integrity: { score: temporalIntegrity, applicable: temporalHasEvidence, checked_values: temporalTotal },
-      referential_integrity: { score: null, applicable: false, reason: 'التحقق من العلاقات المرجعية بين الجداول يُجرى قبل الدمج؛ لم يُنفذ في مرحلة Snapshot.' },
-      weights: { completeness: 0.25, validity: 0.25, uniqueness: 0.2, consistency: 0.1, matching_key_coverage: 0.1, temporal_integrity: temporalHasEvidence ? 0.1 : 0 },
-    }
+    const dqs = evaluateImportDqs({
+      totalRows,
+      requiredCells,
+      completenessCells,
+      validRows,
+      acceptedRows,
+      duplicateRows,
+      rejectedRows,
+      consistentRows,
+      nonEmptyKeys,
+      temporalApplicable,
+      temporalValid,
+      temporalTotal,
+    }, {
+      dqs_warning_min: limits.dqsWarningMin,
+      dqs_acceptable_min: limits.dqsAcceptableMin,
+      dqs_excellent_min: limits.dqsExcellentMin,
+    })
+    const {
+      qualityScore,
+      qualityBreakdown,
+      status,
+      warningRows,
+      errorCode,
+      errorMessage,
+      message,
+    } = dqs
 
     await setUpload(uploadId, organizationId, { status: 'chunking' })
-    let status: CsvImportResult['status'] = qualityScore >= limits.dqsWarningMin ? 'snapshotted' : 'rejected'
-    let message = 'تم توحيد السجلات والتحقق منها وحفظ بيان Snapshot؛ لم تُدمج البيانات في قاعدة التشغيل.'
-    if (qualityScore >= limits.dqsAcceptableMin && qualityScore < limits.dqsExcellentMin) {
-      const { error: warningError } = await supabase.from('import_records').update({ status: 'warning' }).eq('upload_id', uploadId).eq('status', 'accepted')
+    if (status === 'snapshotted' && errorCode === 'DQS_WARNINGS') {
+      const { error: warningError } = await supabase.from('import_records').update({ status: 'warning' })
+        .eq('upload_id', uploadId).eq('status', 'accepted')
       if (warningError) throw warningError
-      message = 'تم حفظ Snapshot مع تحذير جودة؛ لم تُدمج البيانات في قاعدة التشغيل.'
-    } else if (qualityScore >= limits.dqsWarningMin && qualityScore < limits.dqsAcceptableMin) {
-      status = 'manual_review'
-      message = 'جودة البيانات تتطلب مراجعة بشرية قبل أي اعتماد.'
-    } else if (qualityScore < limits.dqsWarningMin) {
+    } else if (status === 'rejected') {
       const { error: rejectError } = await supabase.from('import_records').update({ status: 'rejected' }).eq('upload_id', uploadId)
       if (rejectError) throw rejectError
-      message = 'رُفضت الدفعة لأن جودة البيانات أقل من 50؛ لم تُدمج أي بيانات.'
     }
 
     await setUpload(uploadId, organizationId, { status: 'snapshotted' })
@@ -383,7 +382,7 @@ export async function processCsvToSnapshot(args: {
       file_hash: fileHash, profile_id: profile.id, profile_version: (profile as unknown as JsonRecord).version ?? null,
       headers, column_mapping: mapping, total_rows: totalRows,
       accepted_rows: acceptedRows,
-      warning_rows: qualityScore >= limits.dqsAcceptableMin && qualityScore < limits.dqsExcellentMin ? acceptedRows : 0,
+      warning_rows: warningRows,
       rejected_rows: rejectedRows, duplicate_rows: duplicateRows, dqs: qualityBreakdown,
       snapshot_at: new Date().toISOString(), raw_file_persisted: false,
       live_data_merged: false,
@@ -392,20 +391,20 @@ export async function processCsvToSnapshot(args: {
       status,
       quality_score: qualityScore,
       quality_breakdown: qualityBreakdown,
-      error_code: qualityScore < limits.dqsAcceptableMin ? 'DQS_REVIEW_REQUIRED' : qualityScore < limits.dqsExcellentMin ? 'DQS_WARNINGS' : null,
-      error_message: qualityScore < limits.dqsAcceptableMin ? message : null,
+      error_code: errorCode,
+      error_message: errorMessage,
       snapshot: manifest,
     })
     return {
       uploadId, status, totalRows, acceptedRows,
-      warningRows: qualityScore >= limits.dqsAcceptableMin && qualityScore < limits.dqsExcellentMin ? acceptedRows : 0,
+      warningRows,
       rejectedRows, duplicateRows, qualityScore, message,
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'IMPORT_PROCESSING_FAILED'
     await supabase.from('import_uploads').update({
       status: 'failed', error_code: reason, error_message: reason,
-    }).eq('id', uploadId)
+    }).eq('id', uploadId).eq('organization_id', organizationId)
     throw error
   }
 }
