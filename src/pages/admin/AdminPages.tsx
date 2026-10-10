@@ -268,9 +268,89 @@ export function OrderDetail() {
   </AdminPage>
 }
 
-export function Customers() { const { organization } = useAuth(); const [rows, setRows] = useState<{ id: string; user_id: string; role: string; status: string; created_at: string }[]>([]); useEffect(() => { if (organization) supabase.from('organization_members').select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }).then(({ data }) => setRows(data as any || [])) }, [organization]); return <AdminPage title="العملاء وأعضاء الشركة" description="إدارة الوصول إلى حساب المؤسسة" icon={Users}><Table headers={['المستخدم', 'الدور', 'الحالة', 'تاريخ الانضمام']}>{rows.map(row => <tr className="border-t border-neutral-100" key={row.id}><td className="p-4 font-mono text-xs">{row.user_id}</td><td className="p-4"><StatusBadge status={row.role} /></td><td className="p-4"><StatusBadge status={row.status} /></td><td className="p-4 text-neutral-500">{formatDate(row.created_at)}</td></tr>)}</Table></AdminPage> }
+export function Customers() {
+  const { organization } = useAuth()
+  const [rows, setRows] = useState<Record<string, unknown>[]>([])
+  const [query, setQuery] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-export function Catalog() { const [rows, setRows] = useState<Product[]>([]); const [query, setQuery] = useState(''); const [loading, setLoading] = useState(true); const load = () => { setLoading(true); supabase.from('products').select('*').order('created_at', { ascending: false }).limit(100).then(({ data }) => { setRows(data as Product[] || []); setLoading(false) }) }; useEffect(load, []); const filtered = rows.filter(row => `${row.name} ${row.sku}`.toLowerCase().includes(query.toLowerCase())); return <AdminPage title="الكتالوج" description="إدارة المنتجات والأسعار والمخزون" icon={Package} action={<button onClick={load} className="btn-secondary btn-sm"><RefreshCw className="h-4 w-4" /> تحديث</button>}><div className="mb-4 max-w-sm"><input className="input" value={query} onChange={event => setQuery(event.target.value)} placeholder="بحث بالاسم أو SKU" /></div>{loading ? <LoadingOverlay /> : <Table headers={['المنتج', 'SKU', 'السعر الأساسي', 'التجزئة', 'الجملة', 'المخزون', 'الحالة']} >{filtered.map(row => <tr className="border-t border-neutral-100" key={row.id}><td className="p-4 font-semibold">{row.name_ar || row.name}</td><td className="p-4 font-mono text-xs">{row.sku}</td><td className="p-4">{formatCurrency(row.base_price || row.price)}</td><td className="p-4">{formatCurrency(row.retail_price || row.price)}</td><td className="p-4">{formatCurrency(row.wholesale_price || row.bulk_price)}</td><td className="p-4">{row.stock_quantity}</td><td className="p-4"><StatusBadge status={row.is_active ? 'active' : 'inactive'} /></td></tr>)}</Table>}</AdminPage> }
+  const load = () => {
+    if (!organization?.id) { setRows([]); setLoading(false); setError('لا توجد مؤسسة نشطة.'); return }
+    setLoading(true); setError('')
+    supabase.from('customers')
+      .select('id,customer_code,business_name,contact_name,phone,email,tier,status,credit_limit,current_balance,created_at')
+      .eq('organization_id', organization.id)
+      .order('created_at', { ascending: false }).limit(500)
+      .then(({ data, error: queryError }) => {
+        if (queryError) { setError(queryError.message); setRows([]) }
+        else setRows((data || []) as Record<string, unknown>[])
+        setLoading(false)
+      })
+  }
+
+  useEffect(() => { load() }, [organization?.id])
+  const filtered = rows.filter(row => [
+    row.customer_code, row.business_name, row.contact_name, row.phone, row.email, row.tier, row.status,
+  ].map(value => String(value || '')).join(' ').toLowerCase().includes(query.toLowerCase()))
+
+  return <AdminPage title="العملاء" description="سجل العملاء التجاريين للمؤسسة الحالية؛ عضويات الفريق تُدار من شاشة الأدوار." icon={Users} action={<button type="button" onClick={load} className="btn-secondary btn-sm"><RefreshCw className="h-4 w-4"/> تحديث</button>}>
+    <div className="mb-4 max-w-sm"><input className="input" value={query} onChange={event=>setQuery(event.target.value)} placeholder="بحث بالاسم أو الرمز أو الهاتف" aria-label="بحث العملاء"/></div>
+    {error ? <ErrorState description={error} onRetry={load}/> : loading ? <LoadingOverlay/> : filtered.length===0 ? <EmptyState title="لا يوجد عملاء مطابقون" description={query?'غيّر نص البحث أو امسحه.':'ستظهر سجلات العملاء المرتبطة بهذه المؤسسة هنا.'}/> :
+      <Table headers={['رمز العميل','اسم الشركة / العميل','جهة الاتصال','الهاتف','الشريحة','الحالة','حد الائتمان','الرصيد الحالي','تاريخ الإنشاء']}>
+        {filtered.map(row=><tr className="border-t border-neutral-100 hover:bg-neutral-50" key={String(row.id)}>
+          <td className="p-4 font-mono text-xs">{String(row.customer_code||'—')}</td>
+          <td className="p-4 font-semibold">{String(row.business_name||'—')}</td>
+          <td className="p-4">{String(row.contact_name||'—')}</td>
+          <td className="p-4" dir="ltr">{String(row.phone||'—')}</td>
+          <td className="p-4"><StatusBadge status={String(row.tier||'—')}/></td>
+          <td className="p-4"><StatusBadge status={String(row.status||'—')}/></td>
+          <td className="p-4">{formatCurrency(Number(row.credit_limit)||0)}</td>
+          <td className="p-4">{formatCurrency(Number(row.current_balance)||0)}</td>
+          <td className="p-4 text-neutral-500">{row.created_at?formatDate(String(row.created_at)):'—'}</td>
+        </tr>)}
+      </Table>}
+  </AdminPage>
+}
+
+export function Catalog() {
+  const { organization } = useAuth()
+  const [rows, setRows] = useState<Product[]>([])
+  const [query, setQuery] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = () => {
+    if (!organization?.id) { setRows([]); setLoading(false); setError('لا توجد مؤسسة نشطة.'); return }
+    setLoading(true); setError('')
+    supabase.from('products').select('*').eq('organization_id', organization.id)
+      .order('created_at', { ascending: false }).limit(500)
+      .then(({ data, error: queryError }) => {
+        if (queryError) { setError(queryError.message); setRows([]) }
+        else setRows(data as Product[] || [])
+        setLoading(false)
+      })
+  }
+  useEffect(() => { load() }, [organization?.id])
+  const filtered = rows.filter(row => `${row.name} ${row.name_ar||''} ${row.sku} ${row.item_code||''}`.toLowerCase().includes(query.toLowerCase()))
+
+  return <AdminPage title="الكتالوج" description="منتجات المؤسسة الحالية وأسعارها ومخزونها؛ تُطبّق RLS مع نطاق المؤسسة." icon={Package} action={<button type="button" onClick={load} className="btn-secondary btn-sm"><RefreshCw className="h-4 w-4"/> تحديث</button>}>
+    <div className="mb-4 max-w-sm"><input className="input" value={query} onChange={event=>setQuery(event.target.value)} placeholder="بحث بالاسم أو SKU" aria-label="بحث المنتجات"/></div>
+    {error ? <ErrorState description={error} onRetry={load}/> : loading ? <LoadingOverlay/> : filtered.length===0 ? <EmptyState title="لا توجد منتجات مطابقة" description={query?'غيّر نص البحث.':'لم تُسجل منتجات متاحة لهذه المؤسسة بعد.'}/> :
+      <Table headers={['المنتج','SKU / رمز الصنف','السعر الأساسي','التجزئة','الجملة','كمية النظام','الحالة']}>
+        {filtered.map(row=><tr className="border-t border-neutral-100 hover:bg-neutral-50" key={row.id}>
+          <td className="p-4 font-semibold">{row.name_ar||row.name}</td>
+          <td className="p-4 font-mono text-xs">{row.sku||row.item_code||'—'}</td>
+          <td className="p-4">{formatCurrency(row.base_price||row.price||0)}</td>
+          <td className="p-4">{formatCurrency(row.retail_price||row.price||0)}</td>
+          <td className="p-4">{formatCurrency(row.wholesale_price||row.bulk_price||0)}</td>
+          <td className="p-4">{row.stock_quantity??'—'}</td>
+          <td className="p-4"><StatusBadge status={row.is_active?'active':'inactive'}/></td>
+        </tr>)}
+      </Table>}
+  </AdminPage>
+}
+
 export function Pricing() {
   const { organization, isAdmin } = useAuth()
   const { show } = useToast()
@@ -355,7 +435,34 @@ export function Pricing() {
     {loading ? <LoadingOverlay /> : rules.length ? <Table headers={['القاعدة', 'طريقة الاحتساب', 'القيمة', 'مستوى السعر', 'الأولوية', 'الحالة', 'إجراءات']}>{rules.map(row => <tr key={String(row.id)} className="border-t border-neutral-100"><td className="p-4 font-semibold">{String(row.name)}</td><td className="p-4">{methodLabels[String(row.calculation_method)] || String(row.calculation_method)}</td><td className="p-4 tabular-nums">{String(row.value)}</td><td className="p-4">{levelLabels[String(row.price_level)] || String(row.price_level)}</td><td className="p-4">{String(row.priority ?? 100)}</td><td className="p-4"><StatusBadge status={row.active ? 'active' : 'inactive'} /></td><td className="p-4"><div className="flex gap-2"><button disabled={!isAdmin} onClick={() => void toggleRule(String(row.id), Boolean(row.active))} className="btn-secondary btn-sm">{row.active ? 'إيقاف' : 'تفعيل'}</button><button disabled={!isAdmin} onClick={() => void deleteRule(String(row.id))} className="btn-danger btn-sm">حذف</button></div></td></tr>)}</Table> : <EmptyState title="لا توجد قواعد تسعير" description="بدون قواعد نشطة يعيد الخادم سعري الجملة والتجزئة إلى السعر الأساسي." />}
   </AdminPage>
 }
-export function DataCenter() { return <AdminPage title="مركز البيانات" description="مصادر البيانات وجودتها" icon={Database}><div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{[['الكتالوج', 'products'], ['الطلبات', 'orders'], ['المستخدمون', 'organization_members']].map(([label, table]) => <div className="card p-5" key={table}><Database className="h-6 w-6 text-primary-600" /><h3 className="font-bold mt-3">{label}</h3><p className="text-sm text-neutral-500 mt-1">متصل بقاعدة البيانات</p></div>)}</div></AdminPage> }
+export function DataCenter() {
+  const { organization } = useAuth()
+  const [metrics, setMetrics] = useState<{label:string;count:number|null;error:string|null}[]>([])
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const load = async (refresh = false) => {
+    if (!organization?.id) { setMetrics([]); setLoading(false); return }
+    if (refresh) setRefreshing(true); else setLoading(true)
+    const probes = await Promise.all([
+      supabase.from('products').select('id', { count: 'exact', head: true }).eq('organization_id', organization.id),
+      supabase.from('orders').select('id', { count: 'exact', head: true }).eq('organization_id', organization.id),
+      supabase.from('customers').select('id', { count: 'exact', head: true }).eq('organization_id', organization.id),
+      supabase.from('import_uploads').select('id', { count: 'exact', head: true }).eq('organization_id', organization.id),
+    ])
+    setMetrics(probes.map((result,index)=>({
+      label:['المنتجات','الطلبات','العملاء','عمليات الاستيراد'][index],
+      count:result.error?null:result.count||0,
+      error:result.error?.message||null,
+    })))
+    setLoading(false); setRefreshing(false)
+  }
+  useEffect(() => { void load() }, [organization?.id])
+  return <AdminPage title="مركز البيانات" description="فحوص فعلية لمصادر البيانات ونطاق المؤسسة؛ لا يُعرض الاتصال ناجحًا إلا بعد نجاح الاستعلام." icon={Database} action={<button type="button" onClick={()=>void load(true)} disabled={refreshing} className="btn-secondary btn-sm"><RefreshCw className={`h-4 w-4 ${refreshing?'animate-spin':''}`}/> تحديث</button>}>
+    {loading ? <LoadingOverlay/> : <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">{metrics.map(metric=><div key={metric.label} className="card p-5"><div className="flex items-center justify-between"><Database className="h-6 w-6 text-primary-600"/><StatusBadge status={metric.error?'error':'success'}/></div><h3 className="mt-3 font-bold">{metric.label}</h3>{metric.error ? <p className="mt-2 break-words text-xs text-red-700">{metric.error}</p> : <p className="mt-2 text-2xl font-bold">{metric.count?.toLocaleString('en-US')}</p>}<p className="mt-1 text-xs text-neutral-500">{metric.error?'فشل الاستعلام الحقيقي':'عدد السجلات المقروءة من المؤسسة الحالية'}</p></div>)}</div>}
+  </AdminPage>
+}
+
 export function Import() {
   const { organization, isAdmin } = useAuth()
   const { show } = useToast()
@@ -612,7 +719,81 @@ export function AIAlerts() { return <AiList table="ai_alerts" title="تنبيه�
 export function AITasks() { return <AiList table="ai_tasks" title="مهام AI" icon={Brain} /> }
 export function Reports() { return <AdminPage title="التقارير" description="ملخصات الأداء التجاري" icon={BarChart3}><Notice message="ستُعرض التقارير المتاحة من بيانات الطلبات والفواتير عند توفرها في الحساب." /></AdminPage> }
 export function UsersPage() { const { organization } = useAuth(); const [rows, setRows] = useState<Record<string, unknown>[]>([]); useEffect(() => { if (organization) supabase.from('organization_members').select('*').eq('organization_id', organization.id).then(({ data }) => setRows(data as any || [])) }, [organization]); return <AdminPage title="المستخدمون" description="المستخدمون والأدوار داخل المؤسسة" icon={Shield}><Table headers={['معرّف المستخدم', 'الدور', 'الحالة', 'التاريخ']}>{rows.map(row => <tr className="border-t border-neutral-100" key={String(row.id)}><td className="p-4 font-mono text-xs">{String(row.user_id)}</td><td className="p-4"><StatusBadge status={String(row.role)} /></td><td className="p-4"><StatusBadge status={String(row.status)} /></td><td className="p-4">{row.created_at ? formatDate(String(row.created_at)) : '—'}</td></tr>)}</Table></AdminPage> }
-export function Audit() { return <AdminPage title="سجل النظام" description="العمليات المسجلة على الحساب" icon={FileText}><Notice message="لا توجد سجلات قابلة للعرض حالياً." /></AdminPage> }
+export function Audit() {
+  const { organization } = useAuth()
+  const [rows, setRows] = useState<Record<string, unknown>[]>([])
+  const [query, setQuery] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = () => {
+    if (!organization?.id) { setRows([]); setLoading(false); setError('لا توجد مؤسسة نشطة.'); return }
+    setLoading(true); setError('')
+    supabase.from('audit_logs')
+      .select('id,organization_id,actor_id,action,entity_type,entity_id,old_value,new_value,created_at')
+      .eq('organization_id', organization.id)
+      .order('created_at', { ascending: false }).limit(300)
+      .then(({ data, error: queryError }) => {
+        if (queryError) { setRows([]); setError(queryError.message) }
+        else setRows((data||[]) as Record<string, unknown>[])
+        setLoading(false)
+      })
+  }
+  useEffect(() => { load() }, [organization?.id])
+  const filtered = rows.filter(row => [row.action,row.entity_type,row.entity_id,row.actor_id].map(v=>String(v||'')).join(' ').toLowerCase().includes(query.toLowerCase()))
+  return <AdminPage title="سجل التدقيق" description="أحداث التدقيق المحفوظة فعليًا للمؤسسة؛ الشاشة لا تُنشئ سجلات ولا تعرض مؤسسة أخرى." icon={FileText} action={<button type="button" onClick={load} className="btn-secondary btn-sm"><RefreshCw className="h-4 w-4"/> تحديث</button>}>
+    <div className="mb-4 max-w-sm"><input className="input" value={query} onChange={e=>setQuery(e.target.value)} placeholder="بحث بالعملية أو الكيان أو المنفذ" aria-label="بحث سجل التدقيق"/></div>
+    {error ? <ErrorState description={error} onRetry={load}/> : loading ? <LoadingOverlay/> : filtered.length===0 ? <EmptyState title="لا توجد سجلات مطابقة" description={query?'غيّر نص البحث.':'لا توجد سجلات تدقيق متاحة لهذه المؤسسة حتى الآن.'}/> :
+      <Table headers={['الوقت','العملية','نوع الكيان','معرّف الكيان','المنفذ','تفاصيل محفوظة']}>
+        {filtered.map(row=><tr className="border-t border-neutral-100 align-top" key={String(row.id)}>
+          <td className="whitespace-nowrap p-4 text-neutral-500">{row.created_at?formatDate(String(row.created_at)):'—'}</td>
+          <td className="p-4 font-semibold">{String(row.action||'—')}</td>
+          <td className="p-4">{String(row.entity_type||'—')}</td>
+          <td className="p-4 font-mono text-xs">{String(row.entity_id||'—')}</td>
+          <td className="p-4 font-mono text-xs">{String(row.actor_id||'system')}</td>
+          <td className="max-w-[320px] p-4"><details><summary className="cursor-pointer text-primary-700">عرض البيانات</summary><pre className="mt-2 max-w-[300px] overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify({old:row.old_value,new:row.new_value},null,2)}</pre></details></td>
+        </tr>)}
+      </Table>}
+  </AdminPage>
+}
+
 export function AdminNotifications() { return <AiList table="notifications" title="الإشعارات" icon={Bell} /> }
-export function Health() { return <AdminPage title="صحة النظام" description="حالة الخدمات الأساسية" icon={HeartPulse}><div className="card divide-y divide-neutral-100">{[{ label: 'قاعدة البيانات', value: 'متصلة', Icon: CheckCircle2 }, { label: 'المصادقة', value: 'متاحة', Icon: CheckCircle2 }, { label: 'الكتالوج', value: 'متاح', Icon: CheckCircle2 }].map(item => <div className="p-4 flex items-center justify-between" key={item.label}><div className="flex items-center gap-3"><item.Icon className="h-5 w-5 text-success-500" /><span>{item.label}</span></div><span className="text-sm text-success-700">{item.value}</span></div>)}</div></AdminPage> }
+export function Health() {
+  const { organization } = useAuth()
+  const [checks, setChecks] = useState<{label:string;ok:boolean;detail:string}[]>([])
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [checkedAt, setCheckedAt] = useState<string|null>(null)
+
+  const load = async (refresh = false) => {
+    if (!organization?.id) { setChecks([{label:'المؤسسة النشطة',ok:false,detail:'لم يتم اختيار مؤسسة.'}]); setLoading(false); return }
+    if (refresh) setRefreshing(true); else setLoading(true)
+    const [auth, org, products, orders, invoices] = await Promise.all([
+      supabase.auth.getUser(),
+      supabase.from('organizations').select('id', { count: 'exact', head: true }).eq('id', organization.id),
+      supabase.from('products').select('id', { count: 'exact', head: true }).eq('organization_id', organization.id),
+      supabase.from('orders').select('id', { count: 'exact', head: true }).eq('organization_id', organization.id),
+      supabase.from('invoices').select('id', { count: 'exact', head: true }).eq('organization_id', organization.id),
+    ])
+    setChecks([
+      {label:'جلسة المصادقة',ok:!auth.error&&Boolean(auth.data.user),detail:auth.error?.message||(auth.data.user?'تم تأكيد المستخدم عبر Supabase Auth.':'لا توجد جلسة مستخدم صالحة.')},
+      {label:'قراءة المؤسسة',ok:!org.error&&(org.count||0)>0,detail:org.error?.message||`السجلات المقروءة: ${org.count||0}`},
+      {label:'قراءة الكتالوج',ok:!products.error,detail:products.error?.message||`السجلات المقروءة للمؤسسة: ${products.count||0}`},
+      {label:'قراءة الطلبات',ok:!orders.error,detail:orders.error?.message||`السجلات المقروءة للمؤسسة: ${orders.count||0}`},
+      {label:'قراءة الفواتير',ok:!invoices.error,detail:invoices.error?.message||`السجلات المقروءة للمؤسسة: ${invoices.count||0}`},
+    ])
+    setCheckedAt(new Date().toISOString())
+    setLoading(false); setRefreshing(false)
+  }
+  useEffect(() => { void load() }, [organization?.id])
+  const failed = checks.filter(check=>!check.ok).length
+  return <AdminPage title="صحة النظام" description="اختبارات قراءة فعلية للهوية والمؤسسة والكتالوج والطلبات والفواتير. لا تُعرض الحالة كناجحة اعتمادًا على إعدادات ثابتة." icon={HeartPulse} action={<button type="button" onClick={()=>void load(true)} disabled={refreshing} className="btn-secondary btn-sm"><RefreshCw className={`h-4 w-4 ${refreshing?'animate-spin':''}`}/> فحص جديد</button>}>
+    {loading ? <LoadingOverlay/> : <div className="space-y-4">
+      <div className="card flex flex-col gap-1 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="font-bold">{failed===0?'اكتملت فحوص القراءة بنجاح':'تحتاج بعض الفحوص إلى مراجعة'}</div><StatusBadge status={failed===0?'success':'error'}/><p className="text-xs text-neutral-500">{checkedAt? `آخر فحص: ${formatDate(checkedAt)}`:'لم يُجرَ فحص بعد'}</p></div>
+      <div className="card divide-y divide-neutral-100">{checks.map(check=><div className="flex items-start justify-between gap-4 p-4" key={check.label}><div className="flex min-w-0 items-start gap-3"><div className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${check.ok?'bg-emerald-500':'bg-red-500'}`}/><div><p className="font-semibold">{check.label}</p><p className={`mt-1 break-words text-sm ${check.ok?'text-neutral-500':'text-red-700'}`}>{check.detail}</p></div></div><StatusBadge status={check.ok?'success':'error'}/></div>)}</div>
+      <p className="text-xs leading-5 text-neutral-500">هذا فحص وصول للبيانات الأساسية فقط؛ لا يثبت سلامة خدمة الدفع الخارجية أو العامل الخلفي أو أداء الإنتاج أو جميع سياسات RLS.</p>
+    </div>}
+  </AdminPage>
+}
+
 export function Settings() { const { organization } = useAuth(); const { show } = useToast(); const [name, setName] = useState(organization?.name || ''); const save = async () => { if (!organization) return; const { error } = await supabase.from('organizations').update({ name }).eq('id', organization.id); show(error ? 'error' : 'success', error ? 'تعذر الحفظ' : 'تم حفظ الإعدادات', error?.message) }; return <AdminPage title="الإعدادات" description="إعدادات المؤسسة الأساسية" icon={SettingsIcon}><div className="card p-6 max-w-xl space-y-4"><div><label className="label">اسم المؤسسة</label><input className="input" value={name} onChange={event => setName(event.target.value)} /></div><button className="btn-primary" onClick={save}>حفظ التغييرات</button></div></AdminPage> }
