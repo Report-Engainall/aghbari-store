@@ -123,6 +123,7 @@ jobs:
             v_status text;
             v_role text;
             v_membership_status text;
+            v_audit_count integer;
           BEGIN
             v_org_id := public.create_organization_for_current_user(
               'Aghbari CI Onboarding Company', 'aghbari-ci-org-create@example.invalid', '+967700000099'
@@ -142,6 +143,14 @@ jobs:
 
             IF v_status <> 'pending' OR v_role <> 'owner' OR v_membership_status <> 'active' THEN
               RAISE EXCEPTION 'onboarding failed to create pending organization and active owner membership';
+            END IF;
+
+            SELECT count(*) INTO v_audit_count
+            FROM public.audit_logs
+            WHERE organization_id = v_org_id AND action = 'organization.created'
+              AND entity_type = 'organization' AND entity_id = v_org_id;
+            IF v_audit_count <> 1 THEN
+              RAISE EXCEPTION 'organization creation must write one audit record atomically';
             END IF;
           END
           $org_creation_smoke$;
