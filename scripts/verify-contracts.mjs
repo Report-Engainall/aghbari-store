@@ -224,7 +224,8 @@ required(tenantSecurityMigration, /CREATE POLICY reorder_templates_owner_update[
 required(tenantSecurityMigration, /DROP POLICY IF EXISTS ordhist_insert_org/, 'Legacy direct order-history insertion must be removed.')
 required(tenantSecurityMigration, /REVOKE ALL ON public\\.order_status_history FROM PUBLIC, anon, authenticated/, 'Order status history must be immutable to browser roles.')
 required(tenantSecurityMigration, /CREATE POLICY price_tiers_same_tenant_read/, 'Price-tier reads must enforce product and organization consistency.')
-assert.ok(tenantSecurityMigration.includes('GRANT SELECT, UPDATE (is_read) ON public.notifications TO authenticated'), 'Users may mark only their own notifications as read.')
+assert.ok(tenantSecurityMigration.includes('GRANT SELECT, UPDATE (read, is_read) ON public.notifications TO authenticated'), 'Users may mark only their own notifications as read.')
+required(tenantSecurityMigration, /Preserve the activation state of pre-existing legacy organizations exactly once/, 'The upgrade must preserve legacy organization active/inactive state without activating new pending applications.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
