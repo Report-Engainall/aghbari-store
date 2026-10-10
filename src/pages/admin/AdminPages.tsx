@@ -559,6 +559,7 @@ export function Import() {
       setDuplicate(null)
       setFile(null)
       setProgress(null)
+      setPaused(false)
       setMessage('لا توجد مؤسسة نشطة ضمن الجلسة الحالية.')
       return
     }
@@ -572,6 +573,7 @@ export function Import() {
       setDuplicate(null)
       setFile(null)
       setProgress(null)
+      setPaused(false)
       setMessage('')
       pausedRef.current = false
       resumeRef.current?.()
@@ -625,6 +627,8 @@ export function Import() {
 
   const createProfile = async () => {
     if (!organization?.id || !isAdmin || !importContextReady) return
+    const organizationId = organization.id
+    const requestNumber = loadRequestIdRef.current
     const { data, error } = await supabase.from('import_profiles').insert({
       organization_id: organization.id, profile_name: 'استيراد عام', report_type: 'generic_catalog',
       source: 'manual', version: 1, required_columns: ['item_code'],
@@ -633,6 +637,7 @@ export function Import() {
       transformation_rules: {}, validation_rules: { item_code: 'required_string' },
       matching_key: 'item_code', merge_strategy: 'manual_review', date_rules: {}, status: 'active',
     }).select('*').single()
+    if (!isCurrentImportContext(organizationId, requestNumber)) return
     if (error) setMessage(error.message)
     else { setProfiles([data as Record<string, unknown>]); setProfileId(String(data.id)); show('success', 'تم إنشاء ملف التعريف') }
   }
@@ -641,13 +646,16 @@ export function Import() {
 
   const createProfileVersion = async () => {
     if (!organization?.id || !isAdmin || !duplicate || !importContextReady) return
-    const current = profiles.find(entry => String(entry.id) === duplicate.profileId)
+    const organizationId = organization.id
+    const requestNumber = loadRequestIdRef.current
+    const current = visibleProfiles.find(entry => String(entry.id) === duplicate.profileId)
     if (!current) { setMessage('ملف التعريف الأصلي غير موجود.'); return }
     setBusy(true)
     try {
       const name = String(current.profile_name || 'استيراد عام')
       const nextVersion = Math.max(0, ...profiles.filter(entry => String(entry.profile_name) === name).map(entry => Number(entry.version) || 0)) + 1
       const { data: authData } = await supabase.auth.getUser()
+      if (!isCurrentImportContext(organizationId, requestNumber)) return
       if (!authData.user) throw new Error('انتهت الجلسة. سجّل الدخول ثم أعد المحاولة.')
       const { data, error } = await supabase.from('import_profiles').insert({
         organization_id: organization.id, profile_name: name,
@@ -658,6 +666,7 @@ export function Import() {
         matching_key: current.matching_key, merge_strategy: current.merge_strategy,
         date_rules: current.date_rules, status: 'active', created_by: authData.user.id,
       }).select('*').single()
+      if (!isCurrentImportContext(organizationId, requestNumber)) return
       if (error) throw error
       setProfiles(previous => [...previous, data as Record<string, unknown>])
       setProfileId(String(data.id))
@@ -665,7 +674,9 @@ export function Import() {
       setMessage('تم إنشاء إصدار v' + nextVersion + '. أعد فحص الملف لتسجيل نسخة مستقلة بهذا الإصدار.')
       show('success', 'تم إنشاء إصدار جديد لملف التعريف', 'لم يتم دمج بيانات الملف أو استبدال النسخة السابقة.')
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'تعذر إنشاء إصدار جديد.')
+      if (isCurrentImportContext(organizationId, requestNumber)) {
+        setMessage(err instanceof Error ? err.message : 'تعذر إنشاء إصدار جديد.')
+      }
     } finally {
       abortControllerRef.current = null
       pausedRef.current = false
@@ -677,7 +688,9 @@ export function Import() {
 
   const retryFailedImport = async () => {
     if (!file || !organization?.id || !profileId || !duplicate?.uploadId || !importContextReady) return
-    const selectedProfile = profiles.find(entry => String(entry.id) === profileId)
+    const organizationId = organization.id
+    const requestNumber = loadRequestIdRef.current
+    const selectedProfile = visibleProfiles.find(entry => String(entry.id) === profileId)
     if (!selectedProfile) { setMessage('ملف التعريف المحدد غير متاح.'); return }
     if (file.name.split('.').pop()?.toLowerCase() !== 'csv') { setMessage('إعادة المحاولة متاحة حالياً لمعالجة CSV فقط.'); return }
     setBusy(true); setMessage(''); setProgress(null)
@@ -686,6 +699,7 @@ export function Import() {
     setPaused(false)
     try {
       const verifiedHash = await hashFile(file)
+      if (!isCurrentImportContext(organizationId, requestNumber)) return
       if (verifiedHash !== duplicate.fileHash) throw new Error('FILE_HASH_CHANGED')
       const result = await processCsvToSnapshot({
         file,
@@ -698,6 +712,7 @@ export function Import() {
         waitIfPaused,
         onProgress: next => setProgress(next),
       })
+      if (!isCurrentImportContext(organizationId, requestNumber)) return
       const summary = 'الصفوف: ' + result.totalRows + '؛ المقبولة: ' + result.acceptedRows + '؛ التحذيرات: ' + result.warningRows + '؛ المرفوضة: ' + result.rejectedRows + '؛ المكررة: ' + result.duplicateRows + '؛ DQS: ' + (result.qualityScore ?? 'غير متاح') + '/100. ' + result.message
       setMessage(summary)
       show(result.status === 'rejected' ? 'warning' : 'success', 'انتهت إعادة معالجة CSV', summary)
@@ -705,6 +720,7 @@ export function Import() {
       setFile(null)
       await load()
     } catch (err) {
+      if (!isCurrentImportContext(organizationId, requestNumber)) return
       const reason = err instanceof Error ? err.message : 'تعذر إعادة المعالجة.'
       const cancelled = reason === 'IMPORT_CANCELLED'
       setMessage(cancelled ? 'أُلغيت المعالجة. السجلات الجزئية ستُنظف قبل المحاولة التالية.' : reason === 'FILE_HASH_CHANGED' ? 'الملف المختار لا يطابق البصمة الأصلية.' : reason)
@@ -723,17 +739,21 @@ export function Import() {
   const stage = async () => {
     if (!importContextReady) { setMessage('جارٍ تحميل بيانات المؤسسة النشطة؛ انتظر اكتمال التحميل ثم أعد المحاولة.'); return }
     if (!file || !organization?.id || !profileId) { setMessage('اختر ملفاً وملف تعريف أولاً.'); return }
+    const organizationId = organization.id
+    const requestNumber = loadRequestIdRef.current
     if (file.size <= 0 || file.size > policies.max_file_size_mb * 1024 * 1024) { setMessage('حجم الملف يجب ألا يتجاوز ' + policies.max_file_size_mb + ' ميجابايت وأن يكون أكبر من صفر.'); return }
     const ext = file.name.split('.').pop()?.toLowerCase() || ''
     if (!['csv', 'xlsx', 'xls', 'pdf'].includes(ext)) { setMessage('الأنواع المسموحة: CSV وExcel وPDF.'); return }
-    const profile = profiles.find(entry => String(entry.id) === profileId)
+    const profile = visibleProfiles.find(entry => String(entry.id) === profileId)
     if (!profile) { setMessage('ملف التعريف المحدد غير متاح.'); return }
     setBusy(true); setMessage(''); setProgress(null)
     try {
       const fileHash = await hashFile(file)
+      if (!isCurrentImportContext(organizationId, requestNumber)) return
       const { data: existing, error: checkError } = await supabase.from('import_uploads').select('id, file_name, status')
         .eq('organization_id', organization.id).eq('profile_id', profileId).eq('file_hash', fileHash)
         .is('period_start', null).is('period_end', null).maybeSingle()
+      if (!isCurrentImportContext(organizationId, requestNumber)) return
       if (checkError) throw checkError
       if (existing) {
         if (String(existing.status) === 'failed' && ext === 'csv') {
@@ -758,6 +778,7 @@ export function Import() {
           waitIfPaused,
           onProgress: next => setProgress(next),
         })
+        if (!isCurrentImportContext(organizationId, requestNumber)) return
         const summary = `الصفوف: ${result.totalRows}؛ المقبولة: ${result.acceptedRows}؛ التحذيرات: ${result.warningRows}؛ المرفوضة: ${result.rejectedRows}؛ المكررة: ${result.duplicateRows}؛ DQS: ${result.qualityScore ?? 'غير متاح'}/100. ${result.message}`
         setMessage(summary)
         show(result.status === 'rejected' ? 'warning' : 'success', 'انتهى فحص CSV', summary)
@@ -771,6 +792,7 @@ export function Import() {
             ? 'لم يتم ربط مستخرج الجداول من PDF بعد. يتطلب الملف تعييناً ومراجعة يدوية ولا تُولد صفوف مفترضة.'
             : 'لم يتم ربط قارئ Excel بعد. سُجل الملف كبصمة وبيانات وصفية فقط ولم تتم معالجته.',
         })
+        if (!isCurrentImportContext(organizationId, requestNumber)) return
         if (error) throw error
         const note = ext === 'pdf'
           ? 'يتطلب PDF مراجعة يدوية؛ لم يُستخرج جدول ولم تُخمن بيانات.'
@@ -782,6 +804,7 @@ export function Import() {
       setProgress(null)
       await load()
     } catch (err) {
+      if (!isCurrentImportContext(organizationId, requestNumber)) return
       const reason = err instanceof Error ? err.message : 'تعذر معالجة الملف.'
       setMessage(reason); show('error', 'تعذر تسجيل أو معالجة الملف', reason)
     } finally {
@@ -792,7 +815,7 @@ export function Import() {
   return <AdminPage title="محرك الاستيراد الموحد" description="فحص CSV فعلياً على دفعات، وتوجيه Excel/PDF للمراجعة دون تخمين" icon={Upload}>
     <div className="card mb-5 max-w-2xl p-6">
       <div className="mb-4 rounded-xl border border-warning-200 bg-warning-50 p-4"><p className="font-bold text-warning-900">حدود المعالجة المعلنة</p><p className="mt-1 text-sm leading-6 text-warning-800">CSV يُحلّل تدريجياً إلى دفعات بحجم ${policies.processing_chunk_size} سجل مع التطبيع والتحقق وكشف التكرار ودرجة جودة Snapshot. لا يتم دمج السجلات تلقائياً في البيانات التشغيلية. ملفات Excel وPDF تبقى للمراجعة لأن قارئهما لم يُربط بعد؛ لن تظهر نسبة تقدم مصطنعة أو حالة «مكتمل».</p></div>
-      {profiles.length ? <div className="mb-4"><label className="label">ملف تعريف الاستيراد</label><select className="input" value={profileId} onChange={e => setProfileId(e.target.value)}>{visibleProfiles.map(p => <option key={String(p.id)} value={String(p.id)}>{String(p.profile_name)} v{String(p.version)}</option>)}</select></div> : <button type="button" disabled={!isAdmin || busy || !importContextReady} className="btn-secondary mb-4" onClick={() => void createProfile()}>إنشاء ملف تعريف أساسي</button>}
+      {visibleProfiles.length ? <div className="mb-4"><label className="label">ملف تعريف الاستيراد</label><select className="input" value={profileId} onChange={e => setProfileId(e.target.value)}>{visibleProfiles.map(p => <option key={String(p.id)} value={String(p.id)}>{String(p.profile_name)} v{String(p.version)}</option>)}</select></div> : <button type="button" disabled={!isAdmin || busy || !importContextReady} className="btn-secondary mb-4" onClick={() => void createProfile()}>إنشاء ملف تعريف أساسي</button>}
       <label className="label">ملف CSV أو Excel أو PDF</label><input type="file" accept=".csv,.xlsx,.xls,.pdf" className="input" onChange={e => { setFile(e.target.files?.[0] || null); setDuplicate(null); setMessage('') }} />
       <p className="mt-3 text-xs leading-5 text-neutral-500">حد الملف {policies.max_file_size_mb} ميجابايت؛ حد CSV هو {policies.max_import_rows.toLocaleString('en-US')} صف و{policies.max_import_columns} عمود و{policies.max_cell_length} حرف للخلية. تُحفظ بصمة SHA-256 والسجلات المنظمة وبيان Snapshot، ولا يُرفع الملف الخام إلى Storage.</p>
       {progress && <div role="status" className="mt-4 rounded-lg border border-primary-100 bg-primary-50 p-3 text-sm text-primary-900"><p className="font-semibold">{progress.stage}</p><p className="mt-1">تم فحص {progress.processedRows.toLocaleString('en-US')} صف؛ تُحفظ الدفعات كل 500 سجل.</p><div className="mt-2 h-1.5 animate-pulse rounded bg-primary-200" /></div>}
