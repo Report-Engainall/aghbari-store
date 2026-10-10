@@ -364,9 +364,115 @@ export function AdminStatements() {
   </div>
 }
 
-export function AdminRoles() {
-  return <OperationalWorkspace config={{ title: 'أعضاء المؤسسة والأدوار', description: 'أعضاء المؤسسة وتعيين الأدوار الممنوح من قاعدة البيانات.', table: 'organization_members', icon: ShieldCheck, tenantScoped: true, columns: [{key:'user_id',label:'معرّف المستخدم'},{key:'invited_email',label:'البريد المدعو'},{key:'role',label:'الدور',kind:'status'},{key:'status',label:'الحالة',kind:'status'},{key:'created_at',label:'تاريخ الإنشاء',kind:'date'}], readOnlyNote:'تغيير الأدوار ومنح الصلاحيات يتطلب تدفق تفويض مخصصاً واختبارات RLS؛ هذه الصفحة لا تعدّل الأدوار عبر المتصفح.' }} />
+type OrganizationRoleRow = {
+  id: string
+  user_id: string
+  role: string
+  status: string
+  created_at: string
 }
+
+const editableOrganizationRoles = [
+  { value: 'admin', label: 'مدير' },
+  { value: 'manager', label: 'مشرف' },
+  { value: 'warehouse', label: 'المخزون' },
+  { value: 'accountant', label: 'محاسب' },
+  { value: 'sales', label: 'مبيعات' },
+  { value: 'customer_manager', label: 'إدارة العملاء' },
+  { value: 'customer', label: 'عميل' },
+]
+
+export function AdminRoles() {
+  const { organization, isAdmin } = useAuth()
+  const { show } = useToast()
+  const [rows, setRows] = useState<OrganizationRoleRow[]>([])
+  const [edits, setEdits] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [savingId, setSavingId] = useState('')
+  const [error, setError] = useState('')
+
+  const load = useCallback(async (refresh = false) => {
+    if (!organization?.id) { setRows([]); setLoading(false); return }
+    if (refresh) setRefreshing(true); else setLoading(true)
+    setError('')
+    const { data, error: queryError } = await supabase
+      .from('organization_members')
+      .select('id,user_id,role,status,created_at')
+      .eq('organization_id', organization.id)
+      .order('created_at', { ascending: true })
+      .limit(500)
+    if (queryError) {
+      setRows([])
+      setError(queryError.message)
+    } else {
+      const nextRows = (data || []) as OrganizationRoleRow[]
+      setRows(nextRows)
+      setEdits(Object.fromEntries(nextRows.map(row => [row.user_id, row.role])))
+    }
+    setLoading(false)
+    setRefreshing(false)
+  }, [organization?.id])
+
+  useEffect(() => { void load() }, [load])
+
+  const saveRole = async (row: OrganizationRoleRow) => {
+    if (!organization?.id || !isAdmin) {
+      show('error', 'تغيير الدور غير مسموح', 'تتطلب هذه العملية صلاحية مالك المؤسسة أو مديرها.');
+      return
+    }
+    if (row.role === 'owner') {
+      show('error', 'دور المالك محمي', 'لا يمكن تغيير دور المالك من هذه الشاشة.');
+      return
+    }
+    const role = edits[row.user_id] || row.role
+    if (role === row.role) return
+    setSavingId(row.user_id)
+    const { data, error: rpcError } = await supabase.rpc('update_organization_member_role', {
+      p_organization_id: organization.id,
+      p_target_user_id: row.user_id,
+      p_new_role: role,
+    })
+    setSavingId('')
+    if (rpcError) {
+      show('error', 'تعذر حفظ الدور', rpcError.message)
+      return
+    }
+    const result = data as { status?: string; new_role?: string } | null
+    show('success', 'تم حفظ الدور', `الدور الجديد: ${editableOrganizationRoles.find(option => option.value === result?.new_role)?.label || role}. سُجل التغيير في سجل التدقيق.`)
+    await load(true)
+  }
+
+  const roleLabel = (role: string) => editableOrganizationRoles.find(option => option.value === role)?.label || (role === 'owner' ? 'مالك المؤسسة' : role)
+  const active = rows.filter(row => row.status === 'active').length
+
+  return <div className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6 lg:p-8" dir="rtl">
+    <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+      <div className="flex items-start gap-3"><div className="rounded-xl bg-primary-50 p-3 text-primary-700"><ShieldCheck className="h-5 w-5"/></div><div><h1 className="text-2xl font-bold text-neutral-900">الأدوار والصلاحيات</h1><p className="mt-1 text-sm leading-6 text-neutral-500">إدارة عضويات المؤسسة الحالية. تغيير الدور يمر عبر RPC خادمية تتحقق من المالك/المدير وتمنع تعديل دور المستخدم لنفسه أو إنشاء مالك جديد، ثم تسجل العملية في سجل التدقيق.</p></div></div>
+      <button type="button" onClick={() => void load(true)} disabled={refreshing} className="btn-secondary inline-flex items-center justify-center gap-2"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`}/>تحديث</button>
+    </div>
+    {!isAdmin && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">تستطيع مراجعة عضويات مؤسستك، لكن تغيير الأدوار يتطلب صلاحية مالك المؤسسة أو مديرها.</div>}
+    {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p>{error}</p><button type="button" className="mt-2 font-bold underline" onClick={() => void load(true)}>إعادة المحاولة</button></div>}
+    <div className="grid gap-3 sm:grid-cols-3"><div className="card p-4"><p className="text-sm text-neutral-500">إجمالي العضويات</p><p className="mt-1 text-2xl font-bold">{loading ? '—' : rows.length}</p></div><div className="card p-4"><p className="text-sm text-neutral-500">عضويات نشطة</p><p className="mt-1 text-2xl font-bold">{loading ? '—' : active}</p></div><div className="card p-4"><p className="text-sm text-neutral-500">تغييرات معلّقة</p><p className="mt-1 text-2xl font-bold">{loading ? '—' : rows.filter(row => row.role !== (edits[row.user_id] || row.role)).length}</p></div></div>
+    {loading ? <div className="card p-10 text-center text-sm text-neutral-500">جارٍ تحميل عضويات المؤسسة…</div>
+      : rows.length === 0 ? <div className="card p-10 text-center text-sm text-neutral-500">لا توجد عضويات مرئية للمؤسسة الحالية، أو لا تتوفر صلاحية القراءة.</div>
+      : <div className="card overflow-x-auto"><table className="w-full text-right text-sm"><thead className="bg-neutral-50"><tr>{['معرّف المستخدم','الدور الحالي','الدور الجديد','الحالة','تاريخ الانضمام','الإجراء'].map(label => <th key={label} className="whitespace-nowrap px-4 py-3 font-semibold text-neutral-600">{label}</th>)}</tr></thead><tbody>
+        {rows.map(row => <tr key={row.id} className="border-t border-neutral-100">
+          <td className="px-4 py-3 font-mono text-xs">{row.user_id}</td>
+          <td className="px-4 py-3">{roleLabel(row.role)}</td>
+          <td className="px-4 py-3"><select className="input min-w-36" aria-label={`الدور الجديد للمستخدم ${row.user_id}`} value={edits[row.user_id] || row.role} disabled={!isAdmin || row.role === 'owner' || row.status !== 'active' || Boolean(savingId)} onChange={event => setEdits(current => ({ ...current, [row.user_id]: event.target.value }))}>
+            {row.role === 'owner' && <option value="owner">مالك المؤسسة (محمي)</option>}
+            {editableOrganizationRoles.map(option => <option value={option.value} key={option.value}>{option.label}</option>)}
+          </select></td>
+          <td className="px-4 py-3">{row.status === 'active' ? 'نشط' : row.status}</td>
+          <td className="px-4 py-3 text-neutral-500">{formatDate(row.created_at)}</td>
+          <td className="px-4 py-3"><button type="button" className="btn-primary whitespace-nowrap" disabled={!isAdmin || row.role === 'owner' || row.status !== 'active' || Boolean(savingId) || (edits[row.user_id] || row.role) === row.role} onClick={() => void saveRole(row)}>{savingId === row.user_id ? 'جارٍ الحفظ…' : 'حفظ الدور'}</button></td>
+        </tr>)}
+      </tbody></table></div>}
+    <p className="text-xs leading-5 text-neutral-500">لا يتم تغيير الأدوار مباشرة عبر PostgREST. المنح المباشر لدور المالك غير متاح من هذه الشاشة، وجميع التغييرات تمر عبر تحقق خادمي وسجل تدقيق.</p>
+  </div>
+}
+
 export function AdminOutbox() {
   return <OperationalWorkspace config={{ title: 'صندوق الأحداث', description: 'مراقبة الأحداث المسجلة للتسليم والتكاملات.', table: 'outbox_events', icon: Activity, tenantScoped: true, columns: [{key:'event_type',label:'نوع الحدث'},{key:'aggregate_id',label:'الكيان'},{key:'status',label:'الحالة',kind:'status'},{key:'attempts',label:'المحاولات',kind:'quantity'},{key:'last_attempt_at',label:'آخر محاولة',kind:'date'},{key:'created_at',label:'تاريخ التسجيل',kind:'date'}], readOnlyNote:'التسليم وإعادة المحاولة لا ينفذان من الواجهة حتى يتوفر عامل تسليم موثوق مع قفل وتراجع وDLQ.' }} />
 }
