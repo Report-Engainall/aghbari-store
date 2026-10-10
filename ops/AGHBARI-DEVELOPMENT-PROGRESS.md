@@ -94,3 +94,13 @@ Use one entry per execution run. Keep implementation, verification, proof and de
 - **Post-merge checks:** Build and Backup Tool Safety Checks passed on merge commit `2dbc96fd5cb51b42924238d8d3cead955d90b1e6`. The SQL chain passed on the pre-merge PR head whose source/migrations were merged unchanged.
 - **No overclaim:** no production deployment, live hosted Supabase verification, browser E2E or actual database backup/decryption/restore is claimed.
 - **Next executable gap:** tenant-switch stale-response safety and duplicate-upload race/idempotency in the unified import UI/engine; keep Excel/PDF manual review and do not fake live-data merge.
+
+
+## Run update — tenant-safe import state switching (2026-10-10)
+
+- **Finding:** the import screen's concurrent reads had no request identity guard. If the user switched active organizations while the prior profile/upload query was in flight, the older result could overwrite the newer screen state. The selected profile also was not revalidated against the newly loaded tenant list.
+- **Implementation on branch fix/import-tenant-switch-race:** request sequence token; current-organization reference; explicit stale-response rejection after Promise.all; clearing profile/upload/file/duplicate/progress state during tenant changes; visible-list gating until data belongs to the active organization; profile selection repair; cleanup invalidates requests and aborts supported CSV work.
+- **Write-safety:** profile creation/versioning and import/retry handlers now test the tenant/request context after awaited boundaries before updating the visible UI. This does not claim a database transaction has been rolled back if an operator intentionally started a write before switching contexts.
+- **Import truth:** CSV continues through the existing validated Snapshot pipeline. Excel/PDF stay metadata-only/manual review; no fake parser, data merge, or fake completion was introduced.
+- **Acceptance contract:** static guardrails cover request IDs, tenant match, cleared state, abort cleanup, selected-profile reset and disabled writes until the active context is loaded.
+- **Status:** implementation is committed and read back; tests are awaiting the PR's exact-head CI. No browser E2E is claimed.
