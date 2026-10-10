@@ -10,6 +10,7 @@ interface AuthContextValue {
   organization: Organization | null
   membership: OrganizationMember | null
   isAdmin: boolean
+  isPlatformAdmin: boolean
   signIn: (email: string, password: string) => Promise<{ error: string | null; redirectTo?: string }>
   signUp: (email: string, password: string, fullName: string, companyName: string, phone: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
@@ -24,6 +25,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [organization, setOrganization] = useState<Organization | null>(null)
   const [membership, setMembership] = useState<OrganizationMember | null>(null)
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false)
+
+  const loadPlatformAdmin = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.rpc('is_platform_admin')
+      setIsPlatformAdmin(!error && data === true)
+    } catch {
+      setIsPlatformAdmin(false)
+    }
+  }, [])
 
   const loadOrganization = useCallback(async (userId: string) => {
     const { data: mem } = await supabase
@@ -48,8 +59,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session)
       setUser(session?.user ?? null)
       if (session?.user) {
-        loadOrganization(session.user.id).finally(() => setLoading(false))
+        Promise.all([loadOrganization(session.user.id), loadPlatformAdmin()])
+          .finally(() => setLoading(false))
       } else {
+        setIsPlatformAdmin(false)
         setLoading(false)
       }
     }).catch(() => {
@@ -57,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null)
       setOrganization(null)
       setMembership(null)
+      setIsPlatformAdmin(false)
       setLoading(false)
     }).finally(() => window.clearTimeout(timeout))
 
@@ -65,18 +79,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(session?.user ?? null)
       if (session?.user) {
         (async () => {
-          await loadOrganization(session.user.id)
+          await Promise.all([loadOrganization(session.user.id), loadPlatformAdmin()])
           setLoading(false)
         })()
       } else {
         setOrganization(null)
         setMembership(null)
+        setIsPlatformAdmin(false)
         setLoading(false)
       }
     })
 
     return () => subscription.unsubscribe()
-  }, [loadOrganization])
+  }, [loadOrganization, loadPlatformAdmin])
 
   const ensureCompanyForUser = async (authUser: User) => {
     const companyName = String(authUser.user_metadata?.company_name ?? '').trim()
@@ -96,6 +111,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) return { error: error.message }
+
+    const { data: platformAccess, error: platformAccessError } = await supabase.rpc('is_platform_admin')
+    if (!platformAccessError && platformAccess === true) {
+      setIsPlatformAdmin(true)
+      return { error: null, redirectTo: '/platform/organizations' }
+    }
 
     const setup = await ensureCompanyForUser(data.user)
     if (setup.error) {
@@ -162,6 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut()
     setOrganization(null)
     setMembership(null)
+    setIsPlatformAdmin(false)
   }
 
   const refreshOrganization = async () => {
@@ -172,7 +194,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      session, user, loading, organization, membership, isAdmin,
+      session, user, loading, organization, membership, isAdmin, isPlatformAdmin,
       signIn, signUp, signOut, refreshOrganization,
     }}>
       {children}
