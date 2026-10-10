@@ -1598,7 +1598,7 @@ BEGIN
       AND tablename IN (
         'commerce_policy_settings',
         'import_profiles','import_uploads','import_chunks','import_records',
-        'pricing_rules','idempotency_keys','outbox_events'
+        'pricing_rules','idempotency_keys','outbox_events','audit_logs'
       )
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I.%I',
@@ -1716,3 +1716,70 @@ USING (
       AND om.role IN ('owner','admin')
   )
 );
+
+CREATE POLICY audit_logs_admin_read
+ON public.audit_logs FOR SELECT TO authenticated
+USING (
+  organization_id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = audit_logs.organization_id
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin')
+  )
+);
+
+-- Record every pricing-rule change in the existing audit stream.
+CREATE OR REPLACE FUNCTION public.audit_pricing_rule_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, private
+AS $
+DECLARE
+  v_organization_id uuid;
+  v_rule_id uuid;
+  v_actor_profile_id uuid;
+  v_action text;
+  v_old_value jsonb;
+  v_new_value jsonb;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    v_organization_id := NEW.organization_id;
+    v_rule_id := NEW.id;
+    v_action := 'pricing_rule.created';
+    v_new_value := to_jsonb(NEW);
+  ELSIF TG_OP = 'UPDATE' THEN
+    v_organization_id := NEW.organization_id;
+    v_rule_id := NEW.id;
+    v_action := 'pricing_rule.updated';
+    v_old_value := to_jsonb(OLD);
+    v_new_value := to_jsonb(NEW);
+  ELSE
+    v_organization_id := OLD.organization_id;
+    v_rule_id := OLD.id;
+    v_action := 'pricing_rule.deleted';
+    v_old_value := to_jsonb(OLD);
+  END IF;
+
+  SELECT p.id INTO v_actor_profile_id
+  FROM public.profiles p
+  WHERE p.auth_user_id = auth.uid()
+  LIMIT 1;
+
+  INSERT INTO public.audit_logs (
+    organization_id, actor_id, action, entity_type, entity_id, old_value, new_value
+  ) VALUES (
+    v_organization_id, v_actor_profile_id, v_action, 'pricing_rule',
+    v_rule_id, v_old_value, v_new_value
+  );
+
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS audit_pricing_rule_change_after_write ON public.pricing_rules;
+CREATE TRIGGER audit_pricing_rule_change_after_write
+AFTER INSERT OR UPDATE OR DELETE ON public.pricing_rules
+FOR EACH ROW EXECUTE FUNCTION public.audit_pricing_rule_change();
+
