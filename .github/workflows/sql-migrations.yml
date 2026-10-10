@@ -59,6 +59,12 @@ jobs:
           GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
           GRANT SELECT ON auth.users TO anon, authenticated, service_role;
           GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role;
+          -- Mirror Supabase's default public-table/sequence grants; row-level policies remain
+          -- the authorization boundary, and migrations can explicitly revoke sensitive writes.
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public
+            GRANT ALL ON TABLES TO anon, authenticated, service_role;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public
+            GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
           SQL
 
       - name: Apply all repository migrations in filename order
