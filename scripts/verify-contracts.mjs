@@ -261,6 +261,10 @@ assert.ok(backupVerify.includes('ciphertext_sha256') && backupVerify.includes('p
 assert.ok(backupRestore.includes('RESTORE_CONFIRM') && backupRestore.includes('I_HAVE_VERIFIED_THE_TARGET'), 'Restore must require explicit destination confirmation.')
 assert.ok(backupRestore.includes('RESTORE_EXPECTED_HOST') && backupRestore.includes('actual_target_host'), 'Restore must match the URL against an independently specified expected hostname.')
 assert.ok(backupRestore.includes('I_ACCEPT_PRODUCTION_DATA_OVERWRITE') && backupRestore.includes('--clean'), 'Production overwrite must need a separate explicit acknowledgment.')
+assert.ok(backupRestore.includes('Production restore requires BACKUP_AGE_RECIPIENT'), 'Production restore must require an encryption recipient for its pre-restore snapshot.')
+assert.ok(backupRestore.includes('RESTORE_PRE_RESTORE_BACKUP_DIR') && backupRestore.includes('pre-restore backup directory must be empty'), 'Production restore must use a dedicated empty directory to avoid confusing current safety backups with stale artifacts.')
+assert.ok(backupRestore.includes('bash "$script_dir/create-encrypted-backup.sh"'), 'Production restore must create a fresh backup of its target before overwrite.')
+assert.ok(backupRestore.includes('verify-encrypted-backup.sh') && backupRestore.includes('Verified pre-restore snapshot retained at:'), 'Production restore must verify and retain the pre-restore snapshot before destructive work.')
 assert.ok(backupRestore.includes('PGSSLMODE=require'), 'Restore must request TLS for PostgreSQL connections.')
 assert.ok(backupGuide.includes('complete Supabase-project backup') && backupGuide.includes('isolated target first'), 'Backup documentation must disclose scope and require isolated restore before claiming recovery.');
 assert.ok(backupCheckWorkflow.includes('bash -n') && backupCheckWorkflow.includes('shellcheck'), 'Backup shell tools must have a syntax/ShellCheck workflow gate.')
