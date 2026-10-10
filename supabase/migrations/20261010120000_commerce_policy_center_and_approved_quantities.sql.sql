@@ -442,6 +442,15 @@ END $$;
 -- and idempotency keys cannot be replayed with a different cart or request body.
 ALTER TABLE public.idempotency_keys ADD COLUMN IF NOT EXISTS request_context_hash text;
 
+UPDATE public.idempotency_keys k
+SET request_context_hash = md5(
+  COALESCE(o.shipping_address::text, '') || '|' ||
+  COALESCE(o.billing_address::text, '') || '|' ||
+  COALESCE(o.notes, '')
+)
+FROM public.orders o
+WHERE o.id = k.response_reference AND k.request_context_hash IS NULL;
+
 CREATE OR REPLACE FUNCTION public.create_order_from_cart(
   p_shipping_address jsonb,
   p_billing_address jsonb,
@@ -520,7 +529,7 @@ BEGIN
   FOR UPDATE OF k;
 
   IF FOUND THEN
-    IF v_existing_context_hash IS DISTINCT FROM v_context_hash THEN
+    IF v_existing_context_hash IS NOT NULL AND v_existing_context_hash IS DISTINCT FROM v_context_hash THEN
       RAISE EXCEPTION 'idempotency_key_reused_with_different_request';
     END IF;
     IF v_existing_status = 'completed' AND v_existing IS NOT NULL THEN
