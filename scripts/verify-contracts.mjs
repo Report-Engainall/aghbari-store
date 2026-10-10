@@ -45,6 +45,8 @@ const [readme, index, pricingMigration, safeProductSelect, storefront, store, ca
 
 const aiAssistant = await read('src/pages/admin/AIAssistant.tsx')
 const aiIntegration = await read('docs/AI-PORTAL-INTEGRATION.md')
+const bundleBudgetScript = await read('scripts/verify-bundle-budget.mjs')
+const packageManifest = JSON.parse(await read('package.json'))
 const [rootReadme, projectMemory, canonicalSpec, sourceIndex, executionState, progressLedger] = await Promise.all([
   read('README.md'),
   read('PROJECT_MEMORY.md'),
@@ -299,6 +301,11 @@ assert.ok(backupRestore.includes('verify-encrypted-backup.sh') && backupRestore.
 assert.ok(backupRestore.includes('PGSSLMODE=require'), 'Restore must request TLS for PostgreSQL connections.')
 assert.ok(backupGuide.includes('complete Supabase-project backup') && backupGuide.includes('isolated target first'), 'Backup documentation must disclose scope and require isolated restore before claiming recovery.');
 assert.ok(backupCheckWorkflow.includes('bash -n') && backupCheckWorkflow.includes('shellcheck'), 'Backup shell tools must have a syntax/ShellCheck workflow gate.')
+assert.ok(packageManifest.scripts.build.includes('node scripts/verify-bundle-budget.mjs'), 'Production build must enforce the entry-bundle budget after Vite.')
+assert.ok(bundleBudgetScript.includes('ENTRY_BUNDLE_BUDGET_BYTES = 500_000'), 'Entry-bundle budget must remain capped at 500,000 raw bytes.')
+assert.ok(bundleBudgetScript.includes('gzipSync(entryBytes)'), 'Entry-bundle budget report must measure the gzip transfer estimate.')
+assert.ok(bundleBudgetScript.includes('entryFiles.length !== 1') && bundleBudgetScript.includes('entryInfo.size <= 0'), 'Bundle guard must reject missing, ambiguous or empty entrypoints rather than silently pass.')
+assert.ok(bundleBudgetScript.includes('entryInfo.size > ENTRY_BUNDLE_BUDGET_BYTES'), 'Bundle guard must fail the build when the raw entry budget is exceeded.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
