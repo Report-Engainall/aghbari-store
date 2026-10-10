@@ -1190,7 +1190,7 @@ DO $$
 DECLARE policy_row record;
 BEGIN
   FOR policy_row IN
-    SELECT policyname FROM pg_policies
+    SELECT tablename, policyname FROM pg_policies
     WHERE schemaname = 'public' AND tablename IN ('order_items','invoices','payments')
       AND cmd IN ('SELECT','INSERT','UPDATE','DELETE','ALL')
   LOOP
