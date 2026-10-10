@@ -8,7 +8,7 @@ import type {
 // ─── Products ───
 export async function fetchProducts(): Promise<ProductWithInventory[]> {
   const { data: products, error } = await supabase
-    .from('products')
+    .from('admin_product_catalog')
     .select('*')
     .eq('organization_id', ORG_ID)
     .order('name');
@@ -39,29 +39,57 @@ export async function fetchProducts(): Promise<ProductWithInventory[]> {
 }
 
 export async function createProduct(p: Partial<Product>): Promise<Product> {
-  const { data, error } = await supabase
+  if (!ORG_ID) throw new Error('An active organization is required to create a product.');
+  const { data: created, error } = await supabase
     .from('products')
     .insert({ ...p, organization_id: ORG_ID })
-    .select()
+    .select('id')
     .single();
   if (error) throw error;
-  return data;
+
+  const { data, error: readError } = await supabase
+    .from('admin_product_catalog')
+    .select('*')
+    .eq('id', created.id)
+    .eq('organization_id', ORG_ID)
+    .single();
+  if (readError) throw readError;
+  return data as Product;
 }
 
 export async function updateProduct(id: string, updates: Partial<Product>): Promise<Product> {
-  const { data, error } = await supabase
+  if (!ORG_ID) throw new Error('An active organization is required to update a product.');
+  const { data: updated, error } = await supabase
     .from('products')
     .update(updates)
     .eq('id', id)
-    .select()
+    .eq('organization_id', ORG_ID)
+    .select('id')
     .single();
   if (error) throw error;
-  return data;
+
+  const { data, error: readError } = await supabase
+    .from('admin_product_catalog')
+    .select('*')
+    .eq('id', updated.id)
+    .eq('organization_id', ORG_ID)
+    .single();
+  if (readError) throw readError;
+  return data as Product;
 }
 
 export async function deleteProduct(id: string): Promise<void> {
-  const { error } = await supabase.from('products').delete().eq('id', id);
+  if (!ORG_ID) throw new Error('An active organization is required to deactivate a product.');
+  // Preserve order history and auditability; catalog removal is a soft-deactivation.
+  const { data, error } = await supabase
+    .from('products')
+    .update({ is_active: false })
+    .eq('id', id)
+    .eq('organization_id', ORG_ID)
+    .select('id')
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error('Product not found in the active organization or permission denied.');
 }
 
 // ─── Categories ───
