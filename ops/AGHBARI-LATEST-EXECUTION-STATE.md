@@ -34,11 +34,11 @@
 - Full XLSX/PDF structured extraction/resumable chunks, import DQS acceptance, outbox worker/DLQ recovery and complete browser test matrix remain open.
 
 ## Exact next executable action
-1. Verify current main HEAD and the Build result after the post-merge execution-state documentation updates. The PR merge commit was `2dbc96fd5cb51b42924238d8d3cead955d90b1e6`; the pre-merge exact PR head `658382a5b09e4ef0363f7e1af11b2e0cc93581c4` passed Build, PostgreSQL 17 Migration Chain and Backup Tool Safety Checks. The bundle-budget script reported 454,026 bytes raw / 127,606 bytes gzip under the 500,000-byte limit.
-2. Continue from the next highest-value product gap: strengthen the unified import engine’s tenant-switch stale-response handling and duplicate-upload race/idempotency behavior; preserve the rule that CSV can create a validated Snapshot, while Excel/PDF remain manual review until real parsers exist.
-3. Map remaining transactional/import/finance paths to audit or outbox events and add PostgreSQL smoke tests per path. Do not claim total audit coverage until the map is complete.
-4. Configure repository Actions secrets `SUPABASE_DB_URL` and public `BACKUP_AGE_RECIPIENT` through GitHub Settings; keep the age private key offline. Then run a real encrypted backup, verify manifest/decryption, restore to an isolated compatible target and run application login/tenant/commerce/RLS smoke tests.
-5. Continue private/local AI governance, security hardening and browser E2E proof. Update this state/progress ledger after each exact-SHA verification cycle.
+1. Verify latest main HEAD and its Build conclusion after the state/progress documentation updates; the last observed main merge SHA for PR #5 is `33ccd26fb666977a74d6b99e8c123210d6b3183b`, with Build and Backup Tool Safety Checks passing post-merge.
+2. Fix the next import-engine gap: concurrent duplicate-upload idempotency. The existing unique key `(organization_id, profile_id, file_hash, period_start, period_end)` includes nullable periods, so do not assume it blocks duplicate NULL-period rows. Introduce a safe database-level arbitration/claim and test two concurrent requests; preserve existing upload history and partial retry behavior.
+3. Continue mapping remaining import/transaction/finance paths to audit or outbox events. Do not claim complete audit coverage until mapping and acceptance tests span all relevant operations.
+4. Configure repository Actions secrets `SUPABASE_DB_URL` and public `BACKUP_AGE_RECIPIENT` securely via GitHub Settings; keep the age private key offline. Run a real encrypted backup, verify artifact/manifest/decryption, restore to an isolated target and run application login/tenant/commerce/RLS smoke tests.
+5. Continue private/local AI governance, security hardening and browser E2E. Record each exact-SHA cycle and leave production deploy on HOLD until real production evidence is supplied.
 
 ## Do not repeat / do not do
 - Do not rebuild from zero or delete screenshot files, specs, migrations, current modules or git history.
@@ -76,7 +76,7 @@
 - New migration and SQL smoke test remain unverified until the current latest workflow concludes successfully.
 
 
-## Route-level code splitting — verified on PR head 658382a5b09e4ef0363f7e1af11b2e0cc93581c4
+## Route-level code splitting — verified on PR #4 head 658382a5b09e4ef0363f7e1af11b2e0cc93581c4
 
 - **Implementation:** `src/App.tsx` now lazy-loads storefront screens and admin modules by route using React `lazy` + `Suspense`; a small Arabic RTL `role=status` fallback is rendered during module loading. Auth providers, route guards, storefront/admin shells, connectivity UX and the in-app AI module remain within the same application.
 - **Measured build output:** main `index-*.js` changed from 732.55 kB (196.43 kB gzip) on the earlier monolithic build to 452.62 kB (127.61 kB gzip) after route splitting: **279.93 kB / about 38.2% less uncompressed initial JS**. Dedicated chunks include AIAssistant 15.05 kB, OperationsPages 26.93 kB, TransactionsPages 27.83 kB, StorefrontPages 67.13 kB and AdminPages 71.06 kB.
@@ -93,13 +93,22 @@
 - Next action: verify the latest post-merge main Build after this state update, then address the import-engine concurrency/tenant-switch gap. PR #4 is merged; no production deploy has occurred. Deployment remains HOLD.
 
 
-## Import tenant-switch safety — implemented, exact-head verification pending
+## Import tenant-switch safety — verified and merged (2026-10-10)
 
-- Working branch: `fix/import-tenant-switch-race`, based on post-merge main.
+- PR #5 merged by squash as `33ccd26fb666977a74d6b99e8c123210d6b3183b`; branch `fix/import-tenant-switch-race` is merged.
 - Import profile/upload reads now increment a request token and accept results only when request token and active organization still match.
 - When the organization changes, previous profile/upload rows, selected profile, file, duplicate state and progress are cleared before new data is shown. Rendered lists use a context-ready gate, so stale tenant data is hidden even before the next request completes.
 - If a selected profile does not belong to the active tenant's loaded profile list, selection resets to the active tenant's first profile or empty.
 - Effect cleanup invalidates the pending load and aborts supported CSV processing. Post-await handlers discard stale results before updating the visible message/state.
 - Excel/PDF behavior remains unchanged: metadata-only manual review; no parser or fake successful import was added.
-- **Status:** implemented and read back from GitHub; static assertions added; not yet verified until Build, SQL Migration Chain and Backup Tool Safety Checks pass on the final PR head.
-- **Next:** create PR, inspect exact-SHA CI, fix failures, then merge only if all required gates are green.
+- **Exact-SHA proof:** PR head `e1d429d824a97bed6e91ab924df30ce27bdbe0fb` passed Build, SQL Migration Chain and Backup Tool Safety Checks. Post-merge Build and Backup Tool Safety Checks passed on merge SHA `33ccd26fb666977a74d6b99e8c123210d6b3183b`.
+- **Limits:** these are static/build/clean-PostgreSQL gates, not browser E2E. No live production deployment or live hosted-Supabase proof is claimed.
+- **Next:** address duplicate-upload concurrency/idempotency. Current unique constraint contains nullable period columns, so concurrent general-file snapshots may still produce duplicates; design a backward-compatible database-side claim/arbiter and test concurrent requests before claiming race prevention.
+
+
+## Post-merge import tenant-switch verification — 2026-10-10
+
+- PR #5 merged: `33ccd26fb666977a74d6b99e8c123210d6b3183b`.
+- Exact PR head: `e1d429d824a97bed6e91ab924df30ce27bdbe0fb` — Build PASS, PostgreSQL 17 SQL Migration Chain PASS, Backup Tool Safety Checks PASS.
+- Post-merge commit checks: Build PASS and Backup Tool Safety Checks PASS on `33ccd26fb666977a74d6b99e8c123210d6b3183b`. Build logs confirm static contract checks passed and the 500,000-byte entry budget passed (454,026 bytes raw, 127,601 bytes gzip).
+- Next issue is explicitly distinct from tenant switching: concurrent duplicate upload idempotency. Database's nullable period columns can undermine uniqueness for general files; implement and concurrently test a durable arbitration path before claiming deduplication is race-safe.
