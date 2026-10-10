@@ -3,7 +3,7 @@
 **State updated:** 2026-10-10  
 **Repository:** `Report-Engainall/aghbari-store`  
 **Base/main last verified:** `a5f3924d30423f327b4c12fde8341daa446d682a`  
-**Last source-inspected candidate before this state refresh:** `db20bd6503bc9d2b1ee15ff948bb140453f2efb6`  
+**Last source-inspected candidate before this state refresh:** `00bcb59f4c99f30dfcf2a2bd6e97b6f90a424136`  
 **Working branch / PR:** `feat/integrated-ai-assistant` / [PR #4](https://github.com/Report-Engainall/aghbari-store/pull/4)  
 **Resume protocol:** retrieve live main SHA, PR head SHA, changed file list and Actions conclusions before executing. This file's write itself changes branch HEAD, so never infer current HEAD from this stored value.
 
@@ -16,6 +16,7 @@
 - Static contract assertions added for assistant route, tenant scoping, organization-switch reset/stale-request defense, AI list error behavior and dashboard truthfulness.
 - Persistent project memory and canonical master specification are now added as repository files; README links the control files and contract verification asserts their continued presence.
 - Pricing UI now distinguishes backend load errors from empty rules, provides retry, guards create/toggle/delete handlers, and confirms destructive deletion.
+- Adds encrypted PostgreSQL backup writer/workflow, SHA-256 manifest, offline verification, guarded restore utility, runbook, ShellCheck/syntax CI gate and static contracts. This remains PARTIAL until the required repository secrets are configured and a real artifact + isolated restore is proven.
 
 ## Verified (repository-content level only)
 - GitHub readback confirms the changed code/docs exist in the working branch.
@@ -32,11 +33,11 @@
 - Full XLSX/PDF structured extraction/resumable chunks, import DQS acceptance, outbox worker/DLQ recovery and complete browser test matrix remain open.
 
 ## Exact next executable action
-1. Inspect the current PR #4 HEAD and main SHA, changed files, Build and SQL Migration Chain conclusions. The latest previously inspected Actions results were queued, not passed.
-2. Run the static contract script and full production build in an actual Node environment; fix any failure on the feature branch and rerun against the resulting exact SHA.
-3. Do not merge while checks are queued/failed or required review/security evidence is missing.
-4. Continue the next high-value gap from the canonical specification: inventory current backup capability and design a safe backup/restore control contract that cannot falsely label CSV export a full database backup. Then proceed to import/DQS acceptance, SSOT/Onyx, outbox/queues/search and private AI governance.
-5. Update this state and the development ledger after each meaningful verified cycle.
+1. Inspect PR #4 latest HEAD and main SHA; read exact conclusions for Build, SQL Migration Chain and Backup Tool Safety Checks. Previous lookup showed all three queued, not passed.
+2. Fix any failure from the static contracts/build/shell syntax/migration chain on the feature branch; run the relevant checks again against the resulting exact SHA. Merge remains blocked until the latest candidate passes.
+3. Configure repository Actions secret `SUPABASE_DB_URL` and public `BACKUP_AGE_RECIPIENT` securely through GitHub Settings; keep the age private key offline. Then manually run the encrypted backup workflow and verify a real artifact/manifest.
+4. Download and verify the encrypted artifact using the offline key; restore it to an isolated compatible target with independent hostname confirmation; run login/tenant/commerce/RLS smoke tests. Record the restore evidence. Do not label the capability proven before that.
+5. Continue one high-value product gap at a time: import/DQS acceptance, SSOT/Onyx, outbox/queues/search, private/local AI governance, and full E2E regression. Update this state and progress ledger after each verified cycle.
 
 ## Do not repeat / do not do
 - Do not rebuild from zero or delete screenshot files, specs, migrations, current modules or git history.
@@ -55,3 +56,11 @@
 - The master specification records the latest conflict decisions: AI remains integrated/local-private; customer amounts stay hidden throughout customer order/invoice views; transactional offline order writing remains parked; unsafe plaintext/reversible/shared-unsalted password comparison is prohibited pending security review.
 - Screenshot references must be implemented once per screen family while preserving originals and their provenance.
 - Pricing source inspection found existing SQL code for retail/wholesale/both rule targeting and base-price fallback. The current working branch adds UI error/retry and destructive confirmation/authorization plus source-contract assertions; passing SQL runtime proof remains pending.
+
+
+## Backup and restore status (2026-10-10)
+
+- **Implemented, not proven:** `.github/workflows/encrypted-postgres-backup.yml`, `scripts/backup/create-encrypted-backup.sh`, `scripts/backup/verify-encrypted-backup.sh`, `scripts/backup/restore-postgres.sh`, and `scripts/backup/README.md`.
+- **Required configuration:** repository Actions secrets `SUPABASE_DB_URL` and `BACKUP_AGE_RECIPIENT`; offline age private key; PostgreSQL client and age tools on the runner.
+- **Protection:** encryption before artifact upload, manifest digest, explicit restore host/confirmation gates, separate production overwrite acknowledgement, explicit exclusion of Supabase Storage object bytes and edge/project configuration.
+- **Unresolved proof:** first real backup artifact, checksum/decryption validation, restore into isolated target, application smoke/regression test and evidence record.
