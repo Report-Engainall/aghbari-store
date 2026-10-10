@@ -24,6 +24,7 @@ import {
   StockCounts as AdminStockCounts,
   Expenses as AdminExpenses,
 } from '@/pages/admin/TransactionsPages'
+import { BarcodeLookup as AdminBarcodeLookup, DataExports as AdminDataExports } from '@/pages/admin/UtilityPages'
 
 // Storefront pages
 import Landing from '@/pages/storefront/Landing'
@@ -139,6 +140,8 @@ export default function App() {
             <Route path="transfers" element={<AdminTransfers />} />
             <Route path="stock-counts" element={<AdminStockCounts />} />
             <Route path="expenses" element={<AdminExpenses />} />
+            <Route path="barcode" element={<AdminBarcodeLookup />} />
+            <Route path="exports" element={<AdminDataExports />} />
             <Route path="suppliers" element={<AdminSuppliers />} />
             <Route path="invoices" element={<AdminFinanceInvoices />} />
             <Route path="payments" element={<AdminFinancePayments />} />
