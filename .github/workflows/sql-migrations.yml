@@ -292,6 +292,7 @@ jobs:
             v_count integer;
             v_pending_organization_id uuid;
             v_write_denied boolean := false;
+            v_expense_denied boolean := false;
           BEGIN
             SELECT id INTO v_pending_organization_id
             FROM public.organizations
@@ -325,6 +326,17 @@ jobs:
             END;
             IF NOT v_write_denied THEN
               RAISE EXCEPTION 'unapproved tenant can create product rows before platform approval';
+            END IF;
+
+            BEGIN
+              PERFORM public.record_expense(
+                v_pending_organization_id, 'ci-test', 'Must be rejected until approval', 10, 'YER', CURRENT_DATE
+              );
+            EXCEPTION WHEN raise_exception THEN
+              v_expense_denied := true;
+            END;
+            IF NOT v_expense_denied THEN
+              RAISE EXCEPTION 'unapproved tenant can execute a financial operation before platform approval';
             END IF;
           END
           $pending_tenant_catalog_gate$;
