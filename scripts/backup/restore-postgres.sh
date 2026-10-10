@@ -47,8 +47,12 @@ AGE_IDENTITY_FILE="$AGE_IDENTITY_FILE" "$script_dir/verify-encrypted-backup.sh" 
 if [[ "$target_normalized" == "production" || "$target_normalized" == "prod" || "$target_normalized" == "live" ]]; then
   : "${BACKUP_AGE_RECIPIENT:?Production restore requires BACKUP_AGE_RECIPIENT to protect the pre-restore snapshot}"
   : "${RESTORE_PRE_RESTORE_BACKUP_DIR:?Production restore requires a separate durable RESTORE_PRE_RESTORE_BACKUP_DIR}"
-  if [[ "$RESTORE_PRE_RESTORE_BACKUP_DIR" == "/" || "$RESTORE_PRE_RESTORE_BACKUP_DIR" == "." ]]; then
-    printf 'Production restore blocked: select a dedicated backup directory outside the repository root.\n' >&2
+  if [[ "$RESTORE_PRE_RESTORE_BACKUP_DIR" != /* || "$RESTORE_PRE_RESTORE_BACKUP_DIR" == "/" ]]; then
+    printf 'Production restore blocked: use an absolute path for the dedicated pre-restore backup directory.\n' >&2
+    exit 1
+  fi
+  if [[ -L "$RESTORE_PRE_RESTORE_BACKUP_DIR" ]]; then
+    printf 'Production restore blocked: symbolic-link pre-restore directories are not accepted.\n' >&2
     exit 1
   fi
   if [[ -e "$RESTORE_PRE_RESTORE_BACKUP_DIR" && ! -d "$RESTORE_PRE_RESTORE_BACKUP_DIR" ]]; then
@@ -56,6 +60,12 @@ if [[ "$target_normalized" == "production" || "$target_normalized" == "prod" || 
     exit 1
   fi
   mkdir -p "$RESTORE_PRE_RESTORE_BACKUP_DIR"
+  canonical_pre_restore_dir="$(cd "$RESTORE_PRE_RESTORE_BACKUP_DIR" && pwd -P)"
+  canonical_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+  if [[ "$canonical_pre_restore_dir" == "/" || "$canonical_pre_restore_dir" == "$canonical_repo_root" || "$canonical_pre_restore_dir" == "$canonical_repo_root/"* ]]; then
+    printf 'Production restore blocked: retain the pre-restore artifact outside the source repository.\n' >&2
+    exit 1
+  fi
   if find "$RESTORE_PRE_RESTORE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
     printf 'Production restore blocked: pre-restore backup directory must be empty to prevent confusing old artifacts with the current snapshot.\n' >&2
     exit 1
