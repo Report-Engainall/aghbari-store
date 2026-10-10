@@ -341,3 +341,83 @@ AFTER INSERT OR UPDATE OR DELETE ON public.products
 FOR EACH ROW EXECUTE FUNCTION public.audit_product_catalog_changes();
 
 REVOKE ALL ON FUNCTION public.audit_product_catalog_changes() FROM PUBLIC, anon, authenticated;
+
+-- Role changes are RPC-only: a member cannot self-promote or mint a new owner.
+CREATE OR REPLACE FUNCTION public.update_organization_member_role(
+  p_organization_id uuid,
+  p_target_user_id uuid,
+  p_new_role text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_actor_id uuid := auth.uid();
+  v_actor_role text;
+  v_old_role text;
+  v_actor_profile_id uuid;
+BEGIN
+  IF v_actor_id IS NULL THEN RAISE EXCEPTION 'authentication_required'; END IF;
+  IF p_target_user_id IS NULL OR p_organization_id IS NULL THEN
+    RAISE EXCEPTION 'organization_and_target_user_required';
+  END IF;
+  IF p_new_role NOT IN ('admin','manager','warehouse','accountant','sales','customer_manager','customer') THEN
+    RAISE EXCEPTION 'unsupported_organization_role';
+  END IF;
+
+  SELECT om.role INTO v_actor_role
+  FROM public.organization_members om
+  WHERE om.organization_id = p_organization_id
+    AND om.user_id = v_actor_id
+    AND om.status = 'active'
+  FOR SHARE;
+  IF NOT FOUND OR v_actor_role NOT IN ('owner','admin') THEN
+    RAISE EXCEPTION 'role_change_forbidden';
+  END IF;
+
+  IF p_target_user_id = v_actor_id THEN RAISE EXCEPTION 'self_role_change_forbidden'; END IF;
+  IF p_new_role = 'admin' AND v_actor_role <> 'owner' THEN
+    RAISE EXCEPTION 'only_owner_can_assign_admin';
+  END IF;
+
+  SELECT om.role INTO v_old_role
+  FROM public.organization_members om
+  WHERE om.organization_id = p_organization_id
+    AND om.user_id = p_target_user_id
+    AND om.status = 'active'
+  FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'target_member_not_active'; END IF;
+  IF v_old_role = 'owner' THEN RAISE EXCEPTION 'owner_role_is_protected'; END IF;
+
+  UPDATE public.organization_members
+  SET role = p_new_role
+  WHERE organization_id = p_organization_id
+    AND user_id = p_target_user_id
+    AND status = 'active';
+
+  SELECT p.id INTO v_actor_profile_id
+  FROM public.profiles p WHERE p.auth_user_id = v_actor_id LIMIT 1;
+
+  INSERT INTO public.audit_logs (
+    organization_id, actor_id, action, entity_type, entity_id, old_value, new_value
+  ) VALUES (
+    p_organization_id, v_actor_profile_id, 'organization_member.role_changed',
+    'organization_member', p_target_user_id,
+    jsonb_build_object('role',v_old_role),
+    jsonb_build_object('role',p_new_role)
+  );
+
+  RETURN jsonb_build_object(
+    'organization_id',p_organization_id,
+    'user_id',p_target_user_id,
+    'old_role',v_old_role,
+    'new_role',p_new_role,
+    'status','updated'
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.update_organization_member_role(uuid,uuid,text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.update_organization_member_role(uuid,uuid,text) TO authenticated;
