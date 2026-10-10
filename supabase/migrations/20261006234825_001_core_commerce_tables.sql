@@ -339,6 +339,16 @@ CREATE TABLE IF NOT EXISTS import_logs (
   created_at timestamptz DEFAULT now()
 );
 
+-- Backward-compatible columns for products created by the earlier Aghbari core schema.
+-- CREATE TABLE IF NOT EXISTS does not add fields when the legacy products table already exists.
+ALTER TABLE public.products
+  ADD COLUMN IF NOT EXISTS brand_id uuid REFERENCES public.brands(id) ON DELETE SET NULL;
+ALTER TABLE public.products
+  ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
+UPDATE public.products
+SET is_active = COALESCE(is_active, status = 'active', true);
+ALTER TABLE public.products ALTER COLUMN is_active SET DEFAULT true;
+
 -- INDEXES
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand_id);
