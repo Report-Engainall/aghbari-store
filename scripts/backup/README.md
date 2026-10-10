@@ -39,7 +39,7 @@ AGE_IDENTITY_FILE='/secure/path/aghbari-backup.agekey' \
   bash scripts/backup/restore-postgres.sh /path/to/backup.dump.age
 ```
 
-The script intentionally requires a destination label and a confirmation sentinel. A destination labelled `production`, `prod` or `live` is additionally blocked unless `ALLOW_PRODUCTION_RESTORE=I_ACCEPT_PRODUCTION_DATA_OVERWRITE` is provided. That override can overwrite data; it should not be used as the first restore test.
+The script requires the connection hostname to match an independently configured `RESTORE_EXPECTED_HOST`, plus a destination label and confirmation sentinel. A destination labelled `production`, `prod` or `live` is additionally blocked unless `ALLOW_PRODUCTION_RESTORE=I_ACCEPT_PRODUCTION_DATA_OVERWRITE` is provided. That override can overwrite data; it should not be used as the first restore test.
 
 After restore, run migration/schema compatibility checks and application smoke tests for login/tenant access, products/prices, orders/order_items, invoices, payments, stock, outbox/idempotency and RLS. Record exact artifact hash, target version, test results and cleanup. Do not claim full recovery until those pass.
 
