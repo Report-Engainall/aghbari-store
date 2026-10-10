@@ -511,6 +511,7 @@ export function Import() {
   const [profiles, setProfiles] = useState<Record<string, unknown>[]>([])
   const [profileId, setProfileId] = useState('')
   const [uploads, setUploads] = useState<Record<string, unknown>[]>([])
+  const [readyOrganizationId, setReadyOrganizationId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [progress, setProgress] = useState<CsvImportProgress | null>(null)
@@ -521,7 +522,7 @@ export function Import() {
   const resumeRef = useRef<(() => void) | null>(null)
   const loadRequestIdRef = useRef(0)
   const loadedOrganizationIdRef = useRef<string | null>(null)
-  const importContextReady = Boolean(organization?.id && loadedOrganizationIdRef.current === organization.id)
+  const importContextReady = Boolean(organization?.id && readyOrganizationId === organization.id)
   const isCurrentImportContext = (organizationId: string, requestNumber: number) =>
     Boolean(organizationId) && loadedOrganizationIdRef.current === organizationId && loadRequestIdRef.current === requestNumber
   const visibleProfiles = importContextReady ? profiles : []
@@ -553,6 +554,7 @@ export function Import() {
     const organizationId = organization?.id
     if (!organizationId) {
       loadedOrganizationIdRef.current = null
+      setReadyOrganizationId(null)
       setProfiles([])
       setProfileId('')
       setUploads([])
@@ -565,6 +567,7 @@ export function Import() {
     }
 
     const organizationChanged = loadedOrganizationIdRef.current !== organizationId
+    setReadyOrganizationId(null)
     if (organizationChanged) {
       loadedOrganizationIdRef.current = organizationId
       setProfiles([])
@@ -574,7 +577,7 @@ export function Import() {
       setFile(null)
       setProgress(null)
       setPaused(false)
-      setMessage('')
+      setMessage('جارٍ تحميل بيانات المؤسسة النشطة...')
       pausedRef.current = false
       resumeRef.current?.()
       resumeRef.current = null
@@ -606,8 +609,14 @@ export function Import() {
       } else {
         setUploads(u.data as Record<string, unknown>[] || [])
       }
+
+      if (!p.error && !u.error) {
+        setReadyOrganizationId(organizationId)
+        if (organizationChanged) setMessage('')
+      }
     } catch (cause) {
       if (loadRequestIdRef.current !== requestNumber || loadedOrganizationIdRef.current !== organizationId) return
+      setReadyOrganizationId(null)
       setProfiles([])
       setProfileId('')
       setUploads([])
@@ -820,6 +829,10 @@ export function Import() {
       <p className="mt-3 text-xs leading-5 text-neutral-500">حد الملف {policies.max_file_size_mb} ميجابايت؛ حد CSV هو {policies.max_import_rows.toLocaleString('en-US')} صف و{policies.max_import_columns} عمود و{policies.max_cell_length} حرف للخلية. تُحفظ بصمة SHA-256 والسجلات المنظمة وبيان Snapshot، ولا يُرفع الملف الخام إلى Storage.</p>
       {progress && <div role="status" className="mt-4 rounded-lg border border-primary-100 bg-primary-50 p-3 text-sm text-primary-900"><p className="font-semibold">{progress.stage}</p><p className="mt-1">تم فحص {progress.processedRows.toLocaleString('en-US')} صف؛ تُحفظ الدفعات كل 500 سجل.</p><div className="mt-2 h-1.5 animate-pulse rounded bg-primary-200" /></div>}
       {message && <p role="status" className="mt-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-sm leading-6">{message}</p>}
+      {!importContextReady && <div role="status" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-sm leading-6">
+        <span>{organization?.id ? 'بيانات المؤسسة غير جاهزة بعد؛ انتظر التحميل أو أعد المحاولة.' : 'لا توجد مؤسسة نشطة.'}</span>
+        <button type="button" disabled={busy || !organization?.id} onClick={() => void load()} className="btn-secondary btn-sm">إعادة تحميل بيانات الاستيراد</button>
+      </div>}
       {duplicate && <div className="mt-3 rounded-xl border border-warning-200 bg-warning-50 p-4">
         <p className="font-semibold text-warning-900">إجراء الملف المكرر</p>
         <div className="mt-3 flex flex-wrap gap-2">
