@@ -504,7 +504,7 @@ BEGIN
   JOIN public.profiles pr ON pr.id = c.profile_id
   WHERE c.organization_id = v_org_id
     AND pr.auth_user_id = v_user_id
-    AND c.is_active = true
+    AND c.status = 'approved'
   ORDER BY c.created_at DESC
   LIMIT 1;
 
