@@ -474,9 +474,17 @@ DROP POLICY IF EXISTS cart_update_own ON public.cart_items;
 DROP POLICY IF EXISTS cart_delete_own ON public.cart_items;
 DROP POLICY IF EXISTS cart_insert_own_active_tenant ON public.cart_items;
 DROP POLICY IF EXISTS cart_update_own_active_tenant ON public.cart_items;
-CREATE POLICY cart_select_own
+DROP POLICY IF EXISTS cart_select_own_active_tenant ON public.cart_items;
+CREATE POLICY cart_select_own_active_tenant
 ON public.cart_items FOR SELECT TO authenticated
-USING (user_id = auth.uid());
+USING (
+  user_id = auth.uid()
+  AND EXISTS (
+    SELECT 1 FROM public.products p
+    WHERE p.id = cart_items.product_id
+      AND private.is_org_member(p.organization_id)
+  )
+);
 CREATE POLICY cart_insert_own_active_tenant
 ON public.cart_items FOR INSERT TO authenticated
 WITH CHECK (
@@ -580,6 +588,43 @@ USING (EXISTS (
 REVOKE ALL ON public.order_status_history FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.order_status_history TO authenticated;
 
+-- Replace prototype transaction SELECT policies that ignored tenant approval.
+DROP POLICY IF EXISTS ord_select_org ON public.orders;
+DROP POLICY IF EXISTS ord_insert_org ON public.orders;
+DROP POLICY IF EXISTS ord_update_org ON public.orders;
+DROP POLICY IF EXISTS orders_active_tenant_read ON public.orders;
+CREATE POLICY orders_active_tenant_read
+ON public.orders FOR SELECT TO authenticated
+USING (private.is_org_member(organization_id));
+
+DROP POLICY IF EXISTS orditem_select_org ON public.order_items;
+DROP POLICY IF EXISTS order_items_active_tenant_read ON public.order_items;
+CREATE POLICY order_items_active_tenant_read
+ON public.order_items FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.orders o
+  WHERE o.id = order_items.order_id
+    AND private.is_org_member(o.organization_id)
+));
+
+DROP POLICY IF EXISTS inv_select_org ON public.invoices;
+DROP POLICY IF EXISTS invoices_active_tenant_read ON public.invoices;
+CREATE POLICY invoices_active_tenant_read
+ON public.invoices FOR SELECT TO authenticated
+USING (private.is_org_member(organization_id));
+
+DROP POLICY IF EXISTS pay_select_org ON public.payments;
+DROP POLICY IF EXISTS payments_active_tenant_read ON public.payments;
+CREATE POLICY payments_active_tenant_read
+ON public.payments FOR SELECT TO authenticated
+USING (private.is_org_member(organization_id));
+
+DROP POLICY IF EXISTS stmt_select_org ON public.statements;
+DROP POLICY IF EXISTS statements_active_tenant_read ON public.statements;
+CREATE POLICY statements_active_tenant_read
+ON public.statements FOR SELECT TO authenticated
+USING (private.is_org_member(organization_id));
+
 -- Commerce transactions are written only by the audited/idempotent SECURITY DEFINER RPCs.
 REVOKE ALL ON
   public.orders, public.order_items, public.invoices, public.payments
@@ -638,6 +683,63 @@ DROP POLICY IF EXISTS products_member_read ON public.products;
 CREATE POLICY products_member_read
 ON public.products FOR SELECT TO authenticated
 USING (private.is_org_member(organization_id));
+
+-- Replace legacy catalog write rules with approval-aware tenant rules.
+DROP POLICY IF EXISTS products_staff_insert ON public.products;
+DROP POLICY IF EXISTS products_staff_update ON public.products;
+DROP POLICY IF EXISTS products_active_staff_insert ON public.products;
+CREATE POLICY products_active_staff_insert
+ON public.products FOR INSERT TO authenticated
+WITH CHECK (
+  private.is_org_member(organization_id)
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = products.organization_id
+      AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role IN ('owner','admin','manager')
+  )
+);
+DROP POLICY IF EXISTS products_active_staff_update ON public.products;
+CREATE POLICY products_active_staff_update
+ON public.products FOR UPDATE TO authenticated
+USING (
+  private.is_org_member(organization_id)
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = products.organization_id
+      AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role IN ('owner','admin','manager')
+  )
+)
+WITH CHECK (
+  private.is_org_member(organization_id)
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = products.organization_id
+      AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role IN ('owner','admin','manager')
+  )
+);
+
+-- The staff pricing view must not bypass tenant approval.
+CREATE OR REPLACE VIEW public.admin_product_catalog
+WITH (security_invoker = false)
+AS
+SELECT p.*
+FROM public.products p
+WHERE private.is_org_member(p.organization_id)
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = p.organization_id
+      AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role IN ('owner','admin','manager','sales','customer_manager','accountant')
+  );
+REVOKE ALL ON public.admin_product_catalog FROM PUBLIC, anon;
+GRANT SELECT ON public.admin_product_catalog TO authenticated;
 
 -- Descriptive catalog columns only. Pricing and cost data stay behind the staff-only view/RPCs.
 REVOKE SELECT ON public.products FROM PUBLIC, anon, authenticated;
@@ -814,6 +916,66 @@ BEGIN
   END LOOP;
 END
 $master_data_policies$;
+
+-- Customer-directory access must respect platform approval, not just stale membership rows.
+ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS customers_member_read ON public.customers;
+CREATE POLICY customers_member_read
+ON public.customers FOR SELECT TO authenticated
+USING (
+  private.is_org_member(organization_id)
+  AND (
+    EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = customers.organization_id
+        AND om.user_id = auth.uid()
+        AND om.status = 'active'
+        AND om.role IN ('owner','admin','manager','sales','customer_manager','accountant')
+    )
+    OR EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = customers.profile_id AND p.auth_user_id = auth.uid()
+    )
+  )
+);
+DROP POLICY IF EXISTS customers_staff_insert ON public.customers;
+CREATE POLICY customers_staff_insert
+ON public.customers FOR INSERT TO authenticated
+WITH CHECK (
+  private.is_org_member(organization_id)
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = customers.organization_id
+      AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role IN ('owner','admin','manager','customer_manager')
+  )
+);
+DROP POLICY IF EXISTS customers_staff_update ON public.customers;
+CREATE POLICY customers_staff_update
+ON public.customers FOR UPDATE TO authenticated
+USING (
+  private.is_org_member(organization_id)
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = customers.organization_id
+      AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role IN ('owner','admin','manager','customer_manager')
+  )
+)
+WITH CHECK (
+  private.is_org_member(organization_id)
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = customers.organization_id
+      AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role IN ('owner','admin','manager','customer_manager')
+  )
+);
+REVOKE ALL ON public.customers FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.customers TO authenticated;
 
 -- Price history, stock ledgers, AI operations and import job details are read-only in the browser.
 ALTER TABLE public.price_change_log ENABLE ROW LEVEL SECURITY;
