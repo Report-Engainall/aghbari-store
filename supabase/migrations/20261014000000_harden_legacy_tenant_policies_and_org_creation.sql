@@ -374,7 +374,7 @@ REVOKE ALL ON public.order_status_history FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.order_status_history TO authenticated;
 
 -- Commerce transactions are written only by the audited/idempotent SECURITY DEFINER RPCs.
-REVOKE INSERT, UPDATE, DELETE ON
+REVOKE ALL ON
   public.orders, public.order_items, public.invoices, public.payments
   FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON
@@ -383,7 +383,7 @@ GRANT SELECT ON
 
 -- Audit and outbox records are immutable to browser clients. Database triggers and the
 -- privileged transaction RPCs remain the only write paths.
-REVOKE INSERT, UPDATE, DELETE ON public.audit_logs, public.outbox_events
+REVOKE ALL ON public.audit_logs, public.outbox_events
   FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.audit_logs, public.outbox_events TO authenticated;
 
