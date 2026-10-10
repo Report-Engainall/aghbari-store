@@ -185,6 +185,19 @@ jobs:
               RAISE EXCEPTION 'pending organization received active tenant access before approval';
             END IF;
 
+            IF public.is_platform_admin() THEN
+              RAISE EXCEPTION 'ordinary new tenant must not be a platform administrator';
+            END IF;
+            v_can_operate := false;
+            BEGIN
+              PERFORM 1 FROM public.list_pending_organizations();
+            EXCEPTION WHEN raise_exception THEN
+              v_can_operate := true;
+            END;
+            IF NOT v_can_operate THEN
+              RAISE EXCEPTION 'tenant owner can list platform-wide pending organizations';
+            END IF;
+
           END
           $org_creation_smoke$;
           RESET ROLE;
@@ -211,18 +224,75 @@ jobs:
           END
           $organization_audit_smoke$;
 
-          -- Simulate platform approval before the separate cross-tenant isolation tests.
-          UPDATE public.organizations
-          SET status = 'active', is_active = true
-          WHERE email = 'aghbari-ci-org-create@example.invalid'
-            AND status = 'pending' AND is_active = false;
+          -- A platform administrator is provisioned in the trusted test bootstrap, then uses
+          -- the same audited RPC as the application to approve the tenant.
+          INSERT INTO auth.users (id, email)
+          VALUES ('a2000000-0000-4000-8000-000000000098', 'aghbari-ci-platform-admin@example.invalid');
+          INSERT INTO public.profiles (auth_user_id, full_name, email, is_active)
+          VALUES ('a2000000-0000-4000-8000-000000000098', 'Aghbari CI Platform Admin',
+                  'aghbari-ci-platform-admin@example.invalid', true);
+          INSERT INTO public.user_roles (profile_id, role)
+          SELECT id, 'system_admin'
+          FROM public.profiles
+          WHERE auth_user_id = 'a2000000-0000-4000-8000-000000000098';
+
+          SELECT set_config('request.jwt.claim.sub', 'a2000000-0000-4000-8000-000000000098', false);
+          SET ROLE authenticated;
+          DO $platform_approval_smoke$
+          DECLARE
+            v_org_id uuid;
+            v_count integer;
+            v_result jsonb;
+            v_status text;
+            v_is_active boolean;
+          BEGIN
+            IF public.is_platform_admin() IS NOT TRUE THEN
+              RAISE EXCEPTION 'platform administrator role was not recognized';
+            END IF;
+
+            SELECT id INTO v_org_id
+            FROM public.organizations
+            WHERE email = 'aghbari-ci-org-create@example.invalid';
+
+            SELECT count(*) INTO v_count
+            FROM public.list_pending_organizations() pending
+            WHERE pending.id = v_org_id;
+            IF v_count <> 1 THEN
+              RAISE EXCEPTION 'platform admin cannot see pending tenant in review queue';
+            END IF;
+
+            v_result := public.review_organization(v_org_id, 'approve', 'CI approval smoke test');
+            IF v_result->>'status' <> 'active' OR v_result->>'is_active' <> 'true' THEN
+              RAISE EXCEPTION 'platform approval RPC returned incorrect activation status';
+            END IF;
+
+            SELECT status, is_active INTO v_status, v_is_active
+            FROM public.organizations WHERE id = v_org_id;
+            IF v_status <> 'active' OR v_is_active IS DISTINCT FROM true THEN
+              RAISE EXCEPTION 'platform approval did not activate organization atomically';
+            END IF;
+          END
+          $platform_approval_smoke$;
+          RESET ROLE;
+
           DO $approved_tenant_fixture$
+          DECLARE
+            v_count integer;
           BEGIN
             IF NOT EXISTS (
               SELECT 1 FROM public.organizations
               WHERE email = 'aghbari-ci-org-create@example.invalid'
                 AND status = 'active' AND is_active = true
             ) THEN RAISE EXCEPTION 'test tenant activation failed'; END IF;
+
+            SELECT count(*) INTO v_count
+            FROM public.audit_logs
+            WHERE organization_id = (
+              SELECT id FROM public.organizations
+              WHERE email = 'aghbari-ci-org-create@example.invalid'
+            )
+              AND action = 'organization.approved';
+            IF v_count <> 1 THEN RAISE EXCEPTION 'platform approval must write exactly one audit record'; END IF;
           END
           $approved_tenant_fixture$;
 
