@@ -217,5 +217,14 @@ assert.ok(registerPage.includes('form.companyName, form.phone'), 'Registration m
 required(authContext, /create_organization_for_current_user/, 'Authenticated signup/sign-in must use the secure organization creation RPC.')
 assert.ok(!authContext.includes("from('audit_logs').insert"), 'Signup must not write an incompatible audit-log shape directly from the browser.')
 
+required(tenantSecurityMigration, /CREATE POLICY addresses_active_member_read[\\s\\S]*private\\.is_org_member\\(organization_id\\)/, 'Address reads must require active tenant membership.')
+required(tenantSecurityMigration, /CREATE POLICY cart_insert_own_active_tenant[\\s\\S]*private\\.is_org_member\\(p\\.organization_id\\)/, 'Cart inserts must reject products from a different tenant.')
+required(tenantSecurityMigration, /CREATE POLICY wish_insert_own_active_tenant[\\s\\S]*private\\.is_org_member\\(p\\.organization_id\\)/, 'Wishlist inserts must reject products from a different tenant.')
+required(tenantSecurityMigration, /CREATE POLICY reorder_templates_owner_update[\\s\\S]*private\\.is_org_member\\(organization_id\\)/, 'Reorder template updates must retain owner and tenant scope.')
+required(tenantSecurityMigration, /DROP POLICY IF EXISTS ordhist_insert_org/, 'Legacy direct order-history insertion must be removed.')
+required(tenantSecurityMigration, /REVOKE ALL ON public\\.order_status_history FROM PUBLIC, anon, authenticated/, 'Order status history must be immutable to browser roles.')
+required(tenantSecurityMigration, /CREATE POLICY price_tiers_same_tenant_read/, 'Price-tier reads must enforce product and organization consistency.')
+assert.ok(tenantSecurityMigration.includes('GRANT SELECT, UPDATE (is_read) ON public.notifications TO authenticated'), 'Users may mark only their own notifications as read.')
+
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
