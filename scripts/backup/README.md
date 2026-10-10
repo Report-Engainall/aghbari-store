@@ -33,6 +33,7 @@ Use a fresh compatible PostgreSQL/Supabase recovery target, not the live databas
 
 ```bash
 RESTORE_DB_URL='postgresql://...target connection with SSL...' \
+RESTORE_EXPECTED_HOST='the-approved-recovery-hostname' \
 RESTORE_TARGET_LABEL='isolated-test' \
 RESTORE_CONFIRM='I_HAVE_VERIFIED_THE_TARGET' \
 AGE_IDENTITY_FILE='/secure/path/aghbari-backup.agekey' \
