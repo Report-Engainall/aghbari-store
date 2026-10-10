@@ -362,6 +362,20 @@ USING (EXISTS (
 REVOKE ALL ON public.order_status_history FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.order_status_history TO authenticated;
 
+-- Commerce transactions are written only by the audited/idempotent SECURITY DEFINER RPCs.
+REVOKE INSERT, UPDATE, DELETE ON
+  public.orders, public.order_items, public.invoices, public.payments
+  FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON
+  public.orders, public.order_items, public.invoices, public.payments
+  TO authenticated;
+
+-- Audit and outbox records are immutable to browser clients. Database triggers and the
+-- privileged transaction RPCs remain the only write paths.
+REVOKE INSERT, UPDATE, DELETE ON public.audit_logs, public.outbox_events
+  FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.audit_logs, public.outbox_events TO authenticated;
+
 -- Price tiers are visible only when the member is in the same tenant as both the tier and product.
 ALTER TABLE public.price_tiers ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tier_select_org ON public.price_tiers;
