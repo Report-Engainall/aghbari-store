@@ -374,22 +374,40 @@ export function Pricing() {
   const { show } = useToast()
   const [rules, setRules] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name: '', calculation_method: 'markup_percent', value: '', price_level: 'both', min_quantity: '1', priority: '100' })
   const load = async () => {
-    if (!organization?.id) { setRules([]); setLoading(false); return }
+    if (!organization?.id) {
+      setRules([])
+      setLoadError('لا توجد مؤسسة نشطة ضمن الجلسة الحالية.')
+      setLoading(false)
+      return
+    }
     setLoading(true)
-    const { data, error } = await supabase.from('pricing_rules').select('*')
-      .eq('organization_id', organization.id)
-      .order('priority', { ascending: true })
-      .order('created_at', { ascending: false })
-    if (error) show('error', 'تعذر تحميل قواعد التسعير', error.message)
-    else setRules(data || [])
-    setLoading(false)
+    setLoadError('')
+    try {
+      const { data, error } = await supabase.from('pricing_rules').select('*')
+        .eq('organization_id', organization.id)
+        .order('priority', { ascending: true })
+        .order('created_at', { ascending: false })
+      if (error) {
+        setRules([])
+        setLoadError(error.message)
+      } else {
+        setRules(data || [])
+      }
+    } catch (cause) {
+      setRules([])
+      setLoadError(cause instanceof Error ? cause.message : 'تعذر تحميل قواعد التسعير.')
+    } finally {
+      setLoading(false)
+    }
   }
   useEffect(() => { void load() }, [organization?.id])
   const createRule = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!isAdmin) { show('error', 'صلاحية المسؤول مطلوبة', 'لا يمكن إلا لمسؤول المؤسسة إنشاء قواعد التسعير.'); return }
     if (!organization?.id || !form.name.trim() || form.value.trim() === '') { show('warning', 'أدخل اسم القاعدة وقيمتها'); return }
     const value = Number(form.value)
     const minQuantity = Number(form.min_quantity)
@@ -423,12 +441,16 @@ export function Pricing() {
     }
   }
   const toggleRule = async (id: string, active: boolean) => {
-    const { error } = await supabase.from('pricing_rules').update({ active: !active }).eq('id', id).eq('organization_id', organization?.id)
+    if (!isAdmin || !organization?.id) { show('error', 'صلاحية المسؤول مطلوبة', 'لا يمكن إلا لمسؤول المؤسسة تغيير حالة القاعدة.'); return }
+    const { error } = await supabase.from('pricing_rules').update({ active: !active }).eq('id', id).eq('organization_id', organization.id)
     if (error) show('error', 'تعذر تحديث القاعدة', error.message)
     else { show('success', !active ? 'تم تفعيل القاعدة' : 'تم إيقاف القاعدة'); await load() }
   }
   const deleteRule = async (id: string) => {
-    const { error } = await supabase.from('pricing_rules').delete().eq('id', id).eq('organization_id', organization?.id)
+    if (!isAdmin || !organization?.id) { show('error', 'صلاحية المسؤول مطلوبة', 'لا يمكن إلا لمسؤول المؤسسة حذف قواعد التسعير.'); return }
+    const confirmed = window.confirm('سيُعاد احتساب أسعار التجزئة والجملة بعد حذف القاعدة. هل تريد المتابعة؟')
+    if (!confirmed) return
+    const { error } = await supabase.from('pricing_rules').delete().eq('id', id).eq('organization_id', organization.id)
     if (error) show('error', 'تعذر حذف القاعدة', error.message)
     else { show('success', 'تم حذف القاعدة', 'يعيد الخادم الأسعار إلى السعر الأساسي أو إلى القاعدة النشطة التالية.'); await load() }
   }
@@ -450,7 +472,7 @@ export function Pricing() {
       <div><label className="label">الأولوية (الأصغر أولاً)</label><input required step="1" type="number" className="input" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))} /></div>
       <div className="sm:col-span-2 flex gap-2"><button type="submit" className="btn-primary">حفظ القاعدة</button><button type="button" onClick={() => setShowForm(false)} className="btn-secondary">إلغاء</button></div>
     </form>}
-    {loading ? <LoadingOverlay /> : rules.length ? <Table headers={['القاعدة', 'طريقة الاحتساب', 'القيمة', 'مستوى السعر', 'الأولوية', 'الحالة', 'إجراءات']}>{rules.map(row => <tr key={String(row.id)} className="border-t border-neutral-100"><td className="p-4 font-semibold">{String(row.name)}</td><td className="p-4">{methodLabels[String(row.calculation_method)] || String(row.calculation_method)}</td><td className="p-4 tabular-nums">{String(row.value)}</td><td className="p-4">{levelLabels[String(row.price_level)] || String(row.price_level)}</td><td className="p-4">{String(row.priority ?? 100)}</td><td className="p-4"><StatusBadge status={row.active ? 'active' : 'inactive'} /></td><td className="p-4"><div className="flex gap-2"><button disabled={!isAdmin} onClick={() => void toggleRule(String(row.id), Boolean(row.active))} className="btn-secondary btn-sm">{row.active ? 'إيقاف' : 'تفعيل'}</button><button disabled={!isAdmin} onClick={() => void deleteRule(String(row.id))} className="btn-danger btn-sm">حذف</button></div></td></tr>)}</Table> : <EmptyState title="لا توجد قواعد تسعير" description="بدون قواعد نشطة يعيد الخادم سعري الجملة والتجزئة إلى السعر الأساسي." />}
+    {loading ? <LoadingOverlay /> : loadError ? <ErrorState description={loadError} onRetry={() => void load()} /> : rules.length ? <Table headers={['القاعدة', 'طريقة الاحتساب', 'القيمة', 'مستوى السعر', 'الأولوية', 'الحالة', 'إجراءات']}>{rules.map(row => <tr key={String(row.id)} className="border-t border-neutral-100"><td className="p-4 font-semibold">{String(row.name)}</td><td className="p-4">{methodLabels[String(row.calculation_method)] || String(row.calculation_method)}</td><td className="p-4 tabular-nums">{String(row.value)}</td><td className="p-4">{levelLabels[String(row.price_level)] || String(row.price_level)}</td><td className="p-4">{String(row.priority ?? 100)}</td><td className="p-4"><StatusBadge status={row.active ? 'active' : 'inactive'} /></td><td className="p-4"><div className="flex gap-2"><button disabled={!isAdmin} onClick={() => void toggleRule(String(row.id), Boolean(row.active))} className="btn-secondary btn-sm">{row.active ? 'إيقاف' : 'تفعيل'}</button><button disabled={!isAdmin} onClick={() => void deleteRule(String(row.id))} className="btn-danger btn-sm">حذف</button></div></td></tr>)}</Table> : <EmptyState title="لا توجد قواعد تسعير" description="بدون قواعد نشطة يعيد الخادم سعري الجملة والتجزئة إلى السعر الأساسي." />}
   </AdminPage>
 }
 export function DataCenter() {
