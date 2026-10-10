@@ -270,6 +270,26 @@ DROP POLICY IF EXISTS profiles_select_own ON public.profiles;
 CREATE POLICY profiles_select_own ON public.profiles FOR SELECT TO authenticated
 USING (auth_user_id = auth.uid());
 
+-- Profile edits are limited to user-facing fields; account, organization, and role identifiers
+-- cannot be changed through a normal client update.
+REVOKE UPDATE ON public.profiles FROM PUBLIC, anon, authenticated;
+GRANT UPDATE (full_name) ON public.profiles TO authenticated;
+DO $profile_phone_column_grant$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='profiles' AND column_name='phone'
+  ) THEN
+    EXECUTE 'GRANT UPDATE (phone) ON public.profiles TO authenticated';
+  END IF;
+END;
+$profile_phone_column_grant$;
+
+DROP POLICY IF EXISTS profiles_update_own ON public.profiles;
+CREATE POLICY profiles_update_own ON public.profiles FOR UPDATE TO authenticated
+USING (auth_user_id = auth.uid())
+WITH CHECK (auth_user_id = auth.uid());
+
 CREATE OR REPLACE FUNCTION public.audit_product_catalog_changes()
 RETURNS trigger
 LANGUAGE plpgsql
