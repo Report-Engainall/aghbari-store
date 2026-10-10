@@ -237,7 +237,7 @@ assert.ok(appRoutes.includes('<Route path="ai/assistant" element={suspendPage(<A
 assert.ok(appRoutes.includes("const storefrontPages = () => import('@/pages/storefront/StorefrontPages')") && appRoutes.includes("const adminPages = () => import('@/pages/admin/AdminPages')"), 'Storefront and administration modules must remain route-lazy rather than eager imports.')
 assert.ok(appRoutes.includes('function PageLoading()') && appRoutes.includes('role="status"') && appRoutes.includes('aria-live="polite"'), 'Lazy routes must retain an accessible loading fallback.')
 assert.ok(!appRoutes.includes("from '@/pages/admin/AdminPages'") && !appRoutes.includes("from '@/pages/storefront/StorefrontPages'"), 'Major storefront and admin page modules must not be reintroduced as eager imports.')
-assert.ok((appRoutes.match(/suspendPage\\(<[A-Z]/g) || []).length >= 75, 'Lazy loading boundaries must remain applied across the full route tree, not just the AI page.')
+assert.ok((appRoutes.split('element={suspendPage(<').length - 1) >= 75, 'Lazy loading boundaries must remain applied across the full route tree, not just the AI page.')
 assert.ok(adminShell.includes("to: '/admin/ai/assistant', label: 'المساعد الذكي'"), 'AI assistant must be reachable from the shared administration navigation.')
 for (const table of ['ai_reports', 'ai_alerts', 'ai_tasks']) {
   assert.ok(aiAssistant.includes(`from('${table}')`), `The integrated assistant must read its supported source table: ${table}`)
