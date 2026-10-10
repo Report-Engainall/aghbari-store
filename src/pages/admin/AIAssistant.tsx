@@ -37,7 +37,7 @@ type ChatMessage = {
 
 const welcomeMessage: ChatMessage = {
   role: 'assistant',
-  content: 'مرحبًا. أنا المساعد التشغيلي المدمج في بوابة الأغبري. أستند إلى سجلات المؤسسة المحفوظة في التقارير والتنبيهات والمهام؛ لا أرسل بياناتك إلى نموذج خارجي.',
+  content: 'مرحبًا. أنا المساعد التشغيلي المدمج في الأغبري. أستعرض سجلات التقارير والتنبيهات والمهام وأحدث الحركات المسجلة في سجل التدقيق للمؤسسة النشطة؛ لا أرسل بياناتك إلى نموذج خارجي.',
 }
 
 const emptySnapshot: Snapshot = { reports: [], alerts: [], tasks: [], activity: [] }
@@ -76,7 +76,7 @@ function answerFromSnapshot(question: string, snapshot: Snapshot) {
   const entityLabel = (row: ActivityRecord) => String(row.entity_type || 'كيان غير محدد')
   const activitySummary = snapshot.activity.slice(0, 10).map((row, index) =>
     `${index + 1}. ${actionLabel(row)} — ${entityLabel(row)} — ${timeLabel(row.created_at)}`
-  ).join('\\n')
+  ).join('\n')
   const reviewCandidates = snapshot.activity.filter(row =>
     /delete|deleted|deactivat|denied|reject|failed|error|price|pricing|payment|refund|stock|inventory|حذف|تعطيل|رفض|فشل|خطأ|سعر|تسعير|دفعة|مخزون|صلاحية|أمان/i.test(actionLabel(row) + ' ' + entityLabel(row))
   )
@@ -89,14 +89,14 @@ function answerFromSnapshot(question: string, snapshot: Snapshot) {
       return acc
     }, {})
     const grouped = Object.entries(groups).sort((a, b) => b[1] - a[1]).slice(0, 6)
-      .map(([key, count]) => `• ${key}: ${count}`).join('\\n')
-    return `سجل الحركة التشغيلي — أحدث ${snapshot.activity.length} حدثًا مسجلًا (بحد أقصى 50):\\n\\nالتوزيع حسب نوع الكيان:\\n${grouped}\\n\\nأحدث الأحداث:\\n${activitySummary}\\n\\nالمصدر: audit_logs للمؤسسة النشطة. هذا عرض للحركة المسجلة فقط؛ لا يثبت شمول الأحداث التي لا تنتج سجل تدقيق.`
+      .map(([key, count]) => `• ${key}: ${count}`).join('\n')
+    return `سجل الحركة التشغيلي — أحدث ${snapshot.activity.length} حدثًا مسجلًا (بحد أقصى 50):\n\nالتوزيع حسب نوع الكيان:\n${grouped}\n\nأحدث الأحداث:\n${activitySummary}\n\nالمصدر: audit_logs للمؤسسة النشطة. هذا عرض للحركة المسجلة فقط؛ لا يثبت شمول الأحداث التي لا تنتج سجل تدقيق.`
   }
 
   if (q.includes('تستحق') || q.includes('مراجعة') || q.includes('مقلق') || q.includes('review') || q.includes('risk')) {
     if (!snapshot.activity.length) return 'لا أستطيع تحديد مرشحات مراجعة من دون سجلات تدقيق متاحة. لم أستخدم بيانات افتراضية.'
     if (!reviewCandidates.length) return `تم فحص أحدث ${snapshot.activity.length} حدثًا مسجلًا. لم تطابق أسماء الإجراءات أو الكيانات قواعد المراجعة الحتمية الحالية. هذا لا يثبت خلو النظام من المخاطر؛ هذه قواعد أولية وليست محرك كشف شاملًا.`
-    return `وجدت ${reviewCandidates.length} حدثًا ضمن آخر ${snapshot.activity.length} حدثًا تطابق قواعد المراجعة الأولية (حذف/رفض/فشل/خطأ أو تغيير تسعير/دفعة/مخزون/صلاحية). هذه مؤشرات للفحص وليست أحكامًا مؤكدة:\\n\\n${reviewCandidates.slice(0, 10).map((row, index) => `${index + 1}. ${actionLabel(row)} — ${entityLabel(row)} — ${timeLabel(row.created_at)}`).join('\\n')}\\n\\nلم أضف مبالغ أو أسبابًا غير موجودة في سجل المصدر.`
+    return `وجدت ${reviewCandidates.length} حدثًا ضمن آخر ${snapshot.activity.length} حدثًا تطابق قواعد المراجعة الأولية (حذف/رفض/فشل/خطأ أو تغيير تسعير/دفعة/مخزون/صلاحية). هذه مؤشرات للفحص وليست أحكامًا مؤكدة:\n\n${reviewCandidates.slice(0, 10).map((row, index) => `${index + 1}. ${actionLabel(row)} — ${entityLabel(row)} — ${timeLabel(row.created_at)}`).join('\n')}\n\nلم أضف مبالغ أو أسبابًا غير موجودة في سجل المصدر.`
   }
 
   if (q.includes('تنبيه') || q.includes('تحذير') || q.includes('alert') || q.includes('خطر')) {
@@ -242,7 +242,7 @@ export default function AIAssistant() {
           </div>
           <div className="flex-1 space-y-4 overflow-y-auto p-4 sm:p-5" aria-live="polite">
             {loading && <div className="rounded-xl bg-neutral-50 p-4 text-sm text-neutral-500">جارٍ تحميل سجلات المؤسسة…</div>}
-            {!loading && snapshot.reports.length === 0 && snapshot.alerts.length === 0 && snapshot.tasks.length === 0 && warnings.length === 0 && <div className="rounded-xl border border-dashed border-neutral-300 p-4 text-sm leading-6 text-neutral-600">لا توجد سجلات حديثة متاحة بعد. لن أعرض أرقامًا تجريبية؛ أضف بيانات فعلية عبر مسارات التطبيق المعتمدة ثم حدّث هذه الصفحة.</div>}
+            {!loading && snapshot.reports.length === 0 && snapshot.alerts.length === 0 && snapshot.tasks.length === 0 && snapshot.activity.length === 0 && warnings.length === 0 && <div className="rounded-xl border border-dashed border-neutral-300 p-4 text-sm leading-6 text-neutral-600">لا توجد سجلات حديثة متاحة بعد. لن أعرض أرقامًا تجريبية؛ أضف بيانات فعلية عبر مسارات التطبيق المعتمدة ثم حدّث هذه الصفحة.</div>}
             {messages.map((message, index) => <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-start' : 'justify-end'}`}><div className={`max-w-[95%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm leading-7 sm:max-w-[88%] ${message.role === 'user' ? 'bg-primary-600 text-white' : 'border border-neutral-200 bg-neutral-50 text-neutral-800'}`}><p className="mb-1 text-[11px] font-bold opacity-70">{message.role === 'user' ? 'أنت' : 'مساعد الأغبري'}</p>{message.content}</div></div>)}
           </div>
           <form onSubmit={submitQuestion} className="border-t border-neutral-100 p-4">
