@@ -102,6 +102,7 @@ DECLARE
   v_existing_upload_id uuid;
   v_existing_file_name text;
   v_existing_status text;
+  v_actor_profile_id uuid;
 BEGIN
   IF v_user_id IS NULL THEN RAISE EXCEPTION 'authentication_required'; END IF;
   IF NOT EXISTS (
@@ -185,6 +186,30 @@ BEGIN
       AND c.upload_id IS NULL;
 
     IF NOT FOUND THEN RAISE EXCEPTION 'import_upload_claim_link_failed'; END IF;
+
+    SELECT p.id INTO v_actor_profile_id
+    FROM public.profiles p
+    WHERE p.auth_user_id = v_user_id
+    LIMIT 1;
+
+    INSERT INTO public.audit_logs (
+      organization_id, actor_id, action, entity_type, entity_id, new_value
+    ) VALUES (
+      p_organization_id,
+      v_actor_profile_id,
+      'import_upload_claimed',
+      'import_upload',
+      v_upload_id,
+      jsonb_build_object(
+        'profile_id', p_profile_id,
+        'file_type', lower(p_file_type),
+        'file_size', p_file_size,
+        'initial_status', p_initial_status,
+        'period_start', p_period_start,
+        'period_end', p_period_end
+      )
+    );
+
     RETURN QUERY SELECT v_upload_id, true, trim(p_file_name), p_initial_status;
     RETURN;
   END IF;
