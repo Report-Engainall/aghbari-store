@@ -171,9 +171,10 @@ export async function processCsvToSnapshot(args: {
   signal?: AbortSignal
   waitIfPaused?: () => Promise<void>
   existingUploadId?: string
+  claimedUploadId?: string
   onProgress?: (progress: CsvImportProgress) => void
 }): Promise<CsvImportResult> {
-  const { file, organizationId, profile, fileHash, policies = {}, signal, waitIfPaused, existingUploadId, onProgress } = args
+  const { file, organizationId, profile, fileHash, policies = {}, signal, waitIfPaused, existingUploadId, claimedUploadId, onProgress } = args
   const limits = {
     maxFileSizeMb: policies.max_file_size_mb ?? 100,
     maxRows: policies.max_import_rows ?? MAX_ROWS,
@@ -188,25 +189,32 @@ export async function processCsvToSnapshot(args: {
   if (file.size > limits.maxFileSizeMb * 1024 * 1024) throw new Error('MAX_FILE_SIZE_EXCEEDED')
   if (signal?.aborted) throw new Error('IMPORT_CANCELLED')
   let uploadId: string
+  if (existingUploadId && claimedUploadId) throw new Error('IMPORT_UPLOAD_IDENTITY_CONFLICT')
+  if (!existingUploadId && !claimedUploadId) throw new Error('IMPORT_UPLOAD_CLAIM_REQUIRED')
+
   if (existingUploadId) {
-    const { error: clearError } = await supabase.from('import_records').delete().eq('upload_id', existingUploadId)
-    if (clearError) throw clearError
-    const { error: retryError } = await supabase.from('import_uploads').update({
-      status: 'detecting', error_code: null, error_message: null, snapshot: null,
-      quality_score: null, quality_breakdown: {}, completed_at: null,
-      expires_at: new Date(Date.now() + limits.retentionDays * 86400000).toISOString(),
-    }).eq('id', existingUploadId)
-    if (retryError) throw retryError
+    const { data: retryClaimed, error: claimError } = await supabase.rpc('claim_failed_import_retry', {
+      p_organization_id: organizationId,
+      p_upload_id: existingUploadId,
+      p_expires_at: new Date(Date.now() + limits.retentionDays * 86400000).toISOString(),
+    })
+    if (claimError) throw claimError
+    if (retryClaimed !== true) throw new Error('IMPORT_RETRY_ALREADY_CLAIMED')
+
+    const { error: clearError } = await supabase.from('import_records').delete()
+      .eq('upload_id', existingUploadId)
+      .eq('organization_id', organizationId)
+    if (clearError) {
+      await supabase.from('import_uploads').update({
+        status: 'failed',
+        error_code: 'IMPORT_RETRY_CLEANUP_FAILED',
+        error_message: clearError.message,
+      }).eq('id', existingUploadId).eq('organization_id', organizationId)
+      throw clearError
+    }
     uploadId = existingUploadId
   } else {
-    const { data: upload, error: createError } = await supabase.from('import_uploads').insert({
-      organization_id: organizationId, profile_id: profile.id,
-      file_name: file.name, file_type: 'csv', file_size: file.size,
-      file_hash: fileHash, status: 'detecting',
-      expires_at: new Date(Date.now() + limits.retentionDays * 86400000).toISOString(),
-    }).select('id').single()
-    if (createError) throw createError
-    uploadId = String(upload.id)
+    uploadId = claimedUploadId as string
   }
   const report = (stage: string, processedRows: number) => onProgress?.({ stage, processedRows })
 
