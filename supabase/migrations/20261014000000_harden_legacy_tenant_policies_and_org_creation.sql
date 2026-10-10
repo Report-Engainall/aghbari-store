@@ -773,7 +773,7 @@ GRANT SELECT (
   name, name_ar, slug, description, unit, box_quantity, carton_quantity,
   min_order_qty, stock_quantity, barcode, image_url, is_active, is_featured,
   is_new, tags, status, created_at, updated_at
-) ON public.products TO authenticated;
+) ON public.products TO anon, authenticated;
 REVOKE INSERT, UPDATE, DELETE ON public.products FROM PUBLIC, anon;
 GRANT INSERT, UPDATE ON public.products TO authenticated;
 
