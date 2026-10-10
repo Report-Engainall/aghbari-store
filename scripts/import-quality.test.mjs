@@ -109,3 +109,32 @@ test('threshold inputs and scored outputs reject non-finite or out-of-range valu
   assert.throws(() => classifyImportDqs(100.01, 1, thresholds), /DQS_SCORE_INVALID/)
   assert.throws(() => classifyImportDqs(80, 1.5, thresholds), /DQS_METRICS_INVALID:acceptedRows/)
 })
+
+test('invalid temporal evidence and impossible row-count relationships fail closed', () => {
+  assert.throws(() => evaluateImportDqs({
+    ...perfectMetrics(),
+    temporalApplicable: false,
+    temporalValid: 1,
+    temporalTotal: 1,
+  }, thresholds), /DQS_METRICS_INVALID/)
+
+  assert.throws(() => evaluateImportDqs({
+    ...perfectMetrics(),
+    validRows: 2,
+    acceptedRows: 2,
+    duplicateRows: 1,
+    rejectedRows: 1,
+  }, thresholds), /DQS_METRICS_INVALID/)
+})
+
+test('rejection messaging follows the configured warning threshold', () => {
+  const customThresholds = {
+    dqs_warning_min: 40,
+    dqs_acceptable_min: 70,
+    dqs_excellent_min: 95,
+  }
+  const rejected = classifyImportDqs(39.99, 1, customThresholds)
+  assert.equal(rejected.status, 'rejected')
+  assert.match(rejected.message, /أقل من 40/)
+  assert.doesNotMatch(rejected.message, /أقل من 50/)
+})
