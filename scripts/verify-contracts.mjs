@@ -234,6 +234,10 @@ assert.ok(offlineBoundary.includes('لا توجد قائمة انتظار محل
 assert.ok(appRoutes.includes('<ConnectivityStatus />'), 'Global offline status must be wired into the application tree.')
 assert.ok(appRoutes.includes("const AIAssistant = lazy(() => import('@/pages/admin/AIAssistant'))"), 'AI assistant must be a first-party lazy-loaded page in the main application.')
 assert.ok(appRoutes.includes('<Route path="ai/assistant" element={suspendPage(<AIAssistant />)} />'), 'AI assistant route must use its dedicated integrated lazy page.')
+assert.ok(appRoutes.includes("const storefrontPages = () => import('@/pages/storefront/StorefrontPages')") && appRoutes.includes("const adminPages = () => import('@/pages/admin/AdminPages')"), 'Storefront and administration modules must remain route-lazy rather than eager imports.')
+assert.ok(appRoutes.includes('function PageLoading()') && appRoutes.includes('role="status"') && appRoutes.includes('aria-live="polite"'), 'Lazy routes must retain an accessible loading fallback.')
+assert.ok(!appRoutes.includes("from '@/pages/admin/AdminPages'") && !appRoutes.includes("from '@/pages/storefront/StorefrontPages'"), 'Major storefront and admin page modules must not be reintroduced as eager imports.')
+assert.ok((appRoutes.match(/suspendPage\\(<[A-Z]/g) || []).length >= 75, 'Lazy loading boundaries must remain applied across the full route tree, not just the AI page.')
 assert.ok(adminShell.includes("to: '/admin/ai/assistant', label: 'المساعد الذكي'"), 'AI assistant must be reachable from the shared administration navigation.')
 for (const table of ['ai_reports', 'ai_alerts', 'ai_tasks']) {
   assert.ok(aiAssistant.includes(`from('${table}')`), `The integrated assistant must read its supported source table: ${table}`)
