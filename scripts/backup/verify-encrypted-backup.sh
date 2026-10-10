@@ -12,13 +12,55 @@ manifest_file="$backup_file.manifest.json"
 test -s "$backup_file" || { printf 'Backup file is missing or empty.\n' >&2; exit 1; }
 test -s "$manifest_file" || { printf 'Backup manifest is missing or empty.\n' >&2; exit 1; }
 
-expected_sha="$(sed -n 's/.*"ciphertext_sha256": "\([^"]*\)".*/\1/p' "$manifest_file")"
-actual_sha="$(sha256sum "$backup_file" | awk '{print $1}')"
-if [[ -z "$expected_sha" || "$expected_sha" != "$actual_sha" ]]; then
-  printf 'INTEGRITY FAILURE: manifest hash does not match the encrypted artifact.\n' >&2
-  exit 1
-fi
-printf 'PASS: encrypted artifact SHA-256 matches its manifest.\n'
+command -v python3 >/dev/null 2>&1 || { printf 'Required utility missing: python3\n' >&2; exit 127; }
+python3 - "$manifest_file" "$backup_file" <<'PY'
+import hashlib
+import json
+import os
+import re
+import sys
+
+manifest_path, artifact_path = sys.argv[1:3]
+try:
+    with open(manifest_path, "r", encoding="utf-8") as handle:
+        manifest = json.load(handle)
+except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+    print(f"INTEGRITY FAILURE: backup manifest is not valid readable JSON ({exc}).", file=sys.stderr)
+    sys.exit(1)
+
+if manifest.get("backup_format") != "postgresql-pg_dump-custom-age":
+    print("INTEGRITY FAILURE: unsupported backup format.", file=sys.stderr)
+    sys.exit(1)
+if manifest.get("encryption") != "age public-key encryption":
+    print("INTEGRITY FAILURE: unexpected backup encryption metadata.", file=sys.stderr)
+    sys.exit(1)
+if manifest.get("artifact_file") != os.path.basename(artifact_path):
+    print("INTEGRITY FAILURE: manifest artifact filename does not match the supplied file.", file=sys.stderr)
+    sys.exit(1)
+
+expected = manifest.get("ciphertext_sha256")
+if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+    print("INTEGRITY FAILURE: manifest SHA-256 is missing or malformed.", file=sys.stderr)
+    sys.exit(1)
+try:
+    declared_bytes = int(manifest["ciphertext_bytes"])
+except (KeyError, TypeError, ValueError):
+    print("INTEGRITY FAILURE: ciphertext size is missing or malformed.", file=sys.stderr)
+    sys.exit(1)
+actual_bytes = os.path.getsize(artifact_path)
+if declared_bytes != actual_bytes:
+    print("INTEGRITY FAILURE: encrypted artifact size differs from the manifest.", file=sys.stderr)
+    sys.exit(1)
+
+digest = hashlib.sha256()
+with open(artifact_path, "rb") as handle:
+    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(chunk)
+if digest.hexdigest() != expected:
+    print("INTEGRITY FAILURE: manifest hash does not match the encrypted artifact.", file=sys.stderr)
+    sys.exit(1)
+print("PASS: encrypted artifact size and SHA-256 match a valid manifest.")
+PY
 
 if [[ -z "${AGE_IDENTITY_FILE:-}" ]]; then
   printf 'PARTIAL: checksum verified only. Set AGE_IDENTITY_FILE offline to verify decryption and pg_dump format.\n'
