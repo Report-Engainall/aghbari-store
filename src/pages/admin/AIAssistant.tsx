@@ -80,6 +80,12 @@ function answerFromSnapshot(question: string, snapshot: Snapshot) {
     /delete|deleted|deactivat|denied|reject|failed|error|price|pricing|payment|refund|stock|inventory|حذف|تعطيل|رفض|فشل|خطأ|سعر|تسعير|دفعة|مخزون|صلاحية|أمان/i.test(actionLabel(row) + ' ' + entityLabel(row))
   )
 
+  if (q.includes('تستحق') || q.includes('مراجعة') || q.includes('مقلق') || q.includes('review') || q.includes('risk')) {
+    if (!snapshot.activity.length) return 'لا أستطيع تحديد مرشحات مراجعة من دون سجلات تدقيق متاحة. لم أستخدم بيانات افتراضية.'
+    if (!reviewCandidates.length) return `تم فحص أحدث ${snapshot.activity.length} حدثًا مسجلًا. لم تطابق أسماء الإجراءات أو الكيانات قواعد المراجعة الحتمية الحالية. هذا لا يثبت خلو النظام من المخاطر؛ هذه قواعد أولية وليست محرك كشف شاملًا.`
+    return `وجدت ${reviewCandidates.length} حدثًا ضمن آخر ${snapshot.activity.length} حدثًا تطابق قواعد المراجعة الأولية (حذف/رفض/فشل/خطأ أو تغيير تسعير/دفعة/مخزون/صلاحية). هذه مؤشرات للفحص وليست أحكامًا مؤكدة:\n\n${reviewCandidates.slice(0, 10).map((row, index) => `${index + 1}. ${actionLabel(row)} — ${entityLabel(row)} — ${timeLabel(row.created_at)}`).join('\n')}\n\nلم أضف مبالغ أو أسبابًا غير موجودة في سجل المصدر.`
+  }
+
   if (q.includes('حركة') || q.includes('نشاط') || q.includes('تغيير') || q.includes('سجل التدقيق') || q.includes('movement') || q.includes('activity')) {
     if (!snapshot.activity.length) return 'لا توجد حركات ظاهرة ضمن أحدث سجلات التدقيق المتاحة للمؤسسة. قد تكون الصلاحية غير متاحة أو قد لا تسجل بعض مسارات العمل أحداث تدقيق؛ لذلك لا أستنتج أن التطبيق لم يشهد حركة.'
     const groups = snapshot.activity.reduce<Record<string, number>>((acc, row) => {
@@ -90,15 +96,7 @@ function answerFromSnapshot(question: string, snapshot: Snapshot) {
     const grouped = Object.entries(groups).sort((a, b) => b[1] - a[1]).slice(0, 6)
       .map(([key, count]) => `• ${key}: ${count}`).join('\n')
     return `سجل الحركة التشغيلي — أحدث ${snapshot.activity.length} حدثًا مسجلًا (بحد أقصى 50):\n\nالتوزيع حسب نوع الكيان:\n${grouped}\n\nأحدث الأحداث:\n${activitySummary}\n\nالمصدر: audit_logs للمؤسسة النشطة. هذا عرض للحركة المسجلة فقط؛ لا يثبت شمول الأحداث التي لا تنتج سجل تدقيق.`
-  }
-
-  if (q.includes('تستحق') || q.includes('مراجعة') || q.includes('مقلق') || q.includes('review') || q.includes('risk')) {
-    if (!snapshot.activity.length) return 'لا أستطيع تحديد مرشحات مراجعة من دون سجلات تدقيق متاحة. لم أستخدم بيانات افتراضية.'
-    if (!reviewCandidates.length) return `تم فحص أحدث ${snapshot.activity.length} حدثًا مسجلًا. لم تطابق أسماء الإجراءات أو الكيانات قواعد المراجعة الحتمية الحالية. هذا لا يثبت خلو النظام من المخاطر؛ هذه قواعد أولية وليست محرك كشف شاملًا.`
-    return `وجدت ${reviewCandidates.length} حدثًا ضمن آخر ${snapshot.activity.length} حدثًا تطابق قواعد المراجعة الأولية (حذف/رفض/فشل/خطأ أو تغيير تسعير/دفعة/مخزون/صلاحية). هذه مؤشرات للفحص وليست أحكامًا مؤكدة:\n\n${reviewCandidates.slice(0, 10).map((row, index) => `${index + 1}. ${actionLabel(row)} — ${entityLabel(row)} — ${timeLabel(row.created_at)}`).join('\n')}\n\nلم أضف مبالغ أو أسبابًا غير موجودة في سجل المصدر.`
-  }
-
-  if (q.includes('تنبيه') || q.includes('تحذير') || q.includes('alert') || q.includes('خطر')) {
+  }  if (q.includes('تنبيه') || q.includes('تحذير') || q.includes('alert') || q.includes('خطر')) {
     if (!snapshot.alerts.length) return 'لا توجد سجلات تنبيه ضمن أحدث السجلات المحمّلة لهذا الحساب. هذا لا يثبت عدم وجود أحداث خارج الجدول أو الفترة التي تم تحميلها.'
     return `تم تحميل ${snapshot.alerts.length} سجل تنبيه حديث. أحدثها:\n\n${snapshot.alerts.slice(0, 5).map((row, index) => `${index + 1}. ${recordTitle(row)} — الحالة: ${recordStatus(row)}\n${recordDetail(row)}`).join('\n\n')}\n\nهذه خلاصة للسجلات المحفوظة؛ لم أضف استنتاجات غير موجودة في المصدر.`
   }
