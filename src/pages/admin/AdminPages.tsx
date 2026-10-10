@@ -28,7 +28,7 @@ export function Dashboard() {
   useEffect(() => {
     if (!organization) return
     supabase.from('orders').select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(5).then(({ data }) => setRecent(data as Order[] || []))
-    supabase.from('products').select('*').eq('is_active', true).lte('stock_quantity', 10).order('stock_quantity').limit(5).then(({ data }) => setLowStock(data as Product[] || []))
+    supabase.from('admin_product_catalog').select('*').eq('organization_id', organization.id).eq('is_active', true).lte('stock_quantity', 10).order('stock_quantity').limit(5).then(({ data }) => setLowStock(data as Product[] || []))
     supabase.from('ai_alerts').select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(5).then(({ data }) => setAlerts(data as Record<string, unknown>[] || []))
   }, [organization])
   const metrics = [
@@ -323,7 +323,7 @@ export function Catalog() {
   const load = () => {
     if (!organization?.id) { setRows([]); setLoading(false); setError('لا توجد مؤسسة نشطة.'); return }
     setLoading(true); setError('')
-    supabase.from('products').select('*').eq('organization_id', organization.id)
+    supabase.from('admin_product_catalog').select('*').eq('organization_id', organization.id)
       .order('created_at', { ascending: false }).limit(500)
       .then(({ data, error: queryError }) => {
         if (queryError) { setError(queryError.message); setRows([]) }
