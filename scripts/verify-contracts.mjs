@@ -81,5 +81,25 @@ for (const malformed of ['DO $', 'AS $', '$;']) {
   assert.ok(!pricingMigration.split('\n').some(line => line.trim() === malformed), `Malformed SQL dollar delimiter found: ${malformed}`)
 }
 
+required(pricingMigration, /CREATE POLICY pricing_rules_admin_all/, 'Direct pricing-rule changes must be limited to tenant administrators.')
+required(pricingMigration, /CREATE POLICY import_uploads_admin_all/, 'Import uploads must be admin-only through direct table access.')
+required(pricingMigration, /CREATE POLICY import_records_admin_all/, 'Import records must be admin-only through direct table access.')
+required(pricingMigration, /CREATE POLICY commerce_policy_settings_admin_all/, 'Policy settings must be admin-only.')
+required(pricingMigration, /CREATE POLICY audit_logs_admin_read/, 'Audit logs must have a tenant-admin read policy.')
+required(pricingMigration, /CREATE OR REPLACE FUNCTION public\.audit_pricing_rule_change/, 'Pricing rule lifecycle must be audited.')
+required(pricingMigration, /CREATE POLICY orders_customer_read_own/, 'Customer order visibility must be owner-scoped.')
+required(pricingMigration, /cross_organization_cart_product/, 'The server must reject cart products belonging to a different organization.')
+required(pricingMigration, /v_unit_price := public\.calculate_commerce_price\([\s\S]{0,180}v_price_level/, 'Order prices must use the server-derived customer tier.')
+for (const view of [
+  'customer_order_summaries',
+  'customer_order_item_summaries',
+  'customer_sales_invoice_summaries',
+  'customer_payment_summaries',
+  'customer_statement_summaries',
+]) {
+  required(pricingMigration, new RegExp('ALTER VIEW public\\\\.' + view + ' SET \\\\(security_invoker = true\\\\)'), view + ' must run with invoker security and base-table RLS.')
+}
+assert.equal((pricingMigration.match(/CREATE POLICY [^\n]*idempotency/gi) || []).length, 0, 'Idempotency keys must not be directly accessible through client table policies.')
+
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing fallbacks, and order/payment invariants.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
