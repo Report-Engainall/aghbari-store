@@ -697,6 +697,7 @@ export function Import() {
 
   const retryFailedImport = async () => {
     if (!file || !organization?.id || !profileId || !duplicate?.uploadId || !importContextReady) return
+    if (duplicate.profileId !== profileId) { setMessage('الملف الفاشل مرتبط بملف تعريف مختلف؛ أعد اختيار ملف التعريف الصحيح أولاً.'); return }
     const organizationId = organization.id
     const requestNumber = loadRequestIdRef.current
     const selectedProfile = visibleProfiles.find(entry => String(entry.id) === profileId)
@@ -786,13 +787,30 @@ export function Import() {
         p_error_code: ext === 'csv' ? null : 'PARSER_NOT_AVAILABLE',
         p_error_message: ext === 'csv' ? null : manualReviewMessage,
       })
-      if (!isCurrentImportContext(organizationId, requestNumber)) return
-      if (claimError) throw claimError
+      if (claimError) {
+        if (!isCurrentImportContext(organizationId, requestNumber)) return
+        throw claimError
+      }
       const claimRow = Array.isArray(claimData) ? claimData[0] as Record<string, unknown> | undefined : undefined
-      if (!claimRow) throw new Error('IMPORT_CLAIM_RESPONSE_MISSING')
+      if (!claimRow) {
+        if (!isCurrentImportContext(organizationId, requestNumber)) return
+        throw new Error('IMPORT_CLAIM_RESPONSE_MISSING')
+      }
       const claimedUploadId = String(claimRow.claimed_upload_id || '')
-      if (!claimedUploadId) throw new Error('IMPORT_CLAIM_ID_MISSING')
       const wasCreated = claimRow.was_created === true
+
+      if (!isCurrentImportContext(organizationId, requestNumber)) {
+        if (wasCreated && ext === 'csv' && claimedUploadId) {
+          // The upload claim committed, but the page context changed before parsing began.
+          // Transition the unstarted row to failed so the next attempt can retry it safely.
+          await supabase.rpc('abandon_staged_import_claim', {
+            p_organization_id: organizationId,
+            p_upload_id: claimedUploadId,
+          })
+        }
+        return
+      }
+      if (!claimedUploadId) throw new Error('IMPORT_CLAIM_ID_MISSING')
 
       if (!wasCreated) {
         const status = String(claimRow.stored_status || '')
@@ -843,7 +861,7 @@ export function Import() {
   return <AdminPage title="محرك الاستيراد الموحد" description="فحص CSV فعلياً على دفعات، وتوجيه Excel/PDF للمراجعة دون تخمين" icon={Upload}>
     <div className="card mb-5 max-w-2xl p-6">
       <div className="mb-4 rounded-xl border border-warning-200 bg-warning-50 p-4"><p className="font-bold text-warning-900">حدود المعالجة المعلنة</p><p className="mt-1 text-sm leading-6 text-warning-800">CSV يُحلّل تدريجياً إلى دفعات بحجم ${policies.processing_chunk_size} سجل مع التطبيع والتحقق وكشف التكرار ودرجة جودة Snapshot. لا يتم دمج السجلات تلقائياً في البيانات التشغيلية. ملفات Excel وPDF تبقى للمراجعة لأن قارئهما لم يُربط بعد؛ لن تظهر نسبة تقدم مصطنعة أو حالة «مكتمل».</p></div>
-      {visibleProfiles.length ? <div className="mb-4"><label className="label">ملف تعريف الاستيراد</label><select className="input" value={profileId} onChange={e => setProfileId(e.target.value)}>{visibleProfiles.map(p => <option key={String(p.id)} value={String(p.id)}>{String(p.profile_name)} v{String(p.version)}</option>)}</select></div> : <button type="button" disabled={!isAdmin || busy || !importContextReady} className="btn-secondary mb-4" onClick={() => void createProfile()}>إنشاء ملف تعريف أساسي</button>}
+      {visibleProfiles.length ? <div className="mb-4"><label className="label">ملف تعريف الاستيراد</label><select className="input" value={profileId} onChange={e => { setProfileId(e.target.value); setDuplicate(null) }}>{visibleProfiles.map(p => <option key={String(p.id)} value={String(p.id)}>{String(p.profile_name)} v{String(p.version)}</option>)}</select></div> : <button type="button" disabled={!isAdmin || busy || !importContextReady} className="btn-secondary mb-4" onClick={() => void createProfile()}>إنشاء ملف تعريف أساسي</button>}
       <label className="label">ملف CSV أو Excel أو PDF</label><input type="file" accept=".csv,.xlsx,.xls,.pdf" className="input" onChange={e => { setFile(e.target.files?.[0] || null); setDuplicate(null); setMessage('') }} />
       <p className="mt-3 text-xs leading-5 text-neutral-500">حد الملف {policies.max_file_size_mb} ميجابايت؛ حد CSV هو {policies.max_import_rows.toLocaleString('en-US')} صف و{policies.max_import_columns} عمود و{policies.max_cell_length} حرف للخلية. تُحفظ بصمة SHA-256 والسجلات المنظمة وبيان Snapshot، ولا يُرفع الملف الخام إلى Storage.</p>
       {progress && <div role="status" className="mt-4 rounded-lg border border-primary-100 bg-primary-50 p-3 text-sm text-primary-900"><p className="font-semibold">{progress.stage}</p><p className="mt-1">تم فحص {progress.processedRows.toLocaleString('en-US')} صف؛ تُحفظ الدفعات كل 500 سجل.</p><div className="mt-2 h-1.5 animate-pulse rounded bg-primary-200" /></div>}
