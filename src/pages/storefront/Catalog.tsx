@@ -2,12 +2,15 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ChevronLeft, Package } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/context/AuthContext'
+import { CUSTOMER_PRODUCT_SELECT } from '@/lib/customerProductSelect'
 import { ProductCard } from '@/components/storefront/ProductCard'
 import { GridSkeleton, ErrorState, EmptyState } from '@/components/ui/Loader'
 import type { Product, Category } from '@/types'
 
 export default function Catalog() {
   const { slug } = useParams()
+  const { organization } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [activeCategory, setActiveCategory] = useState<Category | null>(null)
@@ -15,22 +18,33 @@ export default function Catalog() {
   const [error, setError] = useState(false)
 
   useEffect(() => {
-    supabase.from('categories').select('*').eq('is_active', true).order('sort_order').then(({ data }) => {
+    if (!organization?.id) { setCategories([]); setActiveCategory(null); return }
+    supabase.from('categories').select('*').eq('organization_id', organization?.id || '').eq('is_active', true).order('sort_order').then(({ data }) => {
       setCategories(data as any || [])
       if (slug) { const found = (data as any || []).find((c: any) => c.slug === slug); setActiveCategory(found || null) }
     })
-  }, [slug])
+  }, [slug, organization?.id])
 
   const loadProducts = useCallback(async () => {
-    setLoading(true); setError(false)
-    let query = supabase.from('products').select('*, category:categories(*), brand:brands(*)').eq('is_active', true)
+    setLoading(true)
+    setError(false)
+    if (!organization?.id) {
+      setProducts([])
+      setLoading(false)
+      setError(true)
+      return
+    }
+    let query = supabase.from('products')
+      .select(CUSTOMER_PRODUCT_SELECT)
+      .eq('organization_id', organization.id)
+      .eq('is_active', true)
     if (activeCategory) query = query.eq('category_id', activeCategory.id)
     query = query.order('created_at', { ascending: false }).limit(48)
     const { data, error } = await query
-    if (error) setError(true)
-    else setProducts(data as any || [])
+    if (error) { setError(true); setProducts([]) }
+    else setProducts((data || []) as unknown as Product[])
     setLoading(false)
-  }, [activeCategory])
+  }, [activeCategory, organization?.id])
 
   useEffect(() => { loadProducts() }, [loadProducts])
 

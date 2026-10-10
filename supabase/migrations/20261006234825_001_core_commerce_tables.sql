@@ -339,6 +339,40 @@ CREATE TABLE IF NOT EXISTS import_logs (
   created_at timestamptz DEFAULT now()
 );
 
+-- Backward-compatible columns for products created by the earlier Aghbari core schema.
+-- CREATE TABLE IF NOT EXISTS does not add fields when the legacy products table already exists.
+ALTER TABLE public.products
+  ADD COLUMN IF NOT EXISTS brand_id uuid REFERENCES public.brands(id) ON DELETE SET NULL;
+ALTER TABLE public.products
+  ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
+UPDATE public.products
+SET is_active = COALESCE(is_active, status = 'active', true);
+ALTER TABLE public.products ALTER COLUMN is_active SET DEFAULT true;
+
+-- Bridge notification columns used by the current commerce UI to the legacy profile-based schema.
+-- Existing installs store profile_id/is_read; the app consistently reads user_id/read.
+ALTER TABLE public.notifications
+  ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE public.notifications
+  ADD COLUMN IF NOT EXISTS read boolean DEFAULT false;
+UPDATE public.notifications n
+SET user_id = p.auth_user_id
+FROM public.profiles p
+WHERE n.profile_id = p.id
+  AND n.user_id IS NULL;
+UPDATE public.notifications
+SET read = COALESCE(is_read, false);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications(user_id);
+
+-- Backward-compatible user ownership for legacy notifications that were keyed by profile_id.
+-- Newer API/RLS contracts use auth.users.id as user_id; keep legacy rows reachable by their owner.
+ALTER TABLE public.notifications
+  ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE;
+UPDATE public.notifications n
+SET user_id = p.auth_user_id
+FROM public.profiles p
+WHERE n.profile_id = p.id AND n.user_id IS NULL;
+
 -- INDEXES
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand_id);

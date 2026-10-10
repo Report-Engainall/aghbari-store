@@ -1,0 +1,547 @@
+name: SQL Migration Chain
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  migration-chain:
+    name: Apply migrations on clean PostgreSQL 17
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: aghbari_migration_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d aghbari_migration_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: aghbari_migration_test
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Bootstrap minimal Supabase Auth contract
+        run: |
+          psql --set ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE anon NOLOGIN;
+          CREATE ROLE authenticated NOLOGIN;
+          CREATE ROLE service_role NOLOGIN BYPASSRLS;
+          CREATE SCHEMA auth;
+          CREATE TABLE auth.users (
+            id uuid PRIMARY KEY,
+            email text UNIQUE,
+            created_at timestamptz NOT NULL DEFAULT now()
+          );
+          CREATE OR REPLACE FUNCTION auth.uid()
+          RETURNS uuid
+          LANGUAGE sql
+          STABLE
+          AS $$
+            SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
+          $$;
+          GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
+          GRANT SELECT ON auth.users TO anon, authenticated, service_role;
+          GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role;
+          -- Mirror Supabase's default public-table/sequence grants; row-level policies remain
+          -- the authorization boundary, and migrations can explicitly revoke sensitive writes.
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public
+            GRANT ALL ON TABLES TO anon, authenticated, service_role;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public
+            GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+          SQL
+
+      - name: Apply all repository migrations in filename order
+        run: |
+          set -euo pipefail
+          for migration in supabase/migrations/*.sql; do
+            echo "::group::Applying $migration"
+            psql --set ON_ERROR_STOP=1 --file "$migration"
+            echo "::endgroup::"
+          done
+
+      - name: Run order idempotency, quantity approval and payment workflow smoke test
+        run: |
+          psql --set ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth.users (id, email)
+          VALUES ('a2000000-0000-4000-8000-000000000001', 'aghbari-ci-smoke@example.invalid');
+
+          INSERT INTO public.organizations (id, name, currency)
+          VALUES ('a1000000-0000-4000-8000-000000000001', 'Aghbari CI Smoke Organization', 'YER');
+
+          INSERT INTO public.profiles (id, auth_user_id, organization_id, full_name, email)
+          VALUES (
+            'a3000000-0000-4000-8000-000000000001',
+            'a2000000-0000-4000-8000-000000000001',
+            'a1000000-0000-4000-8000-000000000001',
+            'Aghbari CI Smoke User',
+            'aghbari-ci-smoke@example.invalid'
+          );
+
+          INSERT INTO public.organization_members (organization_id, user_id, role, status)
+          VALUES (
+            'a1000000-0000-4000-8000-000000000001',
+            'a2000000-0000-4000-8000-000000000001',
+            'owner',
+            'active'
+          );
+
+          INSERT INTO public.customers (
+            organization_id, profile_id, customer_code, business_name,
+            tier, status, approved_at
+          ) VALUES (
+            'a1000000-0000-4000-8000-000000000001',
+            'a3000000-0000-4000-8000-000000000001',
+            'CI-CUSTOMER-001', 'Aghbari CI Customer',
+            'wholesale', 'approved', now()
+          );
+
+          INSERT INTO public.products (
+            id, organization_id, name, name_ar, item_code, sku, slug, unit,
+            base_price, price, bulk_price, retail_price, wholesale_price,
+            stock_quantity, min_order_qty, box_quantity, carton_quantity,
+            status, is_active
+          ) VALUES (
+            'a4000000-0000-4000-8000-000000000001',
+            'a1000000-0000-4000-8000-000000000001',
+            'CI Smoke Product', 'صنف اختبار CI', 'CI-ITEM-001', 'CI-SKU-001',
+            'ci-smoke-product', 'piece',
+            10, 10, 10, 10, 10, 50, 1, 1, 1, 'active', true
+          );
+
+          INSERT INTO public.cart_items (user_id, product_id, quantity, unit_type)
+          VALUES (
+            'a2000000-0000-4000-8000-000000000001',
+            'a4000000-0000-4000-8000-000000000001',
+            2,
+            'piece'
+          );
+          SQL
+
+          psql --set ON_ERROR_STOP=1 <<'SQL'
+          SELECT set_config('request.jwt.claim.sub', 'a2000000-0000-4000-8000-000000000001', false);
+          SET ROLE authenticated;
+
+          DO $ci_order_smoke$
+          DECLARE
+            v_order_id uuid;
+            v_replayed_order_id uuid;
+            v_order_count integer;
+            v_item_id uuid;
+            v_payment_id uuid;
+            v_replayed_payment_id uuid;
+            v_payment_count integer;
+            v_invoice_kind text;
+            v_invoice_status text;
+            v_order_status text;
+            v_result jsonb;
+            v_guard_hit boolean := false;
+          BEGIN
+            v_order_id := public.create_order_from_cart(
+              '{"line1":"CI test address"}'::jsonb,
+              '{"line1":"CI billing address"}'::jsonb,
+              'CI transactional smoke test',
+              'ci-order-idempotency-0001'
+            );
+
+            -- The cart has been cleared by successful order creation. A retry with the same
+            -- key and same context must return the original order, not fail or create a duplicate.
+            v_replayed_order_id := public.create_order_from_cart(
+              '{"line1":"CI test address"}'::jsonb,
+              '{"line1":"CI billing address"}'::jsonb,
+              'CI transactional smoke test',
+              'ci-order-idempotency-0001'
+            );
+            IF v_replayed_order_id IS DISTINCT FROM v_order_id THEN
+              RAISE EXCEPTION 'order idempotency replay did not return the original order';
+            END IF;
+
+            SELECT count(*) INTO v_order_count
+            FROM public.orders
+            WHERE idempotency_key = 'ci-order-idempotency-0001';
+            IF v_order_count <> 1 THEN
+              RAISE EXCEPTION 'duplicate order created for one idempotency key';
+            END IF;
+
+            BEGIN
+              PERFORM public.admin_update_order_status(v_order_id, 'approved');
+              RAISE EXCEPTION 'expected_quantity_approval_guard_not_triggered';
+            EXCEPTION WHEN OTHERS THEN
+              IF SQLERRM = 'quantity_approval_required' THEN
+                v_guard_hit := true;
+              ELSE
+                RAISE;
+              END IF;
+            END;
+            IF NOT v_guard_hit THEN
+              RAISE EXCEPTION 'approval guard did not reject an order without approved quantities';
+            END IF;
+
+            SELECT id INTO v_item_id
+            FROM public.order_items
+            WHERE order_id = v_order_id
+            ORDER BY created_at, id
+            LIMIT 1;
+            IF v_item_id IS NULL THEN RAISE EXCEPTION 'order item missing'; END IF;
+
+            PERFORM public.approve_order_quantities(
+              v_order_id,
+              jsonb_build_object(v_item_id::text, 2)
+            );
+            PERFORM public.admin_update_order_status(v_order_id, 'approved');
+
+            v_guard_hit := false;
+            BEGIN
+              PERFORM public.admin_update_order_status(v_order_id, 'processing');
+              RAISE EXCEPTION 'expected_payment_confirmation_guard_not_triggered';
+            EXCEPTION WHEN OTHERS THEN
+              IF SQLERRM = 'payment_confirmation_required' THEN
+                v_guard_hit := true;
+              ELSE
+                RAISE;
+              END IF;
+            END;
+            IF NOT v_guard_hit THEN
+              RAISE EXCEPTION 'fulfillment guard did not reject an unpaid order';
+            END IF;
+
+            v_payment_id := public.submit_order_payment(
+              v_order_id, 20, 'ci-payment-idempotency-0001',
+              'transfer', 'CI-TRANSFER-REF-001', 'CI smoke payment'
+            );
+            v_replayed_payment_id := public.submit_order_payment(
+              v_order_id, 20, 'ci-payment-idempotency-0001',
+              'transfer', 'CI-TRANSFER-REF-001', 'CI smoke payment'
+            );
+            IF v_replayed_payment_id IS DISTINCT FROM v_payment_id THEN
+              RAISE EXCEPTION 'payment idempotency replay did not return the original payment';
+            END IF;
+
+            SELECT count(*) INTO v_payment_count
+            FROM public.payments
+            WHERE invoice_id IN (
+              SELECT id FROM public.invoices WHERE order_id = v_order_id
+            );
+            IF v_payment_count <> 1 THEN
+              RAISE EXCEPTION 'duplicate payment created for one idempotency key';
+            END IF;
+
+            v_result := public.confirm_order_payment(
+              v_payment_id, true, 'CI smoke payment confirmed'
+            );
+
+            SELECT i.invoice_kind, i.status, o.status
+              INTO v_invoice_kind, v_invoice_status, v_order_status
+            FROM public.invoices i
+            JOIN public.orders o ON o.id = i.order_id
+            WHERE o.id = v_order_id;
+
+            IF v_invoice_kind <> 'sales' OR v_invoice_status <> 'paid' OR v_order_status <> 'processing' THEN
+              RAISE EXCEPTION 'payment confirmation did not finalize invoice and transition order';
+            END IF;
+          END;
+          $ci_order_smoke$;
+
+          RESET ROLE;
+          SQL
+
+      - name: Run purchasing, receiving, inventory transfer, stock count and expense smoke test
+        run: |
+          psql --set ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO public.organizations (id, name, currency)
+          VALUES ('a1000000-0000-4000-8000-000000000002', 'Aghbari CI Isolation Organization', 'YER');
+          INSERT INTO public.suppliers (id, organization_id, supplier_code, name, status)
+          VALUES ('a5000000-0000-4000-8000-000000000001',
+                  'a1000000-0000-4000-8000-000000000001',
+                  'CI-SUPPLIER-001', 'Aghbari CI Test Supplier', 'active');
+          INSERT INTO public.warehouses (id, organization_id, name, code, is_active)
+          VALUES
+            ('a6000000-0000-4000-8000-000000000001','a1000000-0000-4000-8000-000000000001','CI Main Warehouse','CI-WH-1',true),
+            ('a6000000-0000-4000-8000-000000000002','a1000000-0000-4000-8000-000000000001','CI Secondary Warehouse','CI-WH-2',true);
+          INSERT INTO public.inventory_balances
+            (product_id, warehouse_id, quantity_on_hand, quantity_reserved)
+          VALUES
+            ('a4000000-0000-4000-8000-000000000001','a6000000-0000-4000-8000-000000000001',20,0),
+            ('a4000000-0000-4000-8000-000000000001','a6000000-0000-4000-8000-000000000002',0,0)
+          ON CONFLICT (product_id, warehouse_id) DO UPDATE
+          SET quantity_on_hand = EXCLUDED.quantity_on_hand,
+              quantity_reserved = EXCLUDED.quantity_reserved,
+              updated_at = now();
+          SQL
+
+          psql --set ON_ERROR_STOP=1 <<'SQL'
+          SELECT set_config('request.jwt.claim.sub', 'a2000000-0000-4000-8000-000000000001', false);
+          SET ROLE authenticated;
+
+          DO $ci_inventory_smoke$
+          DECLARE
+            v_org uuid := 'a1000000-0000-4000-8000-000000000001';
+            v_other_org uuid := 'a1000000-0000-4000-8000-000000000002';
+            v_product uuid := 'a4000000-0000-4000-8000-000000000001';
+            v_supplier uuid := 'a5000000-0000-4000-8000-000000000001';
+            v_wh1 uuid := 'a6000000-0000-4000-8000-000000000001';
+            v_wh2 uuid := 'a6000000-0000-4000-8000-000000000002';
+            v_purchase uuid;
+            v_purchase_item uuid;
+            v_receipt uuid;
+            v_transfer uuid;
+            v_count uuid;
+            v_stale_count uuid;
+            v_expense uuid;
+            v_statement_id uuid;
+            v_statement_replay_id uuid;
+            v_stock1 numeric(15,3);
+            v_stock2 numeric(15,3);
+            v_status text;
+            v_guard_hit boolean := false;
+            v_result jsonb;
+          BEGIN
+            v_purchase := public.create_purchase_order(
+              v_org, v_supplier, v_wh1,
+              jsonb_build_array(jsonb_build_object('product_id',v_product,'quantity_ordered',5,'unit_cost',3.25)),
+              'CI purchase-to-receipt smoke test'
+            );
+            SELECT id INTO v_purchase_item FROM public.purchase_order_items
+            WHERE purchase_order_id = v_purchase;
+            IF v_purchase_item IS NULL THEN RAISE EXCEPTION 'purchase order line was not persisted'; END IF;
+
+            v_receipt := public.receive_purchase_order(
+              v_org, v_purchase, v_wh1,
+              jsonb_build_array(jsonb_build_object('purchase_order_item_id',v_purchase_item,'quantity',2)),
+              'CI partial receipt'
+            );
+            IF v_receipt IS NULL THEN RAISE EXCEPTION 'partial receipt did not return a reference'; END IF;
+            SELECT quantity_on_hand INTO v_stock1 FROM public.inventory_balances
+            WHERE product_id=v_product AND warehouse_id=v_wh1;
+            IF v_stock1 <> 22 THEN RAISE EXCEPTION 'partial receiving did not atomically increase stock'; END IF;
+
+            PERFORM public.receive_purchase_order(
+              v_org, v_purchase, v_wh1,
+              jsonb_build_array(jsonb_build_object('purchase_order_item_id',v_purchase_item,'quantity',3)),
+              'CI complete receipt'
+            );
+            SELECT status INTO v_status FROM public.purchase_orders WHERE id=v_purchase;
+            IF v_status <> 'received' THEN RAISE EXCEPTION 'purchase order did not transition to received'; END IF;
+            SELECT quantity_on_hand INTO v_stock1 FROM public.inventory_balances
+            WHERE product_id=v_product AND warehouse_id=v_wh1;
+            IF v_stock1 <> 25 THEN RAISE EXCEPTION 'complete receiving balance is incorrect'; END IF;
+
+            v_transfer := public.create_inventory_transfer(
+              v_org, v_wh1, v_wh2,
+              jsonb_build_array(jsonb_build_object('product_id',v_product,'quantity',4)),
+              'CI atomic transfer'
+            );
+            v_result := public.post_inventory_transfer(v_org,v_transfer);
+            SELECT quantity_on_hand INTO v_stock1 FROM public.inventory_balances WHERE product_id=v_product AND warehouse_id=v_wh1;
+            SELECT quantity_on_hand INTO v_stock2 FROM public.inventory_balances WHERE product_id=v_product AND warehouse_id=v_wh2;
+            IF v_stock1 <> 21 OR v_stock2 <> 4 THEN RAISE EXCEPTION 'transfer did not atomically update both warehouse balances'; END IF;
+            IF (SELECT status FROM public.inventory_transfers WHERE id=v_transfer) <> 'posted' THEN
+              RAISE EXCEPTION 'transfer status was not posted';
+            END IF;
+
+            v_count := public.create_stock_count(
+              v_org, v_wh1,
+              jsonb_build_array(jsonb_build_object('product_id',v_product,'counted_quantity',20)),
+              'CI stock count'
+            );
+            v_result := public.post_stock_count(v_org,v_count);
+            SELECT quantity_on_hand INTO v_stock1 FROM public.inventory_balances WHERE product_id=v_product AND warehouse_id=v_wh1;
+            IF v_stock1 <> 20 THEN RAISE EXCEPTION 'stock count did not reconcile the counted balance'; END IF;
+
+            v_stale_count := public.create_stock_count(
+              v_org, v_wh1,
+              jsonb_build_array(jsonb_build_object('product_id',v_product,'counted_quantity',19)),
+              'CI stale snapshot must be rejected'
+            );
+            UPDATE public.inventory_balances SET quantity_on_hand=quantity_on_hand+1
+            WHERE product_id=v_product AND warehouse_id=v_wh1;
+            v_guard_hit := false;
+            BEGIN
+              PERFORM public.post_stock_count(v_org,v_stale_count);
+              RAISE EXCEPTION 'expected_stale_stock_count_guard_not_triggered';
+            EXCEPTION WHEN OTHERS THEN
+              IF SQLERRM = 'stock_changed_since_count' THEN v_guard_hit := true; ELSE RAISE; END IF;
+            END;
+            IF NOT v_guard_hit THEN RAISE EXCEPTION 'stale stock snapshot was not rejected'; END IF;
+
+            v_expense := public.record_expense(v_org,'operations','CI expense smoke test',12.50,'YER',current_date);
+            IF NOT EXISTS (SELECT 1 FROM public.expenses WHERE id=v_expense AND amount=12.50) THEN
+              RAISE EXCEPTION 'expense was not persisted';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM public.audit_logs WHERE entity_type='expense' AND entity_id=v_expense) THEN
+              RAISE EXCEPTION 'expense audit record is missing';
+            END IF;
+
+            v_statement_id := public.generate_organization_statement(v_org, current_date - 1, current_date);
+            v_statement_replay_id := public.generate_organization_statement(v_org, current_date - 1, current_date);
+            IF v_statement_replay_id IS DISTINCT FROM v_statement_id THEN
+              RAISE EXCEPTION 'statement generation is not idempotent for one organization and period';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM public.statements
+              WHERE id=v_statement_id AND organization_id=v_org
+                AND period_start=current_date - 1 AND period_end=current_date
+                AND closing_balance = opening_balance + total_invoiced - total_paid
+            ) THEN
+              RAISE EXCEPTION 'generated account statement snapshot is missing or inconsistent';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM public.audit_logs
+              WHERE entity_type='statement' AND entity_id=v_statement_id AND action='statement.generated'
+            ) THEN
+              RAISE EXCEPTION 'statement audit record is missing';
+            END IF;
+
+            v_guard_hit := false;
+            BEGIN
+              PERFORM public.create_inventory_transfer(
+                v_other_org, v_wh1, v_wh2,
+                jsonb_build_array(jsonb_build_object('product_id',v_product,'quantity',1)),
+                'cross-tenant request must be rejected'
+              );
+              RAISE EXCEPTION 'expected_cross_tenant_guard_not_triggered';
+            EXCEPTION WHEN OTHERS THEN
+              IF SQLERRM = 'inventory_transfer_forbidden' THEN v_guard_hit := true; ELSE RAISE; END IF;
+            END;
+            IF NOT v_guard_hit THEN RAISE EXCEPTION 'cross-tenant transfer request was not rejected'; END IF;
+          END;
+          $ci_inventory_smoke$;
+
+          RESET ROLE;
+          SQL
+
+      - name: Verify tenant isolation and product-price column privileges
+        run: |
+          psql --set ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth.users (id, email)
+          VALUES ('a2000000-0000-4000-8000-000000000002', 'aghbari-ci-other@example.invalid')
+          ON CONFLICT (id) DO NOTHING;
+
+          INSERT INTO public.profiles (id, auth_user_id, organization_id, full_name, email)
+          VALUES (
+            'a3000000-0000-4000-8000-000000000002',
+            'a2000000-0000-4000-8000-000000000002',
+            'a1000000-0000-4000-8000-000000000002',
+            'Aghbari CI Other Tenant User',
+            'aghbari-ci-other@example.invalid'
+          )
+          ON CONFLICT (id) DO NOTHING;
+
+          INSERT INTO public.customers (
+            organization_id, profile_id, customer_code, business_name, tier, status
+          ) VALUES (
+            'a1000000-0000-4000-8000-000000000002',
+            'a3000000-0000-4000-8000-000000000002',
+            'CI-CUSTOMER-OTHER', 'Other Tenant Customer', 'wholesale', 'approved'
+          )
+          ON CONFLICT (organization_id, customer_code) DO NOTHING;
+
+          SELECT set_config('request.jwt.claim.sub', 'a2000000-0000-4000-8000-000000000001', false);
+          SET ROLE authenticated;
+
+          DO $ci_tenant_price_boundary$
+          DECLARE
+            v_same_org_customers integer;
+            v_other_org_customers integer;
+            v_admin_catalog_own integer;
+            v_admin_catalog_other integer;
+          BEGIN
+            SELECT count(*) INTO v_same_org_customers
+            FROM public.customers
+            WHERE organization_id = 'a1000000-0000-4000-8000-000000000001';
+            IF v_same_org_customers < 1 THEN
+              RAISE EXCEPTION 'active organization member cannot read same-tenant customer records';
+            END IF;
+
+            SELECT count(*) INTO v_other_org_customers
+            FROM public.customers
+            WHERE organization_id = 'a1000000-0000-4000-8000-000000000002';
+            IF v_other_org_customers <> 0 THEN
+              RAISE EXCEPTION 'customer RLS exposes another tenant''s customer records';
+            END IF;
+
+            IF has_column_privilege('anon', 'public.products', 'base_price', 'SELECT')
+               OR has_column_privilege('anon', 'public.products', 'cost_price', 'SELECT')
+               OR has_column_privilege('authenticated', 'public.products', 'base_price', 'SELECT')
+               OR has_column_privilege('authenticated', 'public.products', 'cost_price', 'SELECT') THEN
+              RAISE EXCEPTION 'product financial columns remain directly selectable by browser roles';
+            END IF;
+
+            IF NOT has_column_privilege('anon', 'public.products', 'name', 'SELECT')
+               OR NOT has_column_privilege('authenticated', 'public.products', 'sku', 'SELECT') THEN
+              RAISE EXCEPTION 'safe product catalog columns were accidentally revoked';
+            END IF;
+
+            SELECT count(*) INTO v_admin_catalog_own
+            FROM public.admin_product_catalog
+            WHERE organization_id = 'a1000000-0000-4000-8000-000000000001';
+            IF v_admin_catalog_own < 1 THEN
+              RAISE EXCEPTION 'tenant staff cannot read their authorized admin product catalog';
+            END IF;
+
+            SELECT count(*) INTO v_admin_catalog_other
+            FROM public.admin_product_catalog
+            WHERE organization_id = 'a1000000-0000-4000-8000-000000000002';
+            IF v_admin_catalog_other <> 0 THEN
+              RAISE EXCEPTION 'admin product catalog view exposes another tenant';
+            END IF;
+          END;
+          $ci_tenant_price_boundary$;
+
+          RESET ROLE;
+          SQL
+
+      - name: Verify required post-migration contracts
+        run: |
+          psql --set ON_ERROR_STOP=1 --tuples-only --no-align <<'SQL'
+          DO $$
+          BEGIN
+            IF to_regclass('public.commerce_policy_settings') IS NULL THEN
+              RAISE EXCEPTION 'commerce_policy_settings missing';
+            END IF;
+            IF to_regclass('public.import_profiles') IS NULL
+               OR to_regclass('public.import_uploads') IS NULL
+               OR to_regclass('public.import_records') IS NULL THEN
+              RAISE EXCEPTION 'unified import tables missing';
+            END IF;
+            IF to_regclass('public.customer_order_summaries') IS NULL
+               OR to_regclass('public.customer_order_item_summaries') IS NULL
+               OR to_regclass('public.customer_sales_invoice_summaries') IS NULL
+               OR to_regclass('public.customer_payment_summaries') IS NULL THEN
+              RAISE EXCEPTION 'customer-safe views missing';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_proc p
+              JOIN pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname='public' AND p.proname='approve_order_quantities'
+            ) THEN RAISE EXCEPTION 'quantity approval RPC missing'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_proc p
+              JOIN pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname='public' AND p.proname='confirm_order_payment'
+            ) THEN RAISE EXCEPTION 'payment confirmation RPC missing'; END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_proc p
+              JOIN pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname='public'
+                AND p.proname='calculate_commerce_price'
+                AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
+            ) THEN RAISE EXCEPTION 'authenticated can execute internal price calculator'; END IF;
+          END $$;
+          SQL
