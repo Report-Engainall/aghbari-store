@@ -26,6 +26,7 @@ import {
   Expenses as AdminExpenses,
 } from '@/pages/admin/TransactionsPages'
 import { BarcodeLookup as AdminBarcodeLookup, DataExports as AdminDataExports } from '@/pages/admin/UtilityPages'
+import AIAssistant from '@/pages/admin/AIAssistant'
 
 // Storefront pages
 import Landing from '@/pages/storefront/Landing'
@@ -172,7 +173,7 @@ export default function App() {
             <Route path="images" element={<AdminCatalog />} />
             <Route path="ai/sync" element={<AdminAI />} />
             <Route path="ai/stock-sync" element={<AdminAI />} />
-            <Route path="ai/assistant" element={<AdminAI />} />
+            <Route path="ai/assistant" element={<AIAssistant />} />
             <Route path="ai/governance" element={<AdminAI />} />
             <Route path="ai/insights" element={<AdminAI />} />
             <Route path="ai/prompts" element={<AdminAI />} />
