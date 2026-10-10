@@ -5,6 +5,10 @@
 ALTER TABLE public.organizations
   ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'pending';
 
+UPDATE public.organizations SET status = 'pending' WHERE status IS NULL;
+ALTER TABLE public.organizations ALTER COLUMN status SET DEFAULT 'pending';
+ALTER TABLE public.organizations ALTER COLUMN status SET NOT NULL;
+
 DO $status_constraint$
 BEGIN
   IF NOT EXISTS (
@@ -28,7 +32,7 @@ BEGIN
     SELECT schemaname, tablename, policyname
     FROM pg_policies
     WHERE schemaname = 'public'
-      AND policyname LIKE 'anon\_%' ESCAPE '\'
+      AND left(policyname, 5) = 'anon_'
   LOOP
     EXECUTE format(
       'DROP POLICY IF EXISTS %I ON %I.%I',
@@ -69,6 +73,7 @@ AS $is_org_admin$
   );
 $is_org_admin$;
 
+ALTER FUNCTION private.is_org_member(uuid) SET search_path = '';
 REVOKE ALL ON FUNCTION private.is_org_admin(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION private.is_org_admin(uuid) FROM anon;
 GRANT EXECUTE ON FUNCTION private.is_org_admin(uuid) TO authenticated;
@@ -171,6 +176,37 @@ REVOKE ALL ON FUNCTION public.create_organization_for_current_user(text, text, t
 REVOKE ALL ON FUNCTION public.create_organization_for_current_user(text, text, text) FROM anon;
 GRANT EXECUTE ON FUNCTION public.create_organization_for_current_user(text, text, text) TO authenticated;
 
+-- User profiles remain self-editable only for non-security fields. Role grants are read-only.
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS profiles_member_read ON public.profiles;
+CREATE POLICY profiles_member_read
+ON public.profiles FOR SELECT TO authenticated
+USING (
+  auth_user_id = auth.uid()
+  OR (organization_id IS NOT NULL AND private.is_org_member(organization_id))
+);
+DROP POLICY IF EXISTS profiles_self_update ON public.profiles;
+CREATE POLICY profiles_self_update
+ON public.profiles FOR UPDATE TO authenticated
+USING (auth_user_id = auth.uid())
+WITH CHECK (auth_user_id = auth.uid());
+REVOKE ALL ON public.profiles FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.profiles TO authenticated;
+GRANT UPDATE (full_name, phone, avatar_url) ON public.profiles TO authenticated;
+
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_roles_admin_read ON public.user_roles;
+CREATE POLICY user_roles_admin_read
+ON public.user_roles FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.profiles p
+  WHERE p.id = user_roles.profile_id
+    AND p.organization_id IS NOT NULL
+    AND private.is_org_admin(p.organization_id)
+));
+REVOKE ALL ON public.user_roles FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.user_roles TO authenticated;
+
 -- Catalog and organization-scoped master data.
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS categories_member_read ON public.categories;
@@ -201,6 +237,12 @@ USING (private.is_org_member(organization_id));
 
 -- Descriptive catalog columns only. Pricing and cost data stay behind the staff-only view/RPCs.
 REVOKE SELECT ON public.products FROM PUBLIC, anon, authenticated;
+REVOKE SELECT (
+  id, organization_id, category_id, brand_id, item_code, sku,
+  name, name_ar, slug, description, unit, box_quantity, carton_quantity,
+  min_order_qty, stock_quantity, barcode, image_url, is_active, is_featured,
+  is_new, tags, status, created_at, updated_at
+) ON public.products FROM PUBLIC, anon, authenticated;
 GRANT SELECT (
   id, organization_id, category_id, brand_id, item_code, sku,
   name, name_ar, slug, description, unit, box_quantity, carton_quantity,
@@ -248,7 +290,7 @@ USING (EXISTS (
   WHERE p.id = product_variants.product_id
     AND private.is_org_admin(p.organization_id)
 ));
-REVOKE ALL ON public.product_variants FROM PUBLIC, anon;
+REVOKE ALL ON public.product_variants FROM PUBLIC, anon, authenticated;
 GRANT SELECT (id, product_id, sku, name, stock_quantity, attributes, created_at)
   ON public.product_variants TO authenticated;
 GRANT INSERT, UPDATE, DELETE ON public.product_variants TO authenticated;
