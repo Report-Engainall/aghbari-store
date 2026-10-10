@@ -56,6 +56,10 @@ DROP POLICY IF EXISTS aialert_select_auth ON public.ai_alerts;
 DROP POLICY IF EXISTS audit_select_auth ON public.audit_logs;
 DROP POLICY IF EXISTS implog_select_auth ON public.import_logs;
 
+-- RLS policies need schema USAGE to invoke only the explicitly granted private helpers.
+REVOKE ALL ON SCHEMA private FROM PUBLIC, anon;
+GRANT USAGE ON SCHEMA private TO authenticated, service_role;
+
 CREATE OR REPLACE FUNCTION private.is_org_admin(p_organization_id uuid)
 RETURNS boolean
 LANGUAGE sql
