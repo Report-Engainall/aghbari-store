@@ -155,6 +155,8 @@ jobs:
             v_org_id uuid;
             v_replay_id uuid;
             v_status text;
+            v_is_active boolean;
+            v_can_operate boolean;
             v_role text;
             v_membership_status text;
             v_audit_count integer;
@@ -169,14 +171,19 @@ jobs:
               RAISE EXCEPTION 'organization onboarding retry created a duplicate tenant';
             END IF;
 
-            SELECT o.status, om.role, om.status
-              INTO v_status, v_role, v_membership_status
+            SELECT o.status, o.is_active, om.role, om.status
+              INTO v_status, v_is_active, v_role, v_membership_status
             FROM public.organizations o
             JOIN public.organization_members om ON om.organization_id = o.id
             WHERE o.id = v_org_id AND om.user_id = auth.uid();
 
-            IF v_status <> 'pending' OR v_role <> 'owner' OR v_membership_status <> 'active' THEN
-              RAISE EXCEPTION 'onboarding failed to create pending organization and active owner membership';
+            IF v_status <> 'pending' OR v_is_active OR v_role <> 'owner' OR v_membership_status <> 'active' THEN
+              RAISE EXCEPTION 'onboarding must create an inactive pending organization and active owner membership';
+            END IF;
+
+            v_can_operate := private.is_org_member(v_org_id);
+            IF v_can_operate THEN
+              RAISE EXCEPTION 'pending organization received active tenant access before approval';
             END IF;
 
             SELECT count(*) INTO v_audit_count
@@ -189,6 +196,21 @@ jobs:
           END
           $org_creation_smoke$;
           RESET ROLE;
+
+          -- Simulate platform approval before the separate cross-tenant isolation tests.
+          UPDATE public.organizations
+          SET status = 'active', is_active = true
+          WHERE email = 'aghbari-ci-org-create@example.invalid'
+            AND status = 'pending' AND is_active = false;
+          DO $approved_tenant_fixture$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM public.organizations
+              WHERE email = 'aghbari-ci-org-create@example.invalid'
+                AND status = 'active' AND is_active = true
+            ) THEN RAISE EXCEPTION 'test tenant activation failed'; END IF;
+          END
+          $approved_tenant_fixture$;
 
           -- Build one row in the created tenant and one in a second tenant, then assert RLS.
           INSERT INTO public.organizations (id, name, email, currency, status)
