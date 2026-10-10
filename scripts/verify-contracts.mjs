@@ -268,7 +268,7 @@ assert.ok(projectMemory.includes('AI belongs inside Aghbari'), 'Persistent memor
 assert.ok(canonicalSpec.includes('Unified Import Engine') || canonicalSpec.includes('Unified import engine') || canonicalSpec.includes('E1. Single official pipeline'), 'Canonical specification must preserve the single import-engine requirement.')
 assert.ok(canonicalSpec.includes('REQ-IMP-001') && canonicalSpec.includes('REQ-AI-001') && canonicalSpec.includes('REQ-SEC-001'), 'Canonical specification must preserve the mandatory acceptance scenarios.')
 assert.ok(sourceIndex.includes('الأغبري | Aghbari Commerce') && sourceIndex.includes('العامري') && sourceIndex.includes('بوابة العامري الذكية'), 'Source index must preserve the sole product identity and legacy-brand exclusion rule.')
-assert.ok(executionState.includes('Exact next executable action'), 'Execution state must preserve a durable resume pointer.').
+assert.ok(executionState.includes('Exact next executable action'), 'Execution state must preserve a durable resume pointer.')
 assert.ok(progressLedger.includes('Status vocabulary'), 'Progress ledger must preserve evidence-based status semantics.')
 assert.ok(backupWorkflow.includes("cron: '17 2 * * *'"), 'Encrypted database backup must have a daily schedule.')
 assert.ok(backupWorkflow.includes('secrets.SUPABASE_DB_URL') && backupWorkflow.includes('secrets.BACKUP_AGE_RECIPIENT'), 'Scheduled backup must require explicit database and public encryption-recipient secrets.')
