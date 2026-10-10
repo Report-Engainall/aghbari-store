@@ -178,6 +178,11 @@ assert.ok(legacyApi.includes("from('admin_product_catalog')"), 'Legacy staff pro
 assert.ok(legacyApi.includes("update({ is_active: false })"), 'Product deletion must preserve order history through soft deactivation.')
 assert.ok(!safeProductSelect.includes('reserved_stock'), 'Customer product projection must not expose reserved inventory.')
 assert.ok(!safeProductSelect.includes('base_price') && !safeProductSelect.includes('cost_price'), 'Customer product projection must never select financial values.')
+assert.ok(securityMigration.includes("left(policyname, 5) = 'anon_'"), 'Security migration must remove permissive bootstrap anon_* policies.')
+assert.ok(securityMigration.includes('DROP POLICY IF EXISTS "orgmem_insert_self"'), 'Users must not be allowed to self-assign organization roles.')
+assert.ok(securityMigration.includes('DROP POLICY IF EXISTS "audit_select_auth"'), 'Cross-tenant authenticated-wide audit read policy must be removed.')
+assert.ok(securityMigration.includes('CREATE POLICY ai_tasks_member_read'), 'AI task reads must be tenant-scoped.')
+assert.ok(securityMigration.includes('CREATE POLICY import_logs_member_read'), 'Import log reads must be tenant-scoped.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
