@@ -1,4 +1,27 @@
 -- Tenant-safe customer directory and column-level product-price confidentiality.
+-- The bootstrap migration installed anon_* policies with USING (true) / WITH CHECK (true)
+-- on multiple tables. They are permissive and combine with later restrictive policies via OR.
+DO $drop_legacy_open_policies$
+DECLARE
+  v_policy record;
+BEGIN
+  FOR v_policy IN
+    SELECT schemaname, tablename, policyname
+    FROM pg_catalog.pg_policies
+    WHERE schemaname = 'public'
+      AND left(policyname, 5) = 'anon_'
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I.%I',
+      v_policy.policyname, v_policy.schemaname, v_policy.tablename);
+  END LOOP;
+END;
+$drop_legacy_open_policies$;
+
+-- A user must never self-assign an organization role or alter membership status directly.
+DROP POLICY IF EXISTS "orgmem_insert_self" ON public.organization_members;
+DROP POLICY IF EXISTS "orgmem_update_self" ON public.organization_members;
+DROP POLICY IF EXISTS "orgmem_delete_self" ON public.organization_members;
+
 -- The catalog's public surface exposes descriptive/availability columns only.
 -- Authorized staff use admin_product_catalog, whose WHERE clause enforces active tenant membership.
 
@@ -115,6 +138,82 @@ WITH CHECK (EXISTS (
     AND om.status = 'active'
     AND om.role IN ('owner','admin','manager')
 ));
+
+-- Scoped operational reads and writes for procurement setup.
+ALTER TABLE public.suppliers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS suppliers_member_read ON public.suppliers;
+CREATE POLICY suppliers_member_read ON public.suppliers FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = suppliers.organization_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin','manager','accountant')
+));
+DROP POLICY IF EXISTS suppliers_manager_insert ON public.suppliers;
+CREATE POLICY suppliers_manager_insert ON public.suppliers FOR INSERT TO authenticated
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = suppliers.organization_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin','manager')
+));
+DROP POLICY IF EXISTS suppliers_manager_update ON public.suppliers;
+CREATE POLICY suppliers_manager_update ON public.suppliers FOR UPDATE TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = suppliers.organization_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin','manager')
+))
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = suppliers.organization_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin','manager')
+));
+
+ALTER TABLE public.warehouses ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS warehouses_member_read ON public.warehouses;
+CREATE POLICY warehouses_member_read ON public.warehouses FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = warehouses.organization_id AND om.user_id = auth.uid()
+    AND om.status = 'active'
+));
+DROP POLICY IF EXISTS warehouses_manager_write ON public.warehouses;
+CREATE POLICY warehouses_manager_write ON public.warehouses FOR ALL TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = warehouses.organization_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin','manager')
+))
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = warehouses.organization_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin','manager')
+));
+
+ALTER TABLE public.branches ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS branches_member_read ON public.branches;
+CREATE POLICY branches_member_read ON public.branches FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = branches.organization_id AND om.user_id = auth.uid()
+    AND om.status = 'active'
+));
+DROP POLICY IF EXISTS branches_manager_write ON public.branches;
+CREATE POLICY branches_manager_write ON public.branches FOR ALL TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = branches.organization_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin','manager')
+))
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.organization_members om
+  WHERE om.organization_id = branches.organization_id AND om.user_id = auth.uid()
+    AND om.status = 'active' AND om.role IN ('owner','admin','manager')
+));
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS profiles_select_own ON public.profiles;
+CREATE POLICY profiles_select_own ON public.profiles FOR SELECT TO authenticated
+USING (auth_user_id = auth.uid());
 
 CREATE OR REPLACE FUNCTION public.audit_product_catalog_changes()
 RETURNS trigger
