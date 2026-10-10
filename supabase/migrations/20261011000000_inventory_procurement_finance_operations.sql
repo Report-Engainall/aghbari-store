@@ -143,17 +143,6 @@ USING (EXISTS (
   WHERE om.organization_id = purchase_orders.organization_id AND om.user_id = auth.uid() AND om.status = 'active'
 ));
 DROP POLICY IF EXISTS purchase_orders_admin_write ON public.purchase_orders;
-CREATE POLICY purchase_orders_admin_write ON public.purchase_orders FOR ALL TO authenticated
-USING (EXISTS (
-  SELECT 1 FROM public.organization_members om
-  WHERE om.organization_id = purchase_orders.organization_id AND om.user_id = auth.uid()
-    AND om.status = 'active' AND om.role IN ('owner','admin')
-))
-WITH CHECK (EXISTS (
-  SELECT 1 FROM public.organization_members om
-  WHERE om.organization_id = purchase_orders.organization_id AND om.user_id = auth.uid()
-    AND om.status = 'active' AND om.role IN ('owner','admin')
-));
 
 DROP POLICY IF EXISTS purchase_order_items_read_member ON public.purchase_order_items;
 CREATE POLICY purchase_order_items_read_member ON public.purchase_order_items FOR SELECT TO authenticated
@@ -162,15 +151,6 @@ USING (EXISTS (
   WHERE po.id = purchase_order_items.purchase_order_id AND om.user_id = auth.uid() AND om.status = 'active'
 ));
 DROP POLICY IF EXISTS purchase_order_items_admin_write ON public.purchase_order_items;
-CREATE POLICY purchase_order_items_admin_write ON public.purchase_order_items FOR ALL TO authenticated
-USING (EXISTS (
-  SELECT 1 FROM public.purchase_orders po JOIN public.organization_members om ON om.organization_id = po.organization_id
-  WHERE po.id = purchase_order_items.purchase_order_id AND om.user_id = auth.uid() AND om.status = 'active' AND om.role IN ('owner','admin')
-))
-WITH CHECK (EXISTS (
-  SELECT 1 FROM public.purchase_orders po JOIN public.organization_members om ON om.organization_id = po.organization_id
-  WHERE po.id = purchase_order_items.purchase_order_id AND om.user_id = auth.uid() AND om.status = 'active' AND om.role IN ('owner','admin')
-));
 
 DROP POLICY IF EXISTS goods_receipts_read_member ON public.goods_receipts;
 CREATE POLICY goods_receipts_read_member ON public.goods_receipts FOR SELECT TO authenticated
@@ -192,17 +172,6 @@ USING (EXISTS (
   WHERE om.organization_id = inventory_transfers.organization_id AND om.user_id = auth.uid() AND om.status = 'active'
 ));
 DROP POLICY IF EXISTS inventory_transfers_admin_write ON public.inventory_transfers;
-CREATE POLICY inventory_transfers_admin_write ON public.inventory_transfers FOR ALL TO authenticated
-USING (EXISTS (
-  SELECT 1 FROM public.organization_members om
-  WHERE om.organization_id = inventory_transfers.organization_id AND om.user_id = auth.uid()
-    AND om.status = 'active' AND om.role IN ('owner','admin')
-))
-WITH CHECK (EXISTS (
-  SELECT 1 FROM public.organization_members om
-  WHERE om.organization_id = inventory_transfers.organization_id AND om.user_id = auth.uid()
-    AND om.status = 'active' AND om.role IN ('owner','admin')
-));
 DROP POLICY IF EXISTS inventory_transfer_items_read_member ON public.inventory_transfer_items;
 CREATE POLICY inventory_transfer_items_read_member ON public.inventory_transfer_items FOR SELECT TO authenticated
 USING (EXISTS (
@@ -210,15 +179,6 @@ USING (EXISTS (
   WHERE t.id = inventory_transfer_items.transfer_id AND om.user_id = auth.uid() AND om.status = 'active'
 ));
 DROP POLICY IF EXISTS inventory_transfer_items_admin_write ON public.inventory_transfer_items;
-CREATE POLICY inventory_transfer_items_admin_write ON public.inventory_transfer_items FOR ALL TO authenticated
-USING (EXISTS (
-  SELECT 1 FROM public.inventory_transfers t JOIN public.organization_members om ON om.organization_id = t.organization_id
-  WHERE t.id = inventory_transfer_items.transfer_id AND om.user_id = auth.uid() AND om.status = 'active' AND om.role IN ('owner','admin')
-))
-WITH CHECK (EXISTS (
-  SELECT 1 FROM public.inventory_transfers t JOIN public.organization_members om ON om.organization_id = t.organization_id
-  WHERE t.id = inventory_transfer_items.transfer_id AND om.user_id = auth.uid() AND om.status = 'active' AND om.role IN ('owner','admin')
-));
 
 DROP POLICY IF EXISTS stock_counts_read_member ON public.stock_counts;
 CREATE POLICY stock_counts_read_member ON public.stock_counts FOR SELECT TO authenticated
@@ -227,17 +187,6 @@ USING (EXISTS (
   WHERE om.organization_id = stock_counts.organization_id AND om.user_id = auth.uid() AND om.status = 'active'
 ));
 DROP POLICY IF EXISTS stock_counts_admin_write ON public.stock_counts;
-CREATE POLICY stock_counts_admin_write ON public.stock_counts FOR ALL TO authenticated
-USING (EXISTS (
-  SELECT 1 FROM public.organization_members om
-  WHERE om.organization_id = stock_counts.organization_id AND om.user_id = auth.uid()
-    AND om.status = 'active' AND om.role IN ('owner','admin')
-))
-WITH CHECK (EXISTS (
-  SELECT 1 FROM public.organization_members om
-  WHERE om.organization_id = stock_counts.organization_id AND om.user_id = auth.uid()
-    AND om.status = 'active' AND om.role IN ('owner','admin')
-));
 DROP POLICY IF EXISTS stock_count_items_read_member ON public.stock_count_items;
 CREATE POLICY stock_count_items_read_member ON public.stock_count_items FOR SELECT TO authenticated
 USING (EXISTS (
@@ -245,15 +194,6 @@ USING (EXISTS (
   WHERE sc.id = stock_count_items.stock_count_id AND om.user_id = auth.uid() AND om.status = 'active'
 ));
 DROP POLICY IF EXISTS stock_count_items_admin_write ON public.stock_count_items;
-CREATE POLICY stock_count_items_admin_write ON public.stock_count_items FOR ALL TO authenticated
-USING (EXISTS (
-  SELECT 1 FROM public.stock_counts sc JOIN public.organization_members om ON om.organization_id = sc.organization_id
-  WHERE sc.id = stock_count_items.stock_count_id AND om.user_id = auth.uid() AND om.status = 'active' AND om.role IN ('owner','admin')
-))
-WITH CHECK (EXISTS (
-  SELECT 1 FROM public.stock_counts sc JOIN public.organization_members om ON om.organization_id = sc.organization_id
-  WHERE sc.id = stock_count_items.stock_count_id AND om.user_id = auth.uid() AND om.status = 'active' AND om.role IN ('owner','admin')
-));
 
 DROP POLICY IF EXISTS expenses_read_member ON public.expenses;
 CREATE POLICY expenses_read_member ON public.expenses FOR SELECT TO authenticated
@@ -262,17 +202,6 @@ USING (EXISTS (
   WHERE om.organization_id = expenses.organization_id AND om.user_id = auth.uid() AND om.status = 'active'
 ));
 DROP POLICY IF EXISTS expenses_admin_write ON public.expenses;
-CREATE POLICY expenses_admin_write ON public.expenses FOR ALL TO authenticated
-USING (EXISTS (
-  SELECT 1 FROM public.organization_members om
-  WHERE om.organization_id = expenses.organization_id AND om.user_id = auth.uid()
-    AND om.status = 'active' AND om.role IN ('owner','admin')
-))
-WITH CHECK (EXISTS (
-  SELECT 1 FROM public.organization_members om
-  WHERE om.organization_id = expenses.organization_id AND om.user_id = auth.uid()
-    AND om.status = 'active' AND om.role IN ('owner','admin')
-));
 
 CREATE OR REPLACE FUNCTION public.create_purchase_order(
   p_organization_id uuid, p_supplier_id uuid, p_warehouse_id uuid, p_items jsonb, p_notes text DEFAULT NULL
@@ -342,6 +271,8 @@ DECLARE
   v_receipt_id uuid;
   v_receipt_number text;
   v_item record;
+  v_product_id uuid;
+  v_unit_cost numeric(14,4);
   v_balance numeric(15,3);
   v_next_received numeric(15,3);
 BEGIN
@@ -356,6 +287,17 @@ BEGIN
   WHERE po.id = p_purchase_order_id AND po.organization_id = p_organization_id
   FOR UPDATE;
   IF NOT FOUND OR v_po.status NOT IN ('ordered','partially_received') THEN RAISE EXCEPTION 'purchase_order_not_receivable'; END IF;
+  IF p_warehouse_id <> v_po.warehouse_id THEN RAISE EXCEPTION 'receipt_warehouse_must_match_purchase_order'; END IF;
+  IF EXISTS (
+    SELECT x.purchase_order_item_id
+    FROM jsonb_to_recordset(p_items) AS x(purchase_order_item_id uuid, quantity numeric)
+    GROUP BY x.purchase_order_item_id HAVING count(*) > 1
+  ) THEN RAISE EXCEPTION 'duplicate_receipt_item'; END IF;
+  IF EXISTS (
+    SELECT 1 FROM jsonb_to_recordset(p_items) AS x(purchase_order_item_id uuid, quantity numeric)
+    LEFT JOIN public.purchase_order_items poi ON poi.id = x.purchase_order_item_id AND poi.purchase_order_id = p_purchase_order_id
+    WHERE poi.id IS NULL OR x.quantity IS NULL OR x.quantity <= 0
+  ) THEN RAISE EXCEPTION 'invalid_receipt_item'; END IF;
   IF NOT EXISTS (SELECT 1 FROM public.warehouses w WHERE w.id = p_warehouse_id AND w.organization_id = p_organization_id AND w.is_active) THEN
     RAISE EXCEPTION 'warehouse_not_available';
   END IF;
@@ -382,20 +324,20 @@ BEGIN
     RETURNING poi.quantity_received INTO v_next_received;
     IF NOT FOUND THEN RAISE EXCEPTION 'received_quantity_exceeds_ordered'; END IF;
 
-    SELECT poi.product_id, poi.unit_cost INTO v_item.product_id, v_item.unit_cost
+    SELECT poi.product_id, poi.unit_cost INTO v_product_id, v_unit_cost
       FROM public.purchase_order_items poi WHERE poi.id = v_item.purchase_order_item_id;
     INSERT INTO public.goods_receipt_items(goods_receipt_id,purchase_order_item_id,product_id,quantity_received,unit_cost)
-      VALUES(v_receipt_id,v_item.purchase_order_item_id,v_item.product_id,v_item.quantity,v_item.unit_cost);
+      VALUES(v_receipt_id,v_item.purchase_order_item_id,v_product_id,v_item.quantity,v_unit_cost);
 
     INSERT INTO public.inventory_balances(product_id,warehouse_id,quantity_on_hand,quantity_reserved,last_movement_at)
-      VALUES(v_item.product_id,p_warehouse_id,v_item.quantity,0,now())
+      VALUES(v_product_id,p_warehouse_id,v_item.quantity,0,now())
       ON CONFLICT(product_id,warehouse_id) DO UPDATE
       SET quantity_on_hand = public.inventory_balances.quantity_on_hand + EXCLUDED.quantity_on_hand,
           last_movement_at = now(), updated_at = now()
       RETURNING quantity_on_hand INTO v_balance;
 
     INSERT INTO public.inventory_movements(product_id,warehouse_id,movement_type,quantity,balance_after,reference_type,reference_id,reason,created_by)
-      VALUES(v_item.product_id,p_warehouse_id,'purchase_receipt',v_item.quantity,v_balance,'goods_receipt',v_receipt_id,'استلام أمر شراء',v_profile_id);
+      VALUES(v_product_id,p_warehouse_id,'purchase_receipt',v_item.quantity,v_balance,'goods_receipt',v_receipt_id,'استلام أمر شراء',v_profile_id);
   END LOOP;
 
   UPDATE public.purchase_orders po
@@ -477,6 +419,11 @@ BEGIN
   SELECT * INTO v_transfer FROM public.inventory_transfers t
     WHERE t.id=p_transfer_id AND t.organization_id=p_organization_id FOR UPDATE;
   IF NOT FOUND OR v_transfer.status<>'draft' THEN RAISE EXCEPTION 'transfer_not_draft'; END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.inventory_transfer_items ti
+    JOIN public.products p ON p.id = ti.product_id
+    WHERE ti.transfer_id = p_transfer_id AND p.organization_id <> p_organization_id
+  ) THEN RAISE EXCEPTION 'transfer_product_outside_organization'; END IF;
   SELECT p.id INTO v_profile_id FROM public.profiles p WHERE p.auth_user_id=v_user_id LIMIT 1;
 
   FOR v_item IN SELECT product_id,quantity FROM public.inventory_transfer_items WHERE transfer_id=p_transfer_id ORDER BY product_id LOOP
@@ -570,6 +517,11 @@ BEGIN
   END IF;
   SELECT * INTO v_count FROM public.stock_counts sc WHERE sc.id=p_stock_count_id AND sc.organization_id=p_organization_id FOR UPDATE;
   IF NOT FOUND OR v_count.status<>'draft' THEN RAISE EXCEPTION 'stock_count_not_draft'; END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.stock_count_items sci
+    JOIN public.products p ON p.id = sci.product_id
+    WHERE sci.stock_count_id = p_stock_count_id AND p.organization_id <> p_organization_id
+  ) THEN RAISE EXCEPTION 'count_product_outside_organization'; END IF;
   SELECT p.id INTO v_profile_id FROM public.profiles p WHERE p.auth_user_id=v_user_id LIMIT 1;
 
   FOR v_item IN SELECT * FROM public.stock_count_items WHERE stock_count_id=p_stock_count_id ORDER BY product_id LOOP
@@ -635,5 +587,12 @@ GRANT EXECUTE ON FUNCTION public.create_stock_count(uuid,uuid,jsonb,text) TO aut
 GRANT EXECUTE ON FUNCTION public.post_stock_count(uuid,uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.record_expense(uuid,text,text,numeric,text,date) TO authenticated;
 
+-- Only server-side RPCs may mutate operational records. This prevents callers from
+-- bypassing receipt/transfer/count validations or editing posted history through PostgREST.
+REVOKE INSERT, UPDATE, DELETE ON public.purchase_orders, public.purchase_order_items,
+  public.goods_receipts, public.goods_receipt_items, public.inventory_transfers,
+  public.inventory_transfer_items, public.stock_counts, public.stock_count_items, public.expenses
+FROM anon, authenticated;
 GRANT SELECT ON public.purchase_orders, public.purchase_order_items, public.goods_receipts, public.goods_receipt_items,
   public.inventory_transfers, public.inventory_transfer_items, public.stock_counts, public.stock_count_items, public.expenses TO authenticated;
+
