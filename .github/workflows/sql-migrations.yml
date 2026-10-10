@@ -581,16 +581,16 @@ jobs:
           }
 
           browser_write_privileges="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<'SQL'
-          SELECT (
-            has_table_privilege('authenticated', 'public.import_uploads', 'INSERT')
-            OR has_table_privilege('authenticated', 'public.import_uploads', 'DELETE')
-            OR has_table_privilege('anon', 'public.import_uploads', 'INSERT')
-            OR has_table_privilege('anon', 'public.import_uploads', 'DELETE')
-          )::text;
+          SELECT concat_ws(',',
+            has_table_privilege('authenticated', 'public.import_uploads', 'INSERT')::text,
+            has_table_privilege('authenticated', 'public.import_uploads', 'DELETE')::text,
+            has_table_privilege('anon', 'public.import_uploads', 'INSERT')::text,
+            has_table_privilege('anon', 'public.import_uploads', 'DELETE')::text
+          );
           SQL
           )"
-          [[ "$browser_write_privileges" == "false" ]] || {
-            printf 'FAIL: browser role can bypass the database upload claim with direct INSERT/DELETE.\\n' >&2
+          [[ "$browser_write_privileges" == "false,false,false,false" ]] || {
+            printf 'FAIL: unexpected browser INSERT/DELETE privileges on import_uploads (authenticated INSERT, authenticated DELETE, anon INSERT, anon DELETE)=%s\\n' "$browser_write_privileges" >&2
             exit 1
           }
 
