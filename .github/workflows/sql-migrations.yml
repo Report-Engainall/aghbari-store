@@ -444,6 +444,130 @@ jobs:
           RESET ROLE;
           SQL
 
+      - name: Verify concurrent import upload claims and failed-retry arbitration
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          org_id='a1000000-0000-4000-8000-000000000001'
+          user_id='a2000000-0000-4000-8000-000000000001'
+          profile_id='a7000000-0000-4000-8000-000000000001'
+          file_hash="$(printf 'a%.0s' {1..64})"
+
+          psql --set ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO public.import_profiles (
+            id, organization_id, profile_name, report_type, source, version,
+            required_columns, optional_columns, ignored_columns, synonyms,
+            transformation_rules, validation_rules, matching_key, merge_strategy,
+            date_rules, status, created_by
+          ) VALUES (
+            'a7000000-0000-4000-8000-000000000001',
+            'a1000000-0000-4000-8000-000000000001',
+            'CI Concurrent Import Claim', 'generic_catalog', 'manual', 1,
+            '["item_code"]'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb,
+            '{}'::jsonb, '{"item_code":"required_string"}'::jsonb,
+            'item_code', 'manual_review', '{}'::jsonb, 'active',
+            'a2000000-0000-4000-8000-000000000001'
+          );
+          SQL
+
+          cat >"$tmpdir/claim.sql" <<SQL
+          SELECT set_config('request.jwt.claim.sub', '$user_id', false) AS subject \\gset
+          SET ROLE authenticated;
+          SELECT claimed_upload_id::text || '|' || was_created::text
+          FROM public.claim_import_upload(
+            '$org_id'::uuid,
+            '$profile_id'::uuid,
+            'CI-CONCURRENT-CLAIM.csv',
+            'csv',
+            64,
+            '$file_hash',
+            NULL,
+            NULL,
+            now() + interval '30 days',
+            'staged',
+            NULL,
+            NULL
+          );
+          RESET ROLE;
+          SQL
+
+          psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align \
+            --file "$tmpdir/claim.sql" >"$tmpdir/claim-one.out" &
+          claim_one_pid=$!
+          psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align \
+            --file "$tmpdir/claim.sql" >"$tmpdir/claim-two.out" &
+          claim_two_pid=$!
+          wait "$claim_one_pid"
+          wait "$claim_two_pid"
+
+          claim_one="$(tr -d '\r\n' <"$tmpdir/claim-one.out")"
+          claim_two="$(tr -d '\r\n' <"$tmpdir/claim-two.out")"
+          claim_one_id="${claim_one%%|*}"
+          claim_two_id="${claim_two%%|*}"
+          created_count="$({ printf '%s\\n' "$claim_one" "$claim_two"; } | awk -F'|' '$2 == "t" { n++ } END { print n+0 }')"
+          if [[ -z "$claim_one_id" || "$claim_one_id" != "$claim_two_id" || "$created_count" != "1" ]]; then
+            printf 'FAIL: concurrent upload claims diverged. response one=%s response two=%s\\n' "$claim_one" "$claim_two" >&2
+            exit 1
+          fi
+
+          upload_count="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT count(*) FROM public.import_uploads
+          WHERE organization_id = '$org_id'::uuid
+            AND profile_id = '$profile_id'::uuid
+            AND file_hash = '$file_hash'
+            AND period_start IS NULL AND period_end IS NULL;
+          SQL
+          )"
+          claim_count="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT count(*) FROM public.import_upload_claims
+          WHERE organization_id = '$org_id'::uuid
+            AND profile_id = '$profile_id'::uuid
+            AND file_hash = '$file_hash'
+            AND period_key = '~|~';
+          SQL
+          )"
+          [[ "$upload_count" == "1" && "$claim_count" == "1" ]] || {
+            printf 'FAIL: expected one upload and one claim, observed uploads=%s claims=%s\\n' "$upload_count" "$claim_count" >&2
+            exit 1
+          }
+
+          psql --set ON_ERROR_STOP=1 <<SQL
+          UPDATE public.import_uploads SET status = 'failed'
+          WHERE id = '$claim_one_id'::uuid AND organization_id = '$org_id'::uuid;
+          SQL
+
+          cat >"$tmpdir/retry.sql" <<SQL
+          SELECT set_config('request.jwt.claim.sub', '$user_id', false) AS subject \\gset
+          SET ROLE authenticated;
+          SELECT public.claim_failed_import_retry(
+            '$org_id'::uuid, '$claim_one_id'::uuid, now() + interval '30 days'
+          );
+          RESET ROLE;
+          SQL
+          psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align \
+            --file "$tmpdir/retry.sql" >"$tmpdir/retry-one.out" &
+          retry_one_pid=$!
+          psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align \
+            --file "$tmpdir/retry.sql" >"$tmpdir/retry-two.out" &
+          retry_two_pid=$!
+          wait "$retry_one_pid"
+          wait "$retry_two_pid"
+
+          retry_true_count="$({ cat "$tmpdir/retry-one.out"; cat "$tmpdir/retry-two.out"; } | awk '$1 == "t" { n++ } END { print n+0 }')"
+          retry_false_count="$({ cat "$tmpdir/retry-one.out"; cat "$tmpdir/retry-two.out"; } | awk '$1 == "f" { n++ } END { print n+0 }')"
+          final_status="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT status FROM public.import_uploads WHERE id = '$claim_one_id'::uuid;
+          SQL
+          )"
+          [[ "$retry_true_count" == "1" && "$retry_false_count" == "1" && "$final_status" == "detecting" ]] || {
+            printf 'FAIL: concurrent retry claims should yield one winner. true=%s false=%s status=%s\\n' "$retry_true_count" "$retry_false_count" "$final_status" >&2
+            exit 1
+          }
+
+          printf 'PASS: two concurrent same-hash import claims reused one upload; two concurrent failed retries produced one winner.\\n'
+
       - name: Verify tenant isolation and product-price column privileges
         run: |
           psql --set ON_ERROR_STOP=1 <<'SQL'
