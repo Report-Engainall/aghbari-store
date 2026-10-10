@@ -598,6 +598,23 @@ jobs:
             IF NOT v_role_change_guard THEN
               RAISE EXCEPTION 'self role change was not rejected';
             END IF;
+
+            BEGIN
+              UPDATE public.organization_members
+              SET role='manager'
+              WHERE organization_id='a1000000-0000-4000-8000-000000000001'
+                AND user_id='a2000000-0000-4000-8000-000000000001';
+            EXCEPTION WHEN insufficient_privilege THEN
+              NULL;
+            END;
+            IF NOT EXISTS (
+              SELECT 1 FROM public.organization_members
+              WHERE organization_id='a1000000-0000-4000-8000-000000000001'
+                AND user_id='a2000000-0000-4000-8000-000000000001'
+                AND role='owner' AND status='active'
+            ) THEN
+              RAISE EXCEPTION 'direct membership update allowed self-role escalation';
+            END IF;
           END;
           $ci_tenant_price_boundary$;
 
