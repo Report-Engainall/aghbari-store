@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom'
 import { AuthProvider } from '@/context/AuthContext'
 import { ToastProvider } from '@/components/ui/Toast'
+import { ConnectivityStatus } from '@/components/ui/ConnectivityStatus'
 import { StorefrontShell } from '@/components/storefront/StorefrontShell'
 import { AdminShell } from '@/components/admin/AdminShell'
 import { ProtectedRoute, AdminRoute, PublicOnlyRoute } from '@/components/guards/RouteGuards'
@@ -45,6 +46,7 @@ export default function App() {
   return (
     <AuthProvider>
       <ToastProvider>
+        <ConnectivityStatus />
         <Routes>
           {/* Storefront */}
           <Route element={<StorefrontShell />}>

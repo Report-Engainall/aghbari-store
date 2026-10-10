@@ -13,7 +13,7 @@ const imageNames = (await readdir(referenceDir))
   .sort((a, b) => a.localeCompare(b, 'en'))
 
 assert.ok(imageNames.length > 0, 'No UI reference images were found.')
-const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration, statementMigration, utilityPages, adminScreens, securityMigration, legacyApi] =
+const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration, statementMigration, utilityPages, adminScreens, securityMigration, legacyApi, offlineWorker, offlineUi, mainEntry, webManifest, htmlShell, offlineBoundary] =
   await Promise.all([
     read('docs/ui-reference/README.md'),
     read('docs/ui-reference/UI-REFERENCE-ASSET-INDEX.md'),
@@ -35,6 +35,12 @@ const [readme, index, pricingMigration, safeProductSelect, storefront, store, ca
     read('src/pages/admin/AdminPages.tsx'),
     read('supabase/migrations/20261013000000_tenant_safe_customers_and_product_prices.sql'),
     read('src/lib/api.ts'),
+    read('public/sw.js'),
+    read('src/components/ui/ConnectivityStatus.tsx'),
+    read('src/main.tsx'),
+    read('public/manifest.webmanifest'),
+    read('index.html'),
+    read('docs/OFFLINE-BOUNDARY.md'),
   ])
 
 for (const imageName of imageNames) {
@@ -178,6 +184,21 @@ assert.ok(legacyApi.includes("from('admin_product_catalog')"), 'Legacy staff pro
 assert.ok(legacyApi.includes("update({ is_active: false })"), 'Product deletion must preserve order history through soft deactivation.')
 assert.ok(!safeProductSelect.includes('reserved_stock'), 'Customer product projection must not expose reserved inventory.')
 assert.ok(!safeProductSelect.includes('base_price') && !safeProductSelect.includes('cost_price'), 'Customer product projection must never select financial values.')
+
+assert.ok(offlineWorker.includes("if (request.method !== 'GET') return"), 'Offline cache must never intercept non-GET requests.')
+assert.ok(offlineWorker.includes('if (url.origin !== self.location.origin) return'), 'Offline cache must never intercept cross-origin API requests.')
+assert.ok(offlineWorker.includes("if (request.mode === 'navigate')"), 'Offline shell must recover the SPA document for direct-route navigation.')
+assert.ok(offlineWorker.includes("const hashedAsset = url.pathname.startsWith('/assets/')"), 'Offline static caching must be limited to built immutable assets.')
+assert.ok(offlineWorker.includes("const shellStatic = url.pathname === '/logo.svg' || url.pathname === '/manifest.webmanifest'"), 'Offline static caching may include only public brand metadata outside hashed assets.')
+assert.ok(mainEntry.includes("navigator.serviceWorker.register('/sw.js'"), 'Production must register the public app-shell service worker.')
+assert.ok(htmlShell.includes('<link rel="manifest" href="/manifest.webmanifest" />'), 'Installable app manifest must be linked from the document.')
+assert.ok(webManifest.includes('"lang": "ar"'), 'PWA manifest must preserve the Arabic locale.')
+assert.doesNotThrow(() => JSON.parse(webManifest), 'PWA manifest must be valid JSON.')
+assert.ok(offlineUi.includes('navigator.onLine'), 'Offline banner must report browser connectivity changes.')
+assert.ok(offlineUi.includes('لن تُحفظ الطلبات أو المدفوعات أو تغييرات المخزون دون اتصال بالخادم'), 'Offline UX must explicitly deny fake transaction success.')
+assert.ok(offlineBoundary.includes('لا يخزّن عامل الخدمة استجابات Supabase/API أو بيانات العملاء'), 'Offline policy must prohibit caching private business data.')
+assert.ok(offlineBoundary.includes('لا توجد قائمة انتظار محلية للطلبات أو الدفع'), 'Offline policy must record that sensitive transaction queues are not implemented.')
+assert.ok(appRoutes.includes('<ConnectivityStatus />'), 'Global offline status must be wired into the application tree.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
