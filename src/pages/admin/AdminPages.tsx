@@ -759,19 +759,38 @@ export function Import() {
     try {
       const fileHash = await hashFile(file)
       if (!isCurrentImportContext(organizationId, requestNumber)) return
-      const { data: existing, error: checkError } = await supabase.from('import_uploads').select('id, file_name, status')
-        .eq('organization_id', organization.id).eq('profile_id', profileId).eq('file_hash', fileHash)
-        .is('period_start', null).is('period_end', null).maybeSingle()
+
+      const manualReviewMessage = ext === 'pdf'
+        ? 'لم يتم ربط مستخرج الجداول من PDF بعد. يتطلب الملف تعييناً ومراجعة يدوية ولا تُولد صفوف مفترضة.'
+        : 'لم يتم ربط قارئ Excel بعد. سُجل الملف كبصمة وبيانات وصفية فقط ولم تتم معالجته.'
+      const { data: claimData, error: claimError } = await supabase.rpc('claim_import_upload', {
+        p_organization_id: organizationId,
+        p_profile_id: profileId,
+        p_file_name: file.name,
+        p_file_type: ext,
+        p_file_size: file.size,
+        p_file_hash: fileHash,
+        p_period_start: null,
+        p_period_end: null,
+        p_expires_at: new Date(Date.now() + policies.import_retention_days * 86400000).toISOString(),
+        p_initial_status: ext === 'csv' ? 'staged' : 'manual_review',
+        p_error_code: ext === 'csv' ? null : 'PARSER_NOT_AVAILABLE',
+        p_error_message: ext === 'csv' ? null : manualReviewMessage,
+      })
       if (!isCurrentImportContext(organizationId, requestNumber)) return
-      if (checkError) throw checkError
-      if (existing) {
-        if (String(existing.status) === 'failed' && ext === 'csv') {
-          setDuplicate({ fileHash, profileId, uploadId: String(existing.id), status: String(existing.status) })
-          setMessage('يوجد تشغيل سابق فاشل لهذا الملف؛ يمكنك إعادة المعالجة من البداية مع حذف سجلات Snapshot الجزئية الخاصة بذلك التشغيل.')
-        } else {
-          setDuplicate({ fileHash, profileId, status: String(existing.status) })
-          setMessage('الملف مكرر بالبصمة نفسها: ' + existing.file_name + '. اختر تجاهله أو إنشاء نسخة جديدة من ملف التعريف.')
-        }
+      if (claimError) throw claimError
+      const claimRow = Array.isArray(claimData) ? claimData[0] as Record<string, unknown> | undefined : undefined
+      if (!claimRow) throw new Error('IMPORT_CLAIM_RESPONSE_MISSING')
+      const claimedUploadId = String(claimRow.claimed_upload_id || '')
+      if (!claimedUploadId) throw new Error('IMPORT_CLAIM_ID_MISSING')
+      const wasCreated = claimRow.was_created === true
+
+      if (!wasCreated) {
+        const status = String(claimRow.stored_status || '')
+        setDuplicate({ fileHash, profileId, uploadId: claimedUploadId, status })
+        setMessage(status === 'failed' && ext === 'csv'
+          ? 'يوجد تشغيل سابق فاشل لهذا الملف؛ تمت حماية إعادة المحاولة بقفل خادمي، ويمكنك إعادة معالجة CSV مرة واحدة.'
+          : 'الملف مسجل مسبقاً بالبصمة نفسها: ' + String(claimRow.stored_file_name || file.name) + '. لم يُنشأ تشغيل مكرر.')
         return
       }
 
@@ -780,8 +799,9 @@ export function Import() {
         pausedRef.current = false
         setPaused(false)
         const result = await processCsvToSnapshot({
-          file, organizationId: organization.id,
+          file, organizationId,
           profile: profile as unknown as CsvImportProfile, fileHash,
+          claimedUploadId,
           policies,
           signal: abortControllerRef.current.signal,
           waitIfPaused,
@@ -792,20 +812,10 @@ export function Import() {
         setMessage(summary)
         show(result.status === 'rejected' ? 'warning' : 'success', 'انتهى فحص CSV', summary)
       } else {
-        const { error } = await supabase.from('import_uploads').insert({
-          organization_id: organization.id, profile_id: profileId,
-          file_name: file.name, file_type: ext, file_size: file.size, file_hash: fileHash,
-          expires_at: new Date(Date.now() + policies.import_retention_days * 86400000).toISOString(),
-          status: 'manual_review', error_code: 'PARSER_NOT_AVAILABLE',
-          error_message: ext === 'pdf'
-            ? 'لم يتم ربط مستخرج الجداول من PDF بعد. يتطلب الملف تعييناً ومراجعة يدوية ولا تُولد صفوف مفترضة.'
-            : 'لم يتم ربط قارئ Excel بعد. سُجل الملف كبصمة وبيانات وصفية فقط ولم تتم معالجته.',
-        })
         if (!isCurrentImportContext(organizationId, requestNumber)) return
-        if (error) throw error
         const note = ext === 'pdf'
-          ? 'يتطلب PDF مراجعة يدوية؛ لم يُستخرج جدول ولم تُخمن بيانات.'
-          : 'تم تسجيل الملف؛ قارئ Excel غير موصول، ولم تُعلن المعالجة مكتملة.'
+          ? 'تم تسجيل الملف للمراجعة اليدوية؛ لم يُستخرج جدول ولم تُخمن بيانات.'
+          : 'تم تسجيل الملف للمراجعة اليدوية؛ قارئ Excel غير موصول، ولم تُعلن المعالجة مكتملة.'
         setMessage(note)
         show('warning', 'تم تسجيل الملف للمراجعة', note)
       }
