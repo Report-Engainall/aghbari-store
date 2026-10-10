@@ -240,6 +240,9 @@ DROP POLICY IF EXISTS addr_insert_org ON public.addresses;
 DROP POLICY IF EXISTS addr_update_org ON public.addresses;
 DROP POLICY IF EXISTS addr_delete_org ON public.addresses;
 DROP POLICY IF EXISTS addresses_active_member_read ON public.addresses;
+DROP POLICY IF EXISTS addresses_active_member_insert ON public.addresses;
+DROP POLICY IF EXISTS addresses_active_member_update ON public.addresses;
+DROP POLICY IF EXISTS addresses_active_member_delete ON public.addresses;
 CREATE POLICY addresses_active_member_read
 ON public.addresses FOR SELECT TO authenticated
 USING (private.is_org_member(organization_id));
@@ -262,6 +265,8 @@ DROP POLICY IF EXISTS cart_select_own ON public.cart_items;
 DROP POLICY IF EXISTS cart_insert_own ON public.cart_items;
 DROP POLICY IF EXISTS cart_update_own ON public.cart_items;
 DROP POLICY IF EXISTS cart_delete_own ON public.cart_items;
+DROP POLICY IF EXISTS cart_insert_own_active_tenant ON public.cart_items;
+DROP POLICY IF EXISTS cart_update_own_active_tenant ON public.cart_items;
 CREATE POLICY cart_select_own
 ON public.cart_items FOR SELECT TO authenticated
 USING (user_id = auth.uid());
@@ -298,6 +303,7 @@ ALTER TABLE public.wishlist_items ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS wish_select_own ON public.wishlist_items;
 DROP POLICY IF EXISTS wish_insert_own ON public.wishlist_items;
 DROP POLICY IF EXISTS wish_delete_own ON public.wishlist_items;
+DROP POLICY IF EXISTS wish_insert_own_active_tenant ON public.wishlist_items;
 CREATE POLICY wish_select_own
 ON public.wishlist_items FOR SELECT TO authenticated
 USING (user_id = auth.uid());
@@ -323,6 +329,10 @@ DROP POLICY IF EXISTS tmpl_select_org ON public.reorder_templates;
 DROP POLICY IF EXISTS tmpl_insert_own ON public.reorder_templates;
 DROP POLICY IF EXISTS tmpl_update_own ON public.reorder_templates;
 DROP POLICY IF EXISTS tmpl_delete_own ON public.reorder_templates;
+DROP POLICY IF EXISTS reorder_templates_owner_read ON public.reorder_templates;
+DROP POLICY IF EXISTS reorder_templates_owner_insert ON public.reorder_templates;
+DROP POLICY IF EXISTS reorder_templates_owner_update ON public.reorder_templates;
+DROP POLICY IF EXISTS reorder_templates_owner_delete ON public.reorder_templates;
 CREATE POLICY reorder_templates_owner_read
 ON public.reorder_templates FOR SELECT TO authenticated
 USING (user_id = auth.uid() AND private.is_org_member(organization_id));
@@ -343,6 +353,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.reorder_templates TO authenticate
 ALTER TABLE public.order_status_history ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS ordhist_select_org ON public.order_status_history;
 DROP POLICY IF EXISTS ordhist_insert_org ON public.order_status_history;
+DROP POLICY IF EXISTS order_status_history_active_tenant_read ON public.order_status_history;
 CREATE POLICY order_status_history_active_tenant_read
 ON public.order_status_history FOR SELECT TO authenticated
 USING (EXISTS (
@@ -379,6 +390,7 @@ GRANT SELECT ON public.audit_logs, public.outbox_events TO authenticated;
 -- Price tiers are visible only when the member is in the same tenant as both the tier and product.
 ALTER TABLE public.price_tiers ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tier_select_org ON public.price_tiers;
+DROP POLICY IF EXISTS price_tiers_same_tenant_read ON public.price_tiers;
 CREATE POLICY price_tiers_same_tenant_read
 ON public.price_tiers FOR SELECT TO authenticated
 USING (
