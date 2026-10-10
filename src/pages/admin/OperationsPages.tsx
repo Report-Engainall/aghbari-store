@@ -280,9 +280,90 @@ export function AdminPayments() {
   </div>
 }
 
-export function AdminStatements() {
-  return <OperationalWorkspace config={{ title: 'كشوف الحساب', description: 'ملخصات حساب المؤسسة المسموح بعرضها.', table: 'statements', icon: Wallet, tenantScoped: true, columns: [{key:'id',label:'مرجع الكشف'},{key:'period_start',label:'من',kind:'date'},{key:'period_end',label:'إلى',kind:'date'},{key:'opening_balance',label:'الرصيد الافتتاحي',kind:'currency'},{key:'closing_balance',label:'الرصيد الختامي',kind:'currency'},{key:'created_at',label:'التاريخ',kind:'date'}] }} />
+type StatementRow = {
+  id: string
+  statement_number: string
+  period_start: string
+  period_end: string
+  opening_balance: number | null
+  closing_balance: number | null
+  total_invoiced: number | null
+  total_paid: number | null
+  status: string
+  created_at: string
 }
+
+export function AdminStatements() {
+  const { organization } = useAuth()
+  const { show } = useToast()
+  const today = new Date().toISOString().slice(0, 10)
+  const [periodStart, setPeriodStart] = useState(`${today.slice(0, 8)}01`)
+  const [periodEnd, setPeriodEnd] = useState(today)
+  const [rows, setRows] = useState<StatementRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async (refresh = false) => {
+    if (!organization?.id) { setRows([]); setLoading(false); return }
+    if (refresh) setRefreshing(true); else setLoading(true)
+    setError('')
+    try {
+      const { data, error: queryError } = await supabase.from('statements')
+        .select('id,statement_number,period_start,period_end,opening_balance,closing_balance,total_invoiced,total_paid,status,created_at')
+        .eq('organization_id', organization.id)
+        .order('created_at', { ascending: false }).limit(200)
+      if (queryError) throw queryError
+      setRows((data || []) as StatementRow[])
+    } catch (cause) {
+      setRows([])
+      setError(cause instanceof Error ? cause.message : 'تعذر تحميل كشوف الحساب')
+    } finally { setLoading(false); setRefreshing(false) }
+  }, [organization?.id])
+
+  useEffect(() => { void load() }, [load])
+
+  const generate = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!organization?.id) { show('error', 'المؤسسة غير محددة', 'اختر مؤسسة نشطة أولًا.'); return }
+    if (!periodStart || !periodEnd || periodStart > periodEnd) {
+      show('error', 'الفترة غير صحيحة', 'يجب أن يكون تاريخ البداية في أو قبل تاريخ النهاية.'); return
+    }
+    setGenerating(true)
+    const { data, error: rpcError } = await supabase.rpc('generate_organization_statement', {
+      p_organization_id: organization.id,
+      p_period_start: periodStart,
+      p_period_end: periodEnd,
+    })
+    setGenerating(false)
+    if (rpcError) { show('error', 'تعذر إنشاء كشف الحساب', rpcError.message); return }
+    show('success', 'تم تثبيت كشف الحساب', `مرجع الكشف: ${String(data)}. تم حسابه من الفواتير والمدفوعات المسجلة، واستدعاء نفس الفترة يعيد الكشف نفسه.`)
+    await load(true)
+  }
+
+  const statusLabel = (status: string) => ({
+    generated: 'تم التوليد', sent: 'تم الإرسال', acknowledged: 'تم الإقرار', disputed: 'متنازع عليه',
+  } as Record<string,string>)[status] || status
+
+  return <div className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6 lg:p-8" dir="rtl">
+    <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+      <div className="flex items-start gap-3"><div className="rounded-xl bg-primary-50 p-3 text-primary-700"><Wallet className="h-5 w-5"/></div><div><h1 className="text-2xl font-bold text-neutral-900">كشوف الحساب</h1><p className="mt-1 text-sm leading-6 text-neutral-500">أنشئ لقطة مالية للفترة المختارة من الفواتير والمدفوعات المؤكدة، مع حفظ الرصيد الافتتاحي والإجمالي والرصيد الختامي وسجل تدقيق.</p></div></div>
+      <button type="button" onClick={()=>void load(true)} disabled={refreshing} className="btn-secondary inline-flex items-center justify-center gap-2"><RefreshCw className={`h-4 w-4 ${refreshing?'animate-spin':''}`}/>تحديث</button>
+    </div>
+    <form onSubmit={generate} className="card grid gap-4 p-5 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+      <label className="block text-sm font-semibold">بداية الفترة<input className="input mt-1.5" type="date" value={periodStart} max={periodEnd || undefined} onChange={e=>setPeriodStart(e.target.value)} required/></label>
+      <label className="block text-sm font-semibold">نهاية الفترة<input className="input mt-1.5" type="date" value={periodEnd} min={periodStart || undefined} onChange={e=>setPeriodEnd(e.target.value)} required/></label>
+      <button type="submit" className="btn-primary inline-flex items-center justify-center gap-2" disabled={generating}><Plus className="h-4 w-4"/>{generating?'جارٍ حساب الفترة…':'توليد كشف حساب'}</button>
+      <p className="text-xs leading-5 text-neutral-500 sm:col-span-3">التوليد مقصور على مالك/مدير المؤسسة ويُنفّذ خادميًا. الفترة الواحدة تُثبّت مرة واحدة؛ لا يجري تعديل الكشف التاريخي بصمت عند إعادة الطلب.</p>
+    </form>
+    {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p>{error}</p><button type="button" onClick={()=>void load(true)} className="mt-2 font-bold underline">إعادة المحاولة</button></div>}
+    {loading ? <div className="card p-10 text-center text-sm text-neutral-500">جارٍ تحميل كشوف الحساب…</div>
+      : rows.length===0 ? <div className="card p-10 text-center"><p className="font-semibold text-neutral-700">لا توجد كشوف حساب محفوظة</p><p className="mt-1 text-sm text-neutral-500">اختر فترة ثم ولّد كشفًا من السجلات المالية الحقيقية.</p></div>
+      : <div className="card overflow-x-auto"><table className="w-full text-right text-sm"><thead className="bg-neutral-50"><tr>{['رقم الكشف','من','إلى','الرصيد الافتتاحي','فواتير الفترة','مدفوعات الفترة','الرصيد الختامي','الحالة','تاريخ التوليد'].map(label=><th key={label} className="whitespace-nowrap px-4 py-3 font-semibold text-neutral-600">{label}</th>)}</tr></thead><tbody>{rows.map(row=><tr key={row.id} className="border-t border-neutral-100"><td className="px-4 py-3 font-mono text-xs">{row.statement_number}</td><td className="px-4 py-3">{formatDate(row.period_start)}</td><td className="px-4 py-3">{formatDate(row.period_end)}</td><td className="px-4 py-3">{formatCurrency(Number(row.opening_balance)||0)}</td><td className="px-4 py-3">{formatCurrency(Number(row.total_invoiced)||0)}</td><td className="px-4 py-3">{formatCurrency(Number(row.total_paid)||0)}</td><td className="px-4 py-3 font-semibold">{formatCurrency(Number(row.closing_balance)||0)}</td><td className="px-4 py-3">{statusLabel(row.status)}</td><td className="px-4 py-3">{formatDate(row.created_at)}</td></tr>)}</tbody></table><p className="border-t border-neutral-100 px-4 py-3 text-xs text-neutral-400">كشوف محفوظة غير قابلة للتعديل المباشر عبر المتصفح. التوليد المتكرر للفترة نفسها يعيد معرف الكشف السابق.</p></div>}
+  </div>
+}
+
 export function AdminRoles() {
   return <OperationalWorkspace config={{ title: 'أعضاء المؤسسة والأدوار', description: 'أعضاء المؤسسة وتعيين الأدوار الممنوح من قاعدة البيانات.', table: 'organization_members', icon: ShieldCheck, tenantScoped: true, columns: [{key:'user_id',label:'معرّف المستخدم'},{key:'invited_email',label:'البريد المدعو'},{key:'role',label:'الدور',kind:'status'},{key:'status',label:'الحالة',kind:'status'},{key:'created_at',label:'تاريخ الإنشاء',kind:'date'}], readOnlyNote:'تغيير الأدوار ومنح الصلاحيات يتطلب تدفق تفويض مخصصاً واختبارات RLS؛ هذه الصفحة لا تعدّل الأدوار عبر المتصفح.' }} />
 }
