@@ -13,7 +13,7 @@ const imageNames = (await readdir(referenceDir))
   .sort((a, b) => a.localeCompare(b, 'en'))
 
 assert.ok(imageNames.length > 0, 'No UI reference images were found.')
-const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration, statementMigration, utilityPages, adminScreens, securityMigration, legacyApi, offlineWorker, offlineUi, mainEntry, webManifest, htmlShell, offlineBoundary, tenantSecurityMigration, authContext, registerPage] =
+const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration, statementMigration, utilityPages, adminScreens, securityMigration, legacyApi, offlineWorker, offlineUi, mainEntry, webManifest, htmlShell, offlineBoundary, tenantSecurityMigration, authContext, registerPage, routeGuards, loginPage] =
   await Promise.all([
     read('docs/ui-reference/README.md'),
     read('docs/ui-reference/UI-REFERENCE-ASSET-INDEX.md'),
@@ -44,6 +44,8 @@ const [readme, index, pricingMigration, safeProductSelect, storefront, store, ca
     read('supabase/migrations/20261014000000_harden_legacy_tenant_policies_and_org_creation.sql'),
     read('src/context/AuthContext.tsx'),
     read('src/pages/storefront/Register.tsx'),
+    read('src/components/guards/RouteGuards.tsx'),
+    read('src/pages/storefront/Login.tsx'),
   ])
 
 for (const imageName of imageNames) {
@@ -228,6 +230,12 @@ required(tenantSecurityMigration, /REVOKE ALL ON[\s\S]*public\.orders, public\.o
 required(tenantSecurityMigration, /REVOKE ALL ON public\.audit_logs, public\.outbox_events/, 'Browser clients cannot forge audit or outbox records.')
 assert.ok(tenantSecurityMigration.includes('GRANT SELECT, UPDATE (read, is_read) ON public.notifications TO authenticated'), 'Users may mark only their own notifications as read.')
 required(tenantSecurityMigration, /Preserve the activation state of pre-existing legacy organizations exactly once/, 'The upgrade must preserve legacy organization active/inactive state without activating new pending applications.')
+required(tenantSecurityMigration, /CREATE OR REPLACE FUNCTION private\.is_org_member[\s\S]*o\.status = 'active'[\s\S]*o\.is_active = true/, 'Pending, suspended or inactive tenants must not pass the active membership helper.')
+required(tenantSecurityMigration, /INSERT INTO public\.organizations \(name, email, phone, status, is_active\)[\s\S]*'pending', false/, 'New company requests must not be active before platform approval.')
+required(tenantSecurityMigration, /CREATE POLICY organizations_pending_owner_update_name[\s\S]*status = 'pending' AND is_active = false/, 'Pending owners may edit only their company name while tenant operations remain blocked.')
+required(routeGuards, /organization\.status !== 'active' \|\| !organization\.is_active/, 'Protected and admin routes must block pending tenant access.')
+required(loginPage, /navigate\(redirectTo \|\|/, 'Login must honor the server-verified pending-organization redirect.')
+required(storefront, /export function OnboardingCompany[\s\S]*create_organization_for_current_user/, 'The company onboarding page must support secure RPC-based creation when membership is missing.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
