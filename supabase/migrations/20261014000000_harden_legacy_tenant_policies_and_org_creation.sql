@@ -596,7 +596,19 @@ DROP POLICY IF EXISTS orders_customer_read_own ON public.orders;
 DROP POLICY IF EXISTS orders_active_tenant_read ON public.orders;
 CREATE POLICY orders_active_tenant_read
 ON public.orders FOR SELECT TO authenticated
-USING (private.is_org_member(organization_id));
+USING (
+  private.is_org_member(organization_id)
+  AND (
+    orders.user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = orders.organization_id
+        AND om.user_id = auth.uid()
+        AND om.status = 'active'
+        AND om.role IN ('owner','admin','manager','warehouse','accountant','sales','system_admin','customer_manager')
+    )
+  )
+);
 
 DROP POLICY IF EXISTS orditem_select_org ON public.order_items;
 DROP POLICY IF EXISTS order_items_read_staff_only ON public.order_items;
@@ -608,6 +620,16 @@ USING (EXISTS (
   SELECT 1 FROM public.orders o
   WHERE o.id = order_items.order_id
     AND private.is_org_member(o.organization_id)
+    AND (
+      o.user_id = auth.uid()
+      OR EXISTS (
+        SELECT 1 FROM public.organization_members om
+        WHERE om.organization_id = o.organization_id
+          AND om.user_id = auth.uid()
+          AND om.status = 'active'
+          AND om.role IN ('owner','admin','manager','warehouse','accountant','sales','system_admin','customer_manager')
+      )
+    )
 ));
 
 DROP POLICY IF EXISTS inv_select_org ON public.invoices;
@@ -616,7 +638,29 @@ DROP POLICY IF EXISTS invoices_customer_read_own ON public.invoices;
 DROP POLICY IF EXISTS invoices_active_tenant_read ON public.invoices;
 CREATE POLICY invoices_active_tenant_read
 ON public.invoices FOR SELECT TO authenticated
-USING (private.is_org_member(organization_id));
+USING (
+  private.is_org_member(organization_id)
+  AND (
+    EXISTS (
+      SELECT 1 FROM public.orders o
+      WHERE o.id = invoices.order_id AND o.user_id = auth.uid()
+    )
+    OR EXISTS (
+      SELECT 1 FROM public.customers c
+      JOIN public.profiles p ON p.id = c.profile_id
+      WHERE c.id = invoices.customer_id
+        AND p.auth_user_id = auth.uid()
+        AND private.is_org_member(c.organization_id)
+    )
+    OR EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = invoices.organization_id
+        AND om.user_id = auth.uid()
+        AND om.status = 'active'
+        AND om.role IN ('owner','admin','manager','accountant','sales','customer_manager','system_admin')
+    )
+  )
+);
 
 DROP POLICY IF EXISTS pay_select_org ON public.payments;
 DROP POLICY IF EXISTS payments_read_staff_only ON public.payments;
@@ -624,7 +668,30 @@ DROP POLICY IF EXISTS payments_customer_read_own ON public.payments;
 DROP POLICY IF EXISTS payments_active_tenant_read ON public.payments;
 CREATE POLICY payments_active_tenant_read
 ON public.payments FOR SELECT TO authenticated
-USING (private.is_org_member(organization_id));
+USING (
+  private.is_org_member(organization_id)
+  AND (
+    EXISTS (
+      SELECT 1 FROM public.invoices i
+      JOIN public.orders o ON o.id = i.order_id
+      WHERE i.id = payments.invoice_id AND o.user_id = auth.uid()
+    )
+    OR EXISTS (
+      SELECT 1 FROM public.invoices i
+      JOIN public.customers c ON c.id = i.customer_id
+      JOIN public.profiles p ON p.id = c.profile_id
+      WHERE i.id = payments.invoice_id AND p.auth_user_id = auth.uid()
+        AND private.is_org_member(c.organization_id)
+    )
+    OR EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = payments.organization_id
+        AND om.user_id = auth.uid()
+        AND om.status = 'active'
+        AND om.role IN ('owner','admin','manager','accountant','sales','customer_manager','system_admin')
+    )
+  )
+);
 
 DROP POLICY IF EXISTS stmt_select_org ON public.statements;
 DROP POLICY IF EXISTS statements_active_tenant_read ON public.statements;
