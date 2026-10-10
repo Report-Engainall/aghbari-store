@@ -332,7 +332,7 @@ export function Catalog() {
       })
   }
   useEffect(() => { load() }, [organization?.id])
-  const filtered = rows.filter(row => `${row.name} ${row.name_ar||''} ${row.sku} ${row.item_code||''}`.toLowerCase().includes(query.toLowerCase()))
+  const filtered = rows.filter(row => `${row.name} ${row.name_ar||''} ${row.sku}`.toLowerCase().includes(query.toLowerCase()))
 
   return <AdminPage title="الكتالوج" description="منتجات المؤسسة الحالية وأسعارها ومخزونها؛ تُطبّق RLS مع نطاق المؤسسة." icon={Package} action={<button type="button" onClick={load} className="btn-secondary btn-sm"><RefreshCw className="h-4 w-4"/> تحديث</button>}>
     <div className="mb-4 max-w-sm"><input className="input" value={query} onChange={event=>setQuery(event.target.value)} placeholder="بحث بالاسم أو SKU" aria-label="بحث المنتجات"/></div>
@@ -340,7 +340,7 @@ export function Catalog() {
       <Table headers={['المنتج','SKU / رمز الصنف','السعر الأساسي','التجزئة','الجملة','كمية النظام','الحالة']}>
         {filtered.map(row=><tr className="border-t border-neutral-100 hover:bg-neutral-50" key={row.id}>
           <td className="p-4 font-semibold">{row.name_ar||row.name}</td>
-          <td className="p-4 font-mono text-xs">{row.sku||row.item_code||'—'}</td>
+          <td className="p-4 font-mono text-xs">{row.sku||'—'}</td>
           <td className="p-4">{formatCurrency(row.base_price||row.price||0)}</td>
           <td className="p-4">{formatCurrency(row.retail_price||row.price||0)}</td>
           <td className="p-4">{formatCurrency(row.wholesale_price||row.bulk_price||0)}</td>
