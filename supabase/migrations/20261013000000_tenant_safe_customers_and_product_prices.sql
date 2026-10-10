@@ -283,12 +283,10 @@ DECLARE
   v_old jsonb;
   v_new jsonb;
 BEGIN
-  IF v_user_id IS NULL THEN
-    IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
+  IF v_user_id IS NOT NULL THEN
+    SELECT p.id INTO v_actor_profile_id
+    FROM public.profiles p WHERE p.auth_user_id = v_user_id LIMIT 1;
   END IF;
-
-  SELECT p.id INTO v_actor_profile_id
-  FROM public.profiles p WHERE p.auth_user_id = v_user_id LIMIT 1;
 
   IF TG_OP = 'INSERT' THEN
     v_action := 'product.created';
