@@ -1734,7 +1734,7 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, private
-AS $
+AS $$
 DECLARE
   v_organization_id uuid;
   v_rule_id uuid;
