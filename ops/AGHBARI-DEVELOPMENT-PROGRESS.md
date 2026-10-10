@@ -126,3 +126,14 @@ Use one entry per execution run. Keep implementation, verification, proof and de
 - **Tenant-switch recovery:** if the upload claim is created but the organization changes before CSV processing starts, `abandon_staged_import_claim` marks the staged row retryable and writes an audit record; an organization-scoped fallback is present if the RPC fails.
 - **Integration acceptance:** PostgreSQL 17 workflow launches two concurrent claim sessions and two concurrent retry sessions, then asserts shared upload ID, one creation winner, one failed-retry winner, one transactional audit event, denied direct INSERT/DELETE, immutable upload identity, and recovery of an abandoned staged upload.
 - **Pending:** build and SQL migration concurrency smoke tests must pass on the final exact PR head. Prior CI from main/PR #5 does not verify this new migration. Browser E2E and live Supabase deployment are not claimed.
+
+
+## Run update — PR #6 merged: concurrency-safe import upload claims (2026-10-10)
+
+- **Merge:** PR #6 merged into main by squash, SHA `b940e3a8b5581b63b72589b4354687781574ece5`.
+- **Exact PR head:** `e68403226836040dbfe5d4b77c0a9b0d22b02acc` — Build PASS, PostgreSQL 17 SQL Migration Chain PASS, Backup Tool Safety Checks PASS.
+- **Build:** contract checks, TypeScript, Vite and the 500,000-byte entry budget passed on the exact PR head.
+- **SQL concurrency evidence:** two same-hash upload claim sessions returned one shared upload ID with exactly one creator; only one concurrent failed retry won; anon/authenticated INSERT/DELETE were denied on `import_uploads`; identity update was rejected by trigger; abandoned staged claim became `failed|IMPORT_CONTEXT_CHANGED` with one audit event. The full PostgreSQL 17 workflow then passed its existing order/payment, inventory/procurement/finance, tenant-isolation and product-price checks.
+- **Follow-up after failures:** fixed the claim winner counter to compare text `true/false`; changed privilege check to compare all four explicit role/privilege flags; escaped the SQL dollar-quote tag in an unquoted shell heredoc. The final exact PR head passed after all corrections.
+- **Post-merge:** Build and Backup Tool Safety Checks launched on merge SHA `b940e3a8b5581b63b72589b4354687781574ece5`; verify final outcomes after the documentation commits.
+- **Next:** DQS edge-case tests and explicit review/merge contract. CSV remains Snapshot-only; Excel/PDF remain manual-review metadata until parsers are implemented. No live production deploy or browser E2E is claimed.
