@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, Building2, User, Mail, Lock, Phone } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/components/ui/Toast'
-import { supabase } from '@/lib/supabase'
 
 export default function Register() {
   const { signUp } = useAuth()
@@ -20,13 +19,8 @@ export default function Register() {
     if (form.password !== form.confirmPassword) { setError('كلمات المرور غير متطابقة'); return }
     if (form.password.length < 6) { setError('كلمة المرور يجب أن تكون 6 أحرف على الأقل'); return }
     setLoading(true)
-    const { error: signUpError } = await signUp(form.email, form.password, form.fullName)
+    const { error: signUpError } = await signUp(form.email, form.password, form.fullName, form.companyName, form.phone)
     if (signUpError) { setError(signUpError); setLoading(false); return }
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      const { data: org } = await supabase.from('organizations').insert({ name: form.companyName, email: form.email, phone: form.phone, status: 'pending' }).select().single()
-      if (org) await supabase.from('organization_members').insert({ organization_id: org.id, user_id: user.id, role: 'owner', status: 'active' })
-    }
     setLoading(false); show('success', 'تم إنشاء الحساب', 'سيتم مراجعة طلبك قريباً'); navigate('/account/pending')
   }
 
