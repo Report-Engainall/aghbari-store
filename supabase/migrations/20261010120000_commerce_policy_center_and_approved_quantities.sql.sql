@@ -25,6 +25,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_organization_slug
   ON public.categories(organization_id, slug);
 
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS approved_quantity numeric(15,3);
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS unit_multiplier_snapshot integer NOT NULL DEFAULT 1 CHECK (unit_multiplier_snapshot >= 1);
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_items integer NOT NULL DEFAULT 0;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_amount numeric(15,2) NOT NULL DEFAULT 0;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS subtotal numeric(14,2) NOT NULL DEFAULT 0;
