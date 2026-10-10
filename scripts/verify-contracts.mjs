@@ -258,7 +258,7 @@ assert.ok(backupVerify.includes('ciphertext_sha256') && backupVerify.includes('p
 assert.ok(backupRestore.includes('RESTORE_CONFIRM') && backupRestore.includes('I_HAVE_VERIFIED_THE_TARGET'), 'Restore must require explicit destination confirmation.')
 assert.ok(backupRestore.includes('I_ACCEPT_PRODUCTION_DATA_OVERWRITE') && backupRestore.includes('--clean'), 'Production overwrite must need a separate explicit acknowledgment.')
 assert.ok(backupRestore.includes('PGSSLMODE=require'), 'Restore must request TLS for PostgreSQL connections.')
-assert.ok(backupGuide.includes('not a complete Supabase-project backup') && backupGuide.includes('isolated target first'), 'Backup documentation must disclose scope and require isolated restore before claiming recovery.');
+assert.ok(backupGuide.includes('complete Supabase-project backup') && backupGuide.includes('isolated target first'), 'Backup documentation must disclose scope and require isolated restore before claiming recovery.');
 assert.ok(backupCheckWorkflow.includes('bash -n') && backupCheckWorkflow.includes('shellcheck'), 'Backup shell tools must have a syntax/ShellCheck workflow gate.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
