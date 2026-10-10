@@ -132,8 +132,19 @@ jobs:
               RAISE EXCEPTION 'legacy active organizations were incorrectly downgraded to pending';
             END IF;
             IF has_function_privilege('anon', 'public.create_organization_for_current_user(text,text,text)', 'EXECUTE')
-              OR NOT has_function_privilege('authenticated', 'public.create_organization_for_current_user(text,text,text)', 'EXECUTE') THEN
-              RAISE EXCEPTION 'organization creation RPC grants are incorrect';
+              OR NOT has_function_privilege('authenticated', 'public.create_organization_for_current_user(text,text,text)', 'EXECUTE')
+              OR has_function_privilege('anon', 'public.is_platform_admin()', 'EXECUTE')
+              OR NOT has_function_privilege('authenticated', 'public.is_platform_admin()', 'EXECUTE')
+              OR has_function_privilege('anon', 'public.list_pending_organizations()', 'EXECUTE')
+              OR NOT has_function_privilege('authenticated', 'public.list_pending_organizations()', 'EXECUTE')
+              OR has_function_privilege('anon', 'public.review_organization(uuid,text,text)', 'EXECUTE')
+              OR NOT has_function_privilege('authenticated', 'public.review_organization(uuid,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'organization onboarding/review RPC grants are incorrect';
+            END IF;
+            IF has_table_privilege('authenticated', 'public.user_roles', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.user_roles', 'UPDATE')
+              OR has_table_privilege('authenticated', 'public.user_roles', 'DELETE') THEN
+              RAISE EXCEPTION 'browser roles can grant global platform administrator privileges';
             END IF;
             IF NOT EXISTS (
               SELECT 1 FROM information_schema.columns
@@ -224,6 +235,11 @@ jobs:
           END
           $organization_audit_smoke$;
 
+          -- Also test rejection of a separate pending organization.
+          INSERT INTO public.organizations (id, name, email, status, is_active)
+          VALUES ('a1000000-0000-4000-8000-000000000097', 'Aghbari CI Rejected Company',
+                  'aghbari-ci-org-reject@example.invalid', 'pending', false);
+
           -- A platform administrator is provisioned in the trusted test bootstrap, then uses
           -- the same audited RPC as the application to approve the tenant.
           INSERT INTO auth.users (id, email)
@@ -243,6 +259,7 @@ jobs:
             v_org_id uuid;
             v_count integer;
             v_result jsonb;
+            v_rejection_result jsonb;
             v_status text;
             v_is_active boolean;
           BEGIN
@@ -271,6 +288,21 @@ jobs:
             IF v_status <> 'active' OR v_is_active IS DISTINCT FROM true THEN
               RAISE EXCEPTION 'platform approval did not activate organization atomically';
             END IF;
+
+            v_rejection_result := public.review_organization(
+              'a1000000-0000-4000-8000-000000000097',
+              'reject',
+              'CI rejection smoke test'
+            );
+            IF v_rejection_result->>'status' <> 'inactive' OR v_rejection_result->>'is_active' <> 'false' THEN
+              RAISE EXCEPTION 'platform rejection RPC returned incorrect inactive state';
+            END IF;
+
+            SELECT status, is_active INTO v_status, v_is_active
+            FROM public.organizations WHERE id = 'a1000000-0000-4000-8000-000000000097';
+            IF v_status <> 'inactive' OR v_is_active IS DISTINCT FROM false THEN
+              RAISE EXCEPTION 'platform rejection did not deactivate organization';
+            END IF;
           END
           $platform_approval_smoke$;
           RESET ROLE;
@@ -293,6 +325,12 @@ jobs:
             )
               AND action = 'organization.approved';
             IF v_count <> 1 THEN RAISE EXCEPTION 'platform approval must write exactly one audit record'; END IF;
+
+            SELECT count(*) INTO v_count
+            FROM public.audit_logs
+            WHERE organization_id = 'a1000000-0000-4000-8000-000000000097'
+              AND action = 'organization.rejected';
+            IF v_count <> 1 THEN RAISE EXCEPTION 'platform rejection must write exactly one audit record'; END IF;
           END
           $approved_tenant_fixture$;
 
