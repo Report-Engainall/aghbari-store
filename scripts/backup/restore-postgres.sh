@@ -42,6 +42,40 @@ backup_file="$1"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGE_IDENTITY_FILE="$AGE_IDENTITY_FILE" "$script_dir/verify-encrypted-backup.sh" "$backup_file"
 
+# Production-labelled recovery takes a fresh encrypted snapshot of the current target
+# before any destructive restore. Keep this artifact in independent durable storage.
+if [[ "$target_normalized" == "production" || "$target_normalized" == "prod" || "$target_normalized" == "live" ]]; then
+  : "${BACKUP_AGE_RECIPIENT:?Production restore requires BACKUP_AGE_RECIPIENT to protect the pre-restore snapshot}"
+  : "${RESTORE_PRE_RESTORE_BACKUP_DIR:?Production restore requires a separate durable RESTORE_PRE_RESTORE_BACKUP_DIR}"
+  if [[ "$RESTORE_PRE_RESTORE_BACKUP_DIR" == "/" || "$RESTORE_PRE_RESTORE_BACKUP_DIR" == "." ]]; then
+    printf 'Production restore blocked: select a dedicated backup directory outside the repository root.\\n' >&2
+    exit 1
+  fi
+  if [[ -e "$RESTORE_PRE_RESTORE_BACKUP_DIR" && ! -d "$RESTORE_PRE_RESTORE_BACKUP_DIR" ]]; then
+    printf 'Production restore blocked: pre-restore backup path exists and is not a directory.\\n' >&2
+    exit 1
+  fi
+  mkdir -p "$RESTORE_PRE_RESTORE_BACKUP_DIR"
+  if find "$RESTORE_PRE_RESTORE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+    printf 'Production restore blocked: pre-restore backup directory must be empty to prevent confusing old artifacts with the current snapshot.\\n' >&2
+    exit 1
+  fi
+
+  SUPABASE_DB_URL="$RESTORE_DB_URL" \\
+    BACKUP_AGE_RECIPIENT="$BACKUP_AGE_RECIPIENT" \\
+    BACKUP_OUTPUT_DIR="$RESTORE_PRE_RESTORE_BACKUP_DIR" \\
+    BACKUP_GIT_SHA="${GITHUB_SHA:-manual-restore}" \\
+    bash "$script_dir/create-encrypted-backup.sh"
+
+  safety_backups=( "$RESTORE_PRE_RESTORE_BACKUP_DIR"/aghbari-postgres-*.dump.age )
+  if [[ ${#safety_backups[@]} -ne 1 || ! -s "${safety_backups[0]}" ]]; then
+    printf 'Production restore blocked: the pre-restore encrypted artifact was not created unambiguously.\\n' >&2
+    exit 1
+  fi
+  AGE_IDENTITY_FILE="$AGE_IDENTITY_FILE" "$script_dir/verify-encrypted-backup.sh" "${safety_backups[0]}"
+  printf 'Verified pre-restore snapshot retained at: %s\\n' "$RESTORE_PRE_RESTORE_BACKUP_DIR"
+fi
+
 temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/aghbari-restore.XXXXXX")"
 cleanup() { rm -rf "$temporary_dir"; }
 trap cleanup EXIT
