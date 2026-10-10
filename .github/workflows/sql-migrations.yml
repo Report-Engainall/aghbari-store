@@ -97,6 +97,29 @@ jobs:
               OR has_table_privilege('authenticated', 'public.organization_members', 'DELETE') THEN
               RAISE EXCEPTION 'browser roles can mutate organization memberships directly';
             END IF;
+            IF has_table_privilege('authenticated', 'public.orders', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.orders', 'UPDATE')
+              OR has_table_privilege('authenticated', 'public.orders', 'DELETE')
+              OR has_table_privilege('authenticated', 'public.order_items', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.invoices', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.payments', 'INSERT') THEN
+              RAISE EXCEPTION 'order and billing DML must be limited to privileged RPCs';
+            END IF;
+            IF has_table_privilege('authenticated', 'public.order_status_history', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.order_status_history', 'UPDATE')
+              OR has_table_privilege('authenticated', 'public.order_status_history', 'DELETE')
+              OR has_table_privilege('authenticated', 'public.audit_logs', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.audit_logs', 'UPDATE')
+              OR has_table_privilege('authenticated', 'public.outbox_events', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.outbox_events', 'DELETE') THEN
+              RAISE EXCEPTION 'audit/outbox/order history must be immutable to browser roles';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM public.organizations
+              WHERE status = 'pending' AND is_active = true
+            ) THEN
+              RAISE EXCEPTION 'legacy active organizations were incorrectly downgraded to pending';
+            END IF;
             IF has_function_privilege('anon', 'public.create_organization_for_current_user(text,text,text)', 'EXECUTE')
               OR NOT has_function_privilege('authenticated', 'public.create_organization_for_current_user(text,text,text)', 'EXECUTE') THEN
               RAISE EXCEPTION 'organization creation RPC grants are incorrect';
