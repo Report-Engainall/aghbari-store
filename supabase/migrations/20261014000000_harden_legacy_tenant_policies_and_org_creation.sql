@@ -518,9 +518,17 @@ DROP POLICY IF EXISTS wish_select_own ON public.wishlist_items;
 DROP POLICY IF EXISTS wish_insert_own ON public.wishlist_items;
 DROP POLICY IF EXISTS wish_delete_own ON public.wishlist_items;
 DROP POLICY IF EXISTS wish_insert_own_active_tenant ON public.wishlist_items;
-CREATE POLICY wish_select_own
+DROP POLICY IF EXISTS wish_select_own_active_tenant ON public.wishlist_items;
+CREATE POLICY wish_select_own_active_tenant
 ON public.wishlist_items FOR SELECT TO authenticated
-USING (user_id = auth.uid());
+USING (
+  user_id = auth.uid()
+  AND EXISTS (
+    SELECT 1 FROM public.products p
+    WHERE p.id = wishlist_items.product_id
+      AND private.is_org_member(p.organization_id)
+  )
+);
 CREATE POLICY wish_insert_own_active_tenant
 ON public.wishlist_items FOR INSERT TO authenticated
 WITH CHECK (
