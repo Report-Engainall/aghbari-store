@@ -465,6 +465,19 @@ jobs:
             'CI-CUSTOMER-OTHER', 'Other Tenant Customer'
           );
 
+          UPDATE public.organization_members
+          SET role='sales', status='active'
+          WHERE organization_id='a1000000-0000-4000-8000-000000000001'
+            AND user_id='a2000000-0000-4000-8000-000000000002';
+          INSERT INTO public.organization_members (organization_id,user_id,role,status)
+          SELECT 'a1000000-0000-4000-8000-000000000001',
+                 'a2000000-0000-4000-8000-000000000002','sales','active'
+          WHERE NOT EXISTS (
+            SELECT 1 FROM public.organization_members
+            WHERE organization_id='a1000000-0000-4000-8000-000000000001'
+              AND user_id='a2000000-0000-4000-8000-000000000002'
+          );
+
           SELECT set_config('request.jwt.claim.sub', 'a2000000-0000-4000-8000-000000000001', false);
           SET ROLE authenticated;
 
@@ -474,6 +487,8 @@ jobs:
             v_other_org_customers integer;
             v_admin_catalog_own integer;
             v_admin_catalog_other integer;
+            v_role_change_guard boolean := false;
+            v_role_result jsonb;
           BEGIN
             SELECT count(*) INTO v_same_org_customers
             FROM public.customers
@@ -529,6 +544,48 @@ jobs:
                                    'audit_select_auth','ai_select_auth','aialert_select_auth','implog_select_auth')
             ) THEN
               RAISE EXCEPTION 'legacy self-escalation or cross-tenant authenticated-wide policy remains';
+            END IF;
+
+            v_role_result := public.update_organization_member_role(
+              'a1000000-0000-4000-8000-000000000001',
+              'a2000000-0000-4000-8000-000000000002',
+              'manager'
+            );
+            IF v_role_result->>'new_role' <> 'manager' OR NOT EXISTS (
+              SELECT 1 FROM public.organization_members
+              WHERE organization_id='a1000000-0000-4000-8000-000000000001'
+                AND user_id='a2000000-0000-4000-8000-000000000002'
+                AND role='manager' AND status='active'
+            ) THEN
+              RAISE EXCEPTION 'authorized organization role change did not persist';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM public.audit_logs
+              WHERE organization_id='a1000000-0000-4000-8000-000000000001'
+                AND actor_id='a3000000-0000-4000-8000-000000000001'
+                AND action='organization_member.role_changed'
+                AND entity_id='a2000000-0000-4000-8000-000000000002'
+            ) THEN
+              RAISE EXCEPTION 'organization role change audit record missing';
+            END IF;
+
+            v_role_change_guard := false;
+            BEGIN
+              PERFORM public.update_organization_member_role(
+                'a1000000-0000-4000-8000-000000000001',
+                'a2000000-0000-4000-8000-000000000001',
+                'manager'
+              );
+              RAISE EXCEPTION 'expected_self_role_change_guard_not_triggered';
+            EXCEPTION WHEN OTHERS THEN
+              IF SQLERRM = 'self_role_change_forbidden' THEN
+                v_role_change_guard := true;
+              ELSE
+                RAISE;
+              END IF;
+            END;
+            IF NOT v_role_change_guard THEN
+              RAISE EXCEPTION 'self role change was not rejected';
             END IF;
           END;
           $ci_tenant_price_boundary$;
