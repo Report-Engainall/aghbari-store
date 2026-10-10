@@ -426,6 +426,87 @@ jobs:
           RESET ROLE;
           SQL
 
+      - name: Verify tenant isolation and product-price column privileges
+        run: |
+          psql --set ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth.users (id, email)
+          VALUES ('a2000000-0000-4000-8000-000000000002', 'aghbari-ci-other@example.invalid')
+          ON CONFLICT (id) DO NOTHING;
+
+          INSERT INTO public.profiles (id, auth_user_id, organization_id, full_name, email)
+          VALUES (
+            'a3000000-0000-4000-8000-000000000002',
+            'a2000000-0000-4000-8000-000000000002',
+            'a1000000-0000-4000-8000-000000000002',
+            'Aghbari CI Other Tenant User',
+            'aghbari-ci-other@example.invalid'
+          )
+          ON CONFLICT (id) DO NOTHING;
+
+          INSERT INTO public.customers (
+            organization_id, profile_id, customer_code, business_name, tier, status
+          ) VALUES (
+            'a1000000-0000-4000-8000-000000000002',
+            'a3000000-0000-4000-8000-000000000002',
+            'CI-CUSTOMER-OTHER', 'Other Tenant Customer', 'wholesale', 'approved'
+          )
+          ON CONFLICT (organization_id, customer_code) DO NOTHING;
+
+          SELECT set_config('request.jwt.claim.sub', 'a2000000-0000-4000-8000-000000000001', false);
+          SET ROLE authenticated;
+
+          DO $ci_tenant_price_boundary$
+          DECLARE
+            v_same_org_customers integer;
+            v_other_org_customers integer;
+            v_admin_catalog_own integer;
+            v_admin_catalog_other integer;
+          BEGIN
+            SELECT count(*) INTO v_same_org_customers
+            FROM public.customers
+            WHERE organization_id = 'a1000000-0000-4000-8000-000000000001';
+            IF v_same_org_customers < 1 THEN
+              RAISE EXCEPTION 'active organization member cannot read same-tenant customer records';
+            END IF;
+
+            SELECT count(*) INTO v_other_org_customers
+            FROM public.customers
+            WHERE organization_id = 'a1000000-0000-4000-8000-000000000002';
+            IF v_other_org_customers <> 0 THEN
+              RAISE EXCEPTION 'customer RLS exposes another tenant''s customer records';
+            END IF;
+
+            IF has_column_privilege('anon', 'public.products', 'base_price', 'SELECT')
+               OR has_column_privilege('anon', 'public.products', 'cost_price', 'SELECT')
+               OR has_column_privilege('authenticated', 'public.products', 'base_price', 'SELECT')
+               OR has_column_privilege('authenticated', 'public.products', 'cost_price', 'SELECT') THEN
+              RAISE EXCEPTION 'product financial columns remain directly selectable by browser roles';
+            END IF;
+
+            IF NOT has_column_privilege('anon', 'public.products', 'name', 'SELECT')
+               OR NOT has_column_privilege('authenticated', 'public.products', 'sku', 'SELECT') THEN
+              RAISE EXCEPTION 'safe product catalog columns were accidentally revoked';
+            END IF;
+
+            SELECT count(*) INTO v_admin_catalog_own
+            FROM public.admin_product_catalog
+            WHERE organization_id = 'a1000000-0000-4000-8000-000000000001';
+            IF v_admin_catalog_own < 1 THEN
+              RAISE EXCEPTION 'tenant staff cannot read their authorized admin product catalog';
+            END IF;
+
+            SELECT count(*) INTO v_admin_catalog_other
+            FROM public.admin_product_catalog
+            WHERE organization_id = 'a1000000-0000-4000-8000-000000000002';
+            IF v_admin_catalog_other <> 0 THEN
+              RAISE EXCEPTION 'admin product catalog view exposes another tenant';
+            END IF;
+          END;
+          $ci_tenant_price_boundary$;
+
+          RESET ROLE;
+          SQL
+
       - name: Verify required post-migration contracts
         run: |
           psql --set ON_ERROR_STOP=1 --tuples-only --no-align <<'SQL'
