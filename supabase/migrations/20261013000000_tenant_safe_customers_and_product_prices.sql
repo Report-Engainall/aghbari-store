@@ -85,7 +85,7 @@ USING (
   NULLIF(COALESCE(to_jsonb(ai_tasks)->>'organization_id', to_jsonb(ai_tasks)->>'org_id'), '') IS NOT NULL
   AND EXISTS (
     SELECT 1 FROM public.organization_members om
-    WHERE om.organization_id = NULLIF(COALESCE(to_jsonb(ai_tasks)->>'organization_id', to_jsonb(ai_tasks)->>'org_id'), '')::uuid
+    WHERE om.organization_id::text = NULLIF(COALESCE(to_jsonb(ai_tasks)->>'organization_id', to_jsonb(ai_tasks)->>'org_id'), '')
       AND om.user_id = auth.uid() AND om.status = 'active'
       AND om.role IN ('owner','admin','manager')
   )
@@ -98,7 +98,7 @@ USING (
   NULLIF(COALESCE(to_jsonb(ai_alerts)->>'organization_id', to_jsonb(ai_alerts)->>'org_id'), '') IS NOT NULL
   AND EXISTS (
     SELECT 1 FROM public.organization_members om
-    WHERE om.organization_id = NULLIF(COALESCE(to_jsonb(ai_alerts)->>'organization_id', to_jsonb(ai_alerts)->>'org_id'), '')::uuid
+    WHERE om.organization_id::text = NULLIF(COALESCE(to_jsonb(ai_alerts)->>'organization_id', to_jsonb(ai_alerts)->>'org_id'), '')
       AND om.user_id = auth.uid() AND om.status = 'active'
       AND om.role IN ('owner','admin','manager')
   )
@@ -110,8 +110,8 @@ CREATE POLICY import_logs_member_read ON public.import_logs FOR SELECT TO authen
 USING (
   EXISTS (
     SELECT 1 FROM public.import_uploads iu
-    WHERE iu.id = NULLIF(COALESCE(to_jsonb(import_logs)->>'upload_id',
-                                 to_jsonb(import_logs)->>'import_upload_id'), '')::uuid
+    WHERE iu.id::text = NULLIF(COALESCE(to_jsonb(import_logs)->>'upload_id',
+                                      to_jsonb(import_logs)->>'import_upload_id'), '')
       AND EXISTS (
         SELECT 1 FROM public.organization_members om
         WHERE om.organization_id = iu.organization_id AND om.user_id = auth.uid()
@@ -120,7 +120,7 @@ USING (
   )
   OR EXISTS (
     SELECT 1 FROM public.organization_members om
-    WHERE om.organization_id = NULLIF(to_jsonb(import_logs)->>'organization_id', '')::uuid
+    WHERE om.organization_id::text = NULLIF(to_jsonb(import_logs)->>'organization_id', '')
       AND om.user_id = auth.uid() AND om.status = 'active'
       AND om.role IN ('owner','admin','manager')
   )
