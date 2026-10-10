@@ -85,7 +85,7 @@
 - **Next exact action:** continue with the unified import engine’s tenant-switch stale-response and duplicate-upload race handling, keeping real parsers and live-data merge behavior explicitly gated. Production deployment remains on HOLD.
 
 
-## Entry bundle budget guard — verified on PR head 658382a5b09e4ef0363f7e1af11e16bf01263fe
+## Entry bundle budget guard — verified on PR head 658382a5b09e4ef0363f7e1af11b2e0cc93581c4
 
 - Added scripts/verify-bundle-budget.mjs; it requires exactly one non-empty Vite entry file matching index-*.js, computes actual gzip bytes, and fails the build if the uncompressed entry exceeds **500,000 bytes**.
 - The production build command now runs the guard after vite build; this converts the measured improvement into an enforced regression budget.
