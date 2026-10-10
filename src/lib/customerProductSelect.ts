@@ -8,7 +8,7 @@ export const CUSTOMER_PRODUCT_SELECT = [
   'id', 'organization_id', 'category_id', 'brand_id',
   'sku', 'name', 'name_ar', 'slug', 'description', 'unit',
   'box_quantity', 'carton_quantity', 'min_order_qty',
-  'stock_quantity', 'reserved_stock', 'weight', 'barcode',
+  'stock_quantity', 'barcode',
   'image_url', 'is_active', 'is_featured', 'is_new', 'tags',
   'created_at', 'updated_at',
   'category:categories(id,name,slug)',
