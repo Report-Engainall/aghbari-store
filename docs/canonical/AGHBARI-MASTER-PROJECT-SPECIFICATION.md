@@ -191,6 +191,8 @@ Require a verifiable structured table before mapping PDF input. If non-tabular o
 - Prevent temporal overlap/double counting, preserve period and snapshot IDs, reject future-data leakage.
 - Retention log includes upload_id, expires_at, purge_status and purged_at.
 
+The general-file upload key must not rely solely on a unique constraint whose period columns are NULL. Use a tenant/profile/hash/period claim with a non-null normalized period key and claim it transactionally before creating an upload row. Preserve all historical upload rows when backfilling canonical claim pointers; never silently delete duplicate history. The only supported browser entry point for a new upload is the authorized claim RPC, which creates its initial row atomically and emits an audit event. Failed CSV retries must atomically claim the failed status before partial-row cleanup so only one concurrent retry proceeds. Upload identity fields are immutable after creation. A claim abandoned before parsing begins because the active organization changed must become a retryable, audited failure, not remain stuck in staged state.
+
 # F. Pricing, cart, orders, accounting and fulfillment
 
 ## F1. Pricing rule engine

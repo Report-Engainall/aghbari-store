@@ -697,6 +697,7 @@ export function Import() {
 
   const retryFailedImport = async () => {
     if (!file || !organization?.id || !profileId || !duplicate?.uploadId || !importContextReady) return
+    if (duplicate.profileId !== profileId) { setMessage('الملف الفاشل مرتبط بملف تعريف مختلف؛ أعد اختيار ملف التعريف الصحيح أولاً.'); return }
     const organizationId = organization.id
     const requestNumber = loadRequestIdRef.current
     const selectedProfile = visibleProfiles.find(entry => String(entry.id) === profileId)
@@ -732,8 +733,17 @@ export function Import() {
       if (!isCurrentImportContext(organizationId, requestNumber)) return
       const reason = err instanceof Error ? err.message : 'تعذر إعادة المعالجة.'
       const cancelled = reason === 'IMPORT_CANCELLED'
-      setMessage(cancelled ? 'أُلغيت المعالجة. السجلات الجزئية ستُنظف قبل المحاولة التالية.' : reason === 'FILE_HASH_CHANGED' ? 'الملف المختار لا يطابق البصمة الأصلية.' : reason)
-      show(cancelled ? 'warning' : 'error', cancelled ? 'أُلغيت المعالجة' : 'تعذرت إعادة المعالجة')
+      const retryAlreadyClaimed = reason === 'IMPORT_RETRY_ALREADY_CLAIMED'
+      if (retryAlreadyClaimed) setDuplicate(current => current ? { ...current, status: 'detecting' } : current)
+      const userMessage = cancelled
+        ? 'أُلغيت المعالجة. السجلات الجزئية ستُنظف قبل المحاولة التالية.'
+        : reason === 'FILE_HASH_CHANGED'
+          ? 'الملف المختار لا يطابق البصمة الأصلية.'
+          : retryAlreadyClaimed
+            ? 'إعادة معالجة هذا الملف بدأت بالفعل في جلسة أخرى؛ لن نشغّل محاولة متزامنة ثانية.'
+            : reason
+      setMessage(userMessage)
+      show(cancelled ? 'warning' : 'error', cancelled ? 'أُلغيت المعالجة' : retryAlreadyClaimed ? 'إعادة المعالجة جارية' : 'تعذرت إعادة المعالجة')
       await load(true)
     } finally {
       abortControllerRef.current = null
@@ -759,19 +769,63 @@ export function Import() {
     try {
       const fileHash = await hashFile(file)
       if (!isCurrentImportContext(organizationId, requestNumber)) return
-      const { data: existing, error: checkError } = await supabase.from('import_uploads').select('id, file_name, status')
-        .eq('organization_id', organization.id).eq('profile_id', profileId).eq('file_hash', fileHash)
-        .is('period_start', null).is('period_end', null).maybeSingle()
-      if (!isCurrentImportContext(organizationId, requestNumber)) return
-      if (checkError) throw checkError
-      if (existing) {
-        if (String(existing.status) === 'failed' && ext === 'csv') {
-          setDuplicate({ fileHash, profileId, uploadId: String(existing.id), status: String(existing.status) })
-          setMessage('يوجد تشغيل سابق فاشل لهذا الملف؛ يمكنك إعادة المعالجة من البداية مع حذف سجلات Snapshot الجزئية الخاصة بذلك التشغيل.')
-        } else {
-          setDuplicate({ fileHash, profileId, status: String(existing.status) })
-          setMessage('الملف مكرر بالبصمة نفسها: ' + existing.file_name + '. اختر تجاهله أو إنشاء نسخة جديدة من ملف التعريف.')
+
+      const manualReviewMessage = ext === 'pdf'
+        ? 'لم يتم ربط مستخرج الجداول من PDF بعد. يتطلب الملف تعييناً ومراجعة يدوية ولا تُولد صفوف مفترضة.'
+        : 'لم يتم ربط قارئ Excel بعد. سُجل الملف كبصمة وبيانات وصفية فقط ولم تتم معالجته.'
+      const { data: claimData, error: claimError } = await supabase.rpc('claim_import_upload', {
+        p_organization_id: organizationId,
+        p_profile_id: profileId,
+        p_file_name: file.name,
+        p_file_type: ext,
+        p_file_size: file.size,
+        p_file_hash: fileHash,
+        p_period_start: null,
+        p_period_end: null,
+        p_expires_at: new Date(Date.now() + policies.import_retention_days * 86400000).toISOString(),
+        p_initial_status: ext === 'csv' ? 'staged' : 'manual_review',
+        p_error_code: ext === 'csv' ? null : 'PARSER_NOT_AVAILABLE',
+        p_error_message: ext === 'csv' ? null : manualReviewMessage,
+      })
+      if (claimError) {
+        if (!isCurrentImportContext(organizationId, requestNumber)) return
+        throw claimError
+      }
+      const claimRow = Array.isArray(claimData) ? claimData[0] as Record<string, unknown> | undefined : undefined
+      if (!claimRow) {
+        if (!isCurrentImportContext(organizationId, requestNumber)) return
+        throw new Error('IMPORT_CLAIM_RESPONSE_MISSING')
+      }
+      const claimedUploadId = String(claimRow.claimed_upload_id || '')
+      const wasCreated = claimRow.was_created === true
+
+      if (!isCurrentImportContext(organizationId, requestNumber)) {
+        if (wasCreated && ext === 'csv' && claimedUploadId) {
+          // The upload claim committed, but the page context changed before parsing began.
+          // Transition the unstarted row to failed so the next attempt can retry it safely.
+          const { error: abandonError } = await supabase.rpc('abandon_staged_import_claim', {
+            p_organization_id: organizationId,
+            p_upload_id: claimedUploadId,
+          })
+          if (abandonError) {
+            // Best-effort status recovery if the audited RPC itself is temporarily unavailable.
+            await supabase.from('import_uploads').update({
+              status: 'failed',
+              error_code: 'IMPORT_CONTEXT_CHANGED',
+              error_message: 'CSV processing did not start because the active organization context changed.',
+            }).eq('id', claimedUploadId).eq('organization_id', organizationId).eq('status', 'staged')
+          }
         }
+        return
+      }
+      if (!claimedUploadId) throw new Error('IMPORT_CLAIM_ID_MISSING')
+
+      if (!wasCreated) {
+        const status = String(claimRow.stored_status || '')
+        setDuplicate({ fileHash, profileId, uploadId: claimedUploadId, status })
+        setMessage(status === 'failed' && ext === 'csv'
+          ? 'يوجد تشغيل سابق فاشل لهذا الملف؛ تمت حماية إعادة المحاولة بقفل خادمي، ويمكنك إعادة معالجة CSV مرة واحدة.'
+          : 'الملف مسجل مسبقاً بالبصمة نفسها: ' + String(claimRow.stored_file_name || file.name) + '. لم يُنشأ تشغيل مكرر.')
         return
       }
 
@@ -780,8 +834,9 @@ export function Import() {
         pausedRef.current = false
         setPaused(false)
         const result = await processCsvToSnapshot({
-          file, organizationId: organization.id,
+          file, organizationId,
           profile: profile as unknown as CsvImportProfile, fileHash,
+          claimedUploadId,
           policies,
           signal: abortControllerRef.current.signal,
           waitIfPaused,
@@ -792,20 +847,10 @@ export function Import() {
         setMessage(summary)
         show(result.status === 'rejected' ? 'warning' : 'success', 'انتهى فحص CSV', summary)
       } else {
-        const { error } = await supabase.from('import_uploads').insert({
-          organization_id: organization.id, profile_id: profileId,
-          file_name: file.name, file_type: ext, file_size: file.size, file_hash: fileHash,
-          expires_at: new Date(Date.now() + policies.import_retention_days * 86400000).toISOString(),
-          status: 'manual_review', error_code: 'PARSER_NOT_AVAILABLE',
-          error_message: ext === 'pdf'
-            ? 'لم يتم ربط مستخرج الجداول من PDF بعد. يتطلب الملف تعييناً ومراجعة يدوية ولا تُولد صفوف مفترضة.'
-            : 'لم يتم ربط قارئ Excel بعد. سُجل الملف كبصمة وبيانات وصفية فقط ولم تتم معالجته.',
-        })
         if (!isCurrentImportContext(organizationId, requestNumber)) return
-        if (error) throw error
         const note = ext === 'pdf'
-          ? 'يتطلب PDF مراجعة يدوية؛ لم يُستخرج جدول ولم تُخمن بيانات.'
-          : 'تم تسجيل الملف؛ قارئ Excel غير موصول، ولم تُعلن المعالجة مكتملة.'
+          ? 'تم تسجيل الملف للمراجعة اليدوية؛ لم يُستخرج جدول ولم تُخمن بيانات.'
+          : 'تم تسجيل الملف للمراجعة اليدوية؛ قارئ Excel غير موصول، ولم تُعلن المعالجة مكتملة.'
         setMessage(note)
         show('warning', 'تم تسجيل الملف للمراجعة', note)
       }
@@ -824,7 +869,7 @@ export function Import() {
   return <AdminPage title="محرك الاستيراد الموحد" description="فحص CSV فعلياً على دفعات، وتوجيه Excel/PDF للمراجعة دون تخمين" icon={Upload}>
     <div className="card mb-5 max-w-2xl p-6">
       <div className="mb-4 rounded-xl border border-warning-200 bg-warning-50 p-4"><p className="font-bold text-warning-900">حدود المعالجة المعلنة</p><p className="mt-1 text-sm leading-6 text-warning-800">CSV يُحلّل تدريجياً إلى دفعات بحجم ${policies.processing_chunk_size} سجل مع التطبيع والتحقق وكشف التكرار ودرجة جودة Snapshot. لا يتم دمج السجلات تلقائياً في البيانات التشغيلية. ملفات Excel وPDF تبقى للمراجعة لأن قارئهما لم يُربط بعد؛ لن تظهر نسبة تقدم مصطنعة أو حالة «مكتمل».</p></div>
-      {visibleProfiles.length ? <div className="mb-4"><label className="label">ملف تعريف الاستيراد</label><select className="input" value={profileId} onChange={e => setProfileId(e.target.value)}>{visibleProfiles.map(p => <option key={String(p.id)} value={String(p.id)}>{String(p.profile_name)} v{String(p.version)}</option>)}</select></div> : <button type="button" disabled={!isAdmin || busy || !importContextReady} className="btn-secondary mb-4" onClick={() => void createProfile()}>إنشاء ملف تعريف أساسي</button>}
+      {visibleProfiles.length ? <div className="mb-4"><label className="label">ملف تعريف الاستيراد</label><select className="input" value={profileId} onChange={e => { setProfileId(e.target.value); setDuplicate(null) }}>{visibleProfiles.map(p => <option key={String(p.id)} value={String(p.id)}>{String(p.profile_name)} v{String(p.version)}</option>)}</select></div> : <button type="button" disabled={!isAdmin || busy || !importContextReady} className="btn-secondary mb-4" onClick={() => void createProfile()}>إنشاء ملف تعريف أساسي</button>}
       <label className="label">ملف CSV أو Excel أو PDF</label><input type="file" accept=".csv,.xlsx,.xls,.pdf" className="input" onChange={e => { setFile(e.target.files?.[0] || null); setDuplicate(null); setMessage('') }} />
       <p className="mt-3 text-xs leading-5 text-neutral-500">حد الملف {policies.max_file_size_mb} ميجابايت؛ حد CSV هو {policies.max_import_rows.toLocaleString('en-US')} صف و{policies.max_import_columns} عمود و{policies.max_cell_length} حرف للخلية. تُحفظ بصمة SHA-256 والسجلات المنظمة وبيان Snapshot، ولا يُرفع الملف الخام إلى Storage.</p>
       {progress && <div role="status" className="mt-4 rounded-lg border border-primary-100 bg-primary-50 p-3 text-sm text-primary-900"><p className="font-semibold">{progress.stage}</p><p className="mt-1">تم فحص {progress.processedRows.toLocaleString('en-US')} صف؛ تُحفظ الدفعات كل 500 سجل.</p><div className="mt-2 h-1.5 animate-pulse rounded bg-primary-200" /></div>}

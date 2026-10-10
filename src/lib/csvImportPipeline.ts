@@ -153,8 +153,10 @@ function safeRatio(numerator: number, denominator: number): number {
   return denominator <= 0 ? 100 : Math.max(0, Math.min(100, (numerator / denominator) * 100))
 }
 
-async function setUpload(uploadId: string, patch: JsonRecord): Promise<void> {
-  const { error } = await supabase.from('import_uploads').update(patch).eq('id', uploadId)
+async function setUpload(uploadId: string, organizationId: string, patch: JsonRecord): Promise<void> {
+  const { error } = await supabase.from('import_uploads').update(patch)
+    .eq('id', uploadId)
+    .eq('organization_id', organizationId)
   if (error) throw error
 }
 
@@ -171,9 +173,10 @@ export async function processCsvToSnapshot(args: {
   signal?: AbortSignal
   waitIfPaused?: () => Promise<void>
   existingUploadId?: string
+  claimedUploadId?: string
   onProgress?: (progress: CsvImportProgress) => void
 }): Promise<CsvImportResult> {
-  const { file, organizationId, profile, fileHash, policies = {}, signal, waitIfPaused, existingUploadId, onProgress } = args
+  const { file, organizationId, profile, fileHash, policies = {}, signal, waitIfPaused, existingUploadId, claimedUploadId, onProgress } = args
   const limits = {
     maxFileSizeMb: policies.max_file_size_mb ?? 100,
     maxRows: policies.max_import_rows ?? MAX_ROWS,
@@ -188,25 +191,32 @@ export async function processCsvToSnapshot(args: {
   if (file.size > limits.maxFileSizeMb * 1024 * 1024) throw new Error('MAX_FILE_SIZE_EXCEEDED')
   if (signal?.aborted) throw new Error('IMPORT_CANCELLED')
   let uploadId: string
+  if (existingUploadId && claimedUploadId) throw new Error('IMPORT_UPLOAD_IDENTITY_CONFLICT')
+  if (!existingUploadId && !claimedUploadId) throw new Error('IMPORT_UPLOAD_CLAIM_REQUIRED')
+
   if (existingUploadId) {
-    const { error: clearError } = await supabase.from('import_records').delete().eq('upload_id', existingUploadId)
-    if (clearError) throw clearError
-    const { error: retryError } = await supabase.from('import_uploads').update({
-      status: 'detecting', error_code: null, error_message: null, snapshot: null,
-      quality_score: null, quality_breakdown: {}, completed_at: null,
-      expires_at: new Date(Date.now() + limits.retentionDays * 86400000).toISOString(),
-    }).eq('id', existingUploadId)
-    if (retryError) throw retryError
+    const { data: retryClaimed, error: claimError } = await supabase.rpc('claim_failed_import_retry', {
+      p_organization_id: organizationId,
+      p_upload_id: existingUploadId,
+      p_expires_at: new Date(Date.now() + limits.retentionDays * 86400000).toISOString(),
+    })
+    if (claimError) throw claimError
+    if (retryClaimed !== true) throw new Error('IMPORT_RETRY_ALREADY_CLAIMED')
+
+    const { error: clearError } = await supabase.from('import_records').delete()
+      .eq('upload_id', existingUploadId)
+    if (clearError) {
+      const { error: restoreError } = await supabase.from('import_uploads').update({
+        status: 'failed',
+        error_code: 'IMPORT_RETRY_CLEANUP_FAILED',
+        error_message: clearError.message,
+      }).eq('id', existingUploadId).eq('organization_id', organizationId)
+      if (restoreError) throw new Error(`IMPORT_RETRY_CLEANUP_FAILED: ${clearError.message}; status recovery also failed: ${restoreError.message}`)
+      throw clearError
+    }
     uploadId = existingUploadId
   } else {
-    const { data: upload, error: createError } = await supabase.from('import_uploads').insert({
-      organization_id: organizationId, profile_id: profile.id,
-      file_name: file.name, file_type: 'csv', file_size: file.size,
-      file_hash: fileHash, status: 'detecting',
-      expires_at: new Date(Date.now() + limits.retentionDays * 86400000).toISOString(),
-    }).select('id').single()
-    if (createError) throw createError
-    uploadId = String(upload.id)
+    uploadId = claimedUploadId as string
   }
   const report = (stage: string, processedRows: number) => onProgress?.({ stage, processedRows })
 
@@ -240,12 +250,12 @@ export async function processCsvToSnapshot(args: {
     }
     if (headers.length > limits.maxColumns) throw new Error('MAX_COLUMNS_EXCEEDED')
 
-    await setUpload(uploadId, { status: 'mapping' })
+    await setUpload(uploadId, organizationId, { status: 'mapping' })
     mapping = buildMapping(headers, profile)
     const missingFields = required.filter(field => mapping[field] === undefined)
     if (missingFields.length) {
       const message = `أعمدة مطلوبة غير موجودة: ${missingFields.join('، ')}`
-      await setUpload(uploadId, {
+      await setUpload(uploadId, organizationId, {
         status: 'manual_review', error_code: 'MANUAL_MAPPING_REQUIRED',
         error_message: message,
         snapshot: { headers, missing_required_columns: missingFields, file_hash: fileHash },
@@ -255,7 +265,7 @@ export async function processCsvToSnapshot(args: {
 
     const dateFields = Object.keys(mapping).filter(field => /date|period|time|تاريخ|فترة|يوم/i.test(field))
     temporalApplicable = dateFields.length > 0
-    await setUpload(uploadId, { status: 'validating' })
+    await setUpload(uploadId, organizationId, { status: 'validating' })
 
     const flush = async () => {
       if (!batch.length) return
@@ -319,7 +329,7 @@ export async function processCsvToSnapshot(args: {
       if (batch.length >= limits.batchSize) await flush()
     }
 
-    await setUpload(uploadId, { status: 'normalizing' })
+    await setUpload(uploadId, organizationId, { status: 'normalizing' })
     for await (const row of iterator) {
       if (signal?.aborted) throw new Error('IMPORT_CANCELLED')
       if (waitIfPaused) await waitIfPaused()
@@ -330,7 +340,7 @@ export async function processCsvToSnapshot(args: {
 
     if (totalRows === 0) throw new Error('CSV_HAS_NO_DATA_ROWS')
 
-    await setUpload(uploadId, { status: 'deduplicating' })
+    await setUpload(uploadId, organizationId, { status: 'deduplicating' })
     const completeness = safeRatio(completenessCells, requiredCells)
     const validity = safeRatio(validRows, totalRows)
     const uniqueness = safeRatio(totalRows - duplicateRows, totalRows)
@@ -351,7 +361,7 @@ export async function processCsvToSnapshot(args: {
       weights: { completeness: 0.25, validity: 0.25, uniqueness: 0.2, consistency: 0.1, matching_key_coverage: 0.1, temporal_integrity: temporalHasEvidence ? 0.1 : 0 },
     }
 
-    await setUpload(uploadId, { status: 'chunking' })
+    await setUpload(uploadId, organizationId, { status: 'chunking' })
     let status: CsvImportResult['status'] = qualityScore >= limits.dqsWarningMin ? 'snapshotted' : 'rejected'
     let message = 'تم توحيد السجلات والتحقق منها وحفظ بيان Snapshot؛ لم تُدمج البيانات في قاعدة التشغيل.'
     if (qualityScore >= limits.dqsAcceptableMin && qualityScore < limits.dqsExcellentMin) {
@@ -367,7 +377,7 @@ export async function processCsvToSnapshot(args: {
       message = 'رُفضت الدفعة لأن جودة البيانات أقل من 50؛ لم تُدمج أي بيانات.'
     }
 
-    await setUpload(uploadId, { status: 'snapshotted' })
+    await setUpload(uploadId, organizationId, { status: 'snapshotted' })
     const manifest = {
       manifest_version: 1, file_name: file.name, file_type: 'csv', file_size: file.size,
       file_hash: fileHash, profile_id: profile.id, profile_version: (profile as unknown as JsonRecord).version ?? null,
@@ -378,7 +388,7 @@ export async function processCsvToSnapshot(args: {
       snapshot_at: new Date().toISOString(), raw_file_persisted: false,
       live_data_merged: false,
     }
-    await setUpload(uploadId, {
+    await setUpload(uploadId, organizationId, {
       status,
       quality_score: qualityScore,
       quality_breakdown: qualityBreakdown,

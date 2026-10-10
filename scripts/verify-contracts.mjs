@@ -65,6 +65,8 @@ const [backupWorkflow, backupCheckWorkflow, sqlMigrationWorkflow, backupCreate, 
   read('scripts/backup/README.md'),
 ])
 const commercialAuditMigration = await read('supabase/migrations/20261014000000_audit_commercial_draft_creation.sql')
+const importClaimMigration = await read('supabase/migrations/20261015000000_import_upload_idempotency_claims.sql')
+const csvImportEngine = await read('src/lib/csvImportPipeline.ts')
 
 for (const imageName of imageNames) {
   assert.ok(index.includes(`[${imageName}](./${imageName})`), `Reference index is missing ${imageName}`)
@@ -152,6 +154,27 @@ required(pricingMigration, /v_unit_price := public\.calculate_commerce_price\([\
 assert.ok(pricingMigration.includes("AND c.status = 'approved'"), 'Order pricing must derive the tier from an approved customer record that exists in the canonical schema.')
 assert.ok(!pricingMigration.includes('c.is_active = true'), 'Do not reference a customer is_active column that is absent from the canonical customers table.')
 assert.ok(pricingMigration.includes('ADD COLUMN IF NOT EXISTS request_context_hash text'), 'Order idempotency must persist a cart-independent request context hash for retry after cart clearing.')
+assert.ok(importClaimMigration.includes('PRIMARY KEY (organization_id, profile_id, file_hash, period_key)'), 'Import upload idempotency must use a non-null composite claim key that covers general files with NULL date periods.')
+assert.ok(importClaimMigration.includes('ON CONFLICT (organization_id, profile_id, file_hash, period_key) DO NOTHING'), 'Concurrent imports must arbitrate through the unique database claim before inserting an upload row.')
+assert.ok(importClaimMigration.includes("SECURITY DEFINER") && importClaimMigration.includes("om.role IN ('owner','admin')"), 'Upload-claim RPCs must enforce active organization-admin authorization inside PostgreSQL.')
+assert.ok(importClaimMigration.includes('REVOKE ALL PRIVILEGES ON TABLE public.import_uploads FROM PUBLIC, anon, authenticated') && importClaimMigration.includes('GRANT SELECT, UPDATE ON TABLE public.import_uploads TO authenticated'), 'Browser roles must have only the read/update access needed to inspect and process claimed uploads, never direct create/delete access.')
+assert.ok(importClaimMigration.includes('import_upload_identity_immutable') && importClaimMigration.includes('NEW.file_hash IS DISTINCT FROM OLD.file_hash'), 'Tenant/profile/hash/period/upload identity must not be editable after a claim is established.')
+assert.ok(importClaimMigration.includes("public.abandon_staged_import_claim") && importClaimMigration.includes("'IMPORT_CONTEXT_CHANGED'") && importClaimMigration.includes("'import_upload_staged_abandoned'"), 'A claim created immediately before a tenant switch must become a retryable, audited failed upload rather than remain stuck as staged.')
+assert.ok(adminScreens.includes("rpc('abandon_staged_import_claim'"), 'The import UI must release a new CSV claim if its organization context changes before parsing begins.')
+assert.ok(sqlMigrationWorkflow.includes('CI-ABANDONED-CLAIM.csv') && sqlMigrationWorkflow.includes('failed|IMPORT_CONTEXT_CHANGED'), 'PostgreSQL CI must prove abandoned staged claims are recoverable.')
+assert.ok(importClaimMigration.includes("'import_upload_claimed'") && sqlMigrationWorkflow.includes('first-time import claim must emit exactly one audit event'), 'First-time upload claims must emit exactly one transactional audit event.')
+assert.ok(importClaimMigration.includes("AND u.status = 'failed'") && importClaimMigration.includes('claim_failed_import_retry'), 'A failed upload retry must use an atomic compare-and-swap so only one concurrent retry can start.')
+assert.ok(csvImportEngine.includes("rpc('claim_failed_import_retry'") && csvImportEngine.includes('IMPORT_RETRY_ALREADY_CLAIMED'), 'CSV retry must acquire the database retry claim before deleting partial rows.')
+assert.ok(csvImportEngine.includes('claimedUploadId?: string') && csvImportEngine.includes('IMPORT_UPLOAD_CLAIM_REQUIRED'), 'New CSV snapshots must use an upload ID allocated by the atomic claim RPC rather than a direct insert.')
+assert.ok(csvImportEngine.includes('async function setUpload(uploadId: string, organizationId: string, patch: JsonRecord)') && csvImportEngine.includes(".eq('organization_id', organizationId)"), 'Every CSV status/snapshot update must explicitly scope the upload to its organization.')
+assert.ok(!csvImportEngine.includes('setUpload(uploadId, {'), 'No CSV processing state update may bypass the organization-scoped updater.')
+assert.ok(adminScreens.includes("await supabase.rpc('abandon_staged_import_claim'") && adminScreens.includes("error_code: 'IMPORT_CONTEXT_CHANGED'"), 'A newly claimed CSV abandoned during tenant switching must be made retryable rather than left stuck as staged.')
+assert.ok(adminScreens.includes(".eq('id', claimedUploadId).eq('organization_id', organizationId).eq('status', 'staged')"), 'Fallback recovery of an abandoned stage must only update the same tenant’s row if it remains staged.')
+assert.ok(adminScreens.includes("rpc('claim_import_upload'") && adminScreens.includes('claimRow.was_created === true'), 'CSV, Excel and PDF staging must pass through the same concurrency-safe database claim.')
+assert.ok(!adminScreens.includes(".from('import_uploads').select('id, file_name, status')"), 'The import UI must not depend on a race-prone select-before-insert duplicate check.')
+assert.ok(!adminScreens.includes(".from('import_uploads').insert("), 'The import UI must not create upload rows directly outside the claim RPC.')
+assert.ok(sqlMigrationWorkflow.includes('Verify concurrent import upload claims and failed-retry arbitration') && sqlMigrationWorkflow.includes('claim_one_pid=$!') && sqlMigrationWorkflow.includes('retry_two_pid=$!'), 'PostgreSQL CI must launch simultaneous claims and simultaneous failed retries.')
+assert.ok(sqlMigrationWorkflow.includes('import_upload_identity_immutable') && sqlMigrationWorkflow.includes('has_table_privilege'), 'PostgreSQL CI must verify immutable upload identity and no direct browser INSERT/DELETE access.')
 assert.ok(pricingMigration.includes('request_context_hash = EXCLUDED.request_context_hash'), 'Order idempotency upsert must retain the request context hash.')
 for (const view of [
   'customer_order_summaries',

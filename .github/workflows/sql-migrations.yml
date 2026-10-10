@@ -444,6 +444,233 @@ jobs:
           RESET ROLE;
           SQL
 
+      - name: Verify concurrent import upload claims and failed-retry arbitration
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          org_id='a1000000-0000-4000-8000-000000000001'
+          user_id='a2000000-0000-4000-8000-000000000001'
+          profile_id='a7000000-0000-4000-8000-000000000001'
+          file_hash="$(printf 'a%.0s' {1..64})"
+
+          psql --set ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO public.import_profiles (
+            id, organization_id, profile_name, report_type, source, version,
+            required_columns, optional_columns, ignored_columns, synonyms,
+            transformation_rules, validation_rules, matching_key, merge_strategy,
+            date_rules, status, created_by
+          ) VALUES (
+            'a7000000-0000-4000-8000-000000000001',
+            'a1000000-0000-4000-8000-000000000001',
+            'CI Concurrent Import Claim', 'generic_catalog', 'manual', 1,
+            '["item_code"]'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb,
+            '{}'::jsonb, '{"item_code":"required_string"}'::jsonb,
+            'item_code', 'manual_review', '{}'::jsonb, 'active',
+            'a2000000-0000-4000-8000-000000000001'
+          );
+          SQL
+
+          cat >"$tmpdir/claim.sql" <<SQL
+          SELECT set_config('request.jwt.claim.sub', '$user_id', false) AS subject \\gset
+          SET ROLE authenticated;
+          SELECT claimed_upload_id::text || '|' || was_created::text
+          FROM public.claim_import_upload(
+            '$org_id'::uuid,
+            '$profile_id'::uuid,
+            'CI-CONCURRENT-CLAIM.csv',
+            'csv',
+            64,
+            '$file_hash',
+            NULL,
+            NULL,
+            now() + interval '30 days',
+            'staged',
+            NULL,
+            NULL
+          );
+          RESET ROLE;
+          SQL
+
+          psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align \
+            --file "$tmpdir/claim.sql" >"$tmpdir/claim-one.out" &
+          claim_one_pid=$!
+          psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align \
+            --file "$tmpdir/claim.sql" >"$tmpdir/claim-two.out" &
+          claim_two_pid=$!
+          wait "$claim_one_pid"
+          wait "$claim_two_pid"
+
+          claim_one="$(tr -d '\r\n' <"$tmpdir/claim-one.out")"
+          claim_two="$(tr -d '\r\n' <"$tmpdir/claim-two.out")"
+          claim_one_id="${claim_one%%|*}"
+          claim_two_id="${claim_two%%|*}"
+          created_count=0
+          [[ "${claim_one##*|}" == "true" ]] && created_count=$((created_count + 1))
+          [[ "${claim_two##*|}" == "true" ]] && created_count=$((created_count + 1))
+          if [[ -z "$claim_one_id" || "$claim_one_id" != "$claim_two_id" || "$created_count" != "1" ]]; then
+            printf 'FAIL: concurrent upload claims diverged. response one=%s response two=%s\\n' "$claim_one" "$claim_two" >&2
+            exit 1
+          fi
+
+          upload_count="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT count(*) FROM public.import_uploads
+          WHERE organization_id = '$org_id'::uuid
+            AND profile_id = '$profile_id'::uuid
+            AND file_hash = '$file_hash'
+            AND period_start IS NULL AND period_end IS NULL;
+          SQL
+          )"
+          claim_count="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT count(*) FROM public.import_upload_claims
+          WHERE organization_id = '$org_id'::uuid
+            AND profile_id = '$profile_id'::uuid
+            AND file_hash = '$file_hash'
+            AND period_key = '~|~';
+          SQL
+          )"
+          [[ "$upload_count" == "1" && "$claim_count" == "1" ]] || {
+            printf 'FAIL: expected one upload and one claim, observed uploads=%s claims=%s\\n' "$upload_count" "$claim_count" >&2
+            exit 1
+          }
+          audit_count="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT count(*) FROM public.audit_logs
+          WHERE organization_id = '$org_id'::uuid
+            AND entity_type = 'import_upload'
+            AND entity_id = '$claim_one_id'::uuid
+            AND action = 'import_upload_claimed';
+          SQL
+          )"
+          [[ "$audit_count" == "1" ]] || {
+            printf 'FAIL: first-time import claim must emit exactly one audit event; observed=%s\\n' "$audit_count" >&2
+            exit 1
+          }
+
+          psql --set ON_ERROR_STOP=1 <<SQL
+          UPDATE public.import_uploads SET status = 'failed'
+          WHERE id = '$claim_one_id'::uuid AND organization_id = '$org_id'::uuid;
+          SQL
+
+          cat >"$tmpdir/retry.sql" <<SQL
+          SELECT set_config('request.jwt.claim.sub', '$user_id', false) AS subject \\gset
+          SET ROLE authenticated;
+          SELECT public.claim_failed_import_retry(
+            '$org_id'::uuid, '$claim_one_id'::uuid, now() + interval '30 days'
+          );
+          RESET ROLE;
+          SQL
+          psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align \
+            --file "$tmpdir/retry.sql" >"$tmpdir/retry-one.out" &
+          retry_one_pid=$!
+          psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align \
+            --file "$tmpdir/retry.sql" >"$tmpdir/retry-two.out" &
+          retry_two_pid=$!
+          wait "$retry_one_pid"
+          wait "$retry_two_pid"
+
+          retry_true_count="$({ cat "$tmpdir/retry-one.out"; cat "$tmpdir/retry-two.out"; } | awk '$1 == "t" { n++ } END { print n+0 }')"
+          retry_false_count="$({ cat "$tmpdir/retry-one.out"; cat "$tmpdir/retry-two.out"; } | awk '$1 == "f" { n++ } END { print n+0 }')"
+          final_status="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT status FROM public.import_uploads WHERE id = '$claim_one_id'::uuid;
+          SQL
+          )"
+          [[ "$retry_true_count" == "1" && "$retry_false_count" == "1" && "$final_status" == "detecting" ]] || {
+            printf 'FAIL: concurrent retry claims should yield one winner. true=%s false=%s status=%s\\n' "$retry_true_count" "$retry_false_count" "$final_status" >&2
+            exit 1
+          }
+
+          browser_write_privileges="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<'SQL'
+          SELECT concat_ws(',',
+            has_table_privilege('authenticated', 'public.import_uploads', 'INSERT')::text,
+            has_table_privilege('authenticated', 'public.import_uploads', 'DELETE')::text,
+            has_table_privilege('anon', 'public.import_uploads', 'INSERT')::text,
+            has_table_privilege('anon', 'public.import_uploads', 'DELETE')::text
+          );
+          SQL
+          )"
+          [[ "$browser_write_privileges" == "false,false,false,false" ]] || {
+            printf 'FAIL: unexpected browser INSERT/DELETE privileges on import_uploads (authenticated INSERT, authenticated DELETE, anon INSERT, anon DELETE)=%s\\n' "$browser_write_privileges" >&2
+            exit 1
+          }
+
+          psql --set ON_ERROR_STOP=1 <<SQL
+          SELECT set_config('request.jwt.claim.sub', '$user_id', false);
+          SET ROLE authenticated;
+          DO \$ci_import_upload_identity\$
+          DECLARE
+            v_guard_hit boolean := false;
+          BEGIN
+            BEGIN
+              UPDATE public.import_uploads
+              SET file_hash = repeat('b', 64)
+              WHERE id = '$claim_one_id'::uuid;
+              RAISE EXCEPTION 'expected_import_upload_identity_guard_not_triggered';
+            EXCEPTION WHEN OTHERS THEN
+              IF SQLERRM = 'import_upload_identity_immutable' THEN
+                v_guard_hit := true;
+              ELSE
+                RAISE;
+              END IF;
+            END;
+            IF NOT v_guard_hit THEN
+              RAISE EXCEPTION 'upload identity trigger did not reject a file-hash mutation';
+            END IF;
+          END;
+          \$ci_import_upload_identity\$;
+          RESET ROLE;
+          SQL
+
+          abandoned_id="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT set_config('request.jwt.claim.sub', '$user_id', false) AS subject \\gset
+          SET ROLE authenticated;
+          SELECT claimed_upload_id
+          FROM public.claim_import_upload(
+            '$org_id'::uuid,
+            '$profile_id'::uuid,
+            'CI-ABANDONED-CLAIM.csv',
+            'csv',
+            64,
+            '$(printf 'c%.0s' {1..64})',
+            NULL,
+            NULL,
+            now() + interval '30 days',
+            'staged',
+            NULL,
+            NULL
+          );
+          RESET ROLE;
+          SQL
+          )"
+          abandoned_result="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT set_config('request.jwt.claim.sub', '$user_id', false) AS subject \\gset
+          SET ROLE authenticated;
+          SELECT public.abandon_staged_import_claim('$org_id'::uuid, '$abandoned_id'::uuid);
+          RESET ROLE;
+          SQL
+          )"
+          abandoned_state="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT status || '|' || error_code
+          FROM public.import_uploads
+          WHERE id = '$abandoned_id'::uuid AND organization_id = '$org_id'::uuid;
+          SQL
+          )"
+          abandoned_audits="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT count(*)
+          FROM public.audit_logs
+          WHERE organization_id = '$org_id'::uuid
+            AND entity_type = 'import_upload'
+            AND entity_id = '$abandoned_id'::uuid
+            AND action = 'import_upload_staged_abandoned';
+          SQL
+          )"
+          [[ "$abandoned_result" == "t" && "$abandoned_state" == "failed|IMPORT_CONTEXT_CHANGED" && "$abandoned_audits" == "1" ]] || {
+            printf 'FAIL: abandoned staged claim was not converted to retryable failed state with one audit event; result=%s state=%s audits=%s\\n' "$abandoned_result" "$abandoned_state" "$abandoned_audits" >&2
+            exit 1
+          }
+
+          printf 'PASS: two concurrent same-hash import claims reused one upload; two concurrent failed retries produced one winner.\\n'
+
       - name: Verify tenant isolation and product-price column privileges
         run: |
           psql --set ON_ERROR_STOP=1 <<'SQL'

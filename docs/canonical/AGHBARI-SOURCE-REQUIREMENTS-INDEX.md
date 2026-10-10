@@ -24,6 +24,14 @@ The sole product identity is **الأغبري | Aghbari Commerce**. The strings 
 - Passwords must never be stored reversibly or in a shared unsalted hash to enforce cross-user password uniqueness. This requirement requires security review and a privacy-preserving architecture; a safer breached-password check, strong-password policy and rate limiting must not be undermined.
 - No native-platform guarantee (e.g. iOS screenshot blocking or Android FLAG_SECURE) may be claimed for a browser-only app unless the actual native wrapper/API supports and proves it.
 
+## Import idempotency addition recorded on 2026-10-10
+
+- Database claim table uses a non-null normalized period key to arbitrate general-file imports with NULL periods.
+- Backfill preserves all existing upload rows and selects a canonical pointer per duplicate key.
+- New upload creation, initial status and audit event happen in an authorized PostgreSQL RPC; direct browser upload INSERT/DELETE and upload identity mutation are blocked.
+- Failed retry uses compare-and-swap; PostgreSQL CI concurrently exercises claim/retry races and staged-claim recovery after tenant change.
+- This work is implemented on `fix/import-upload-idempotency` and requires the branch’s exact-SHA Build/SQL/backup gates before it can be called proven.
+
 ## Implementation additions recorded on 2026-10-10
 
 - Integrated AI operational timeline reads only minimal organization-scoped `audit_logs` and `outbox_events` fields; it never selects event `payload` or arbitrary audit JSON.
