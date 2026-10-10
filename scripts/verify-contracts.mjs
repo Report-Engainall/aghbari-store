@@ -13,7 +13,7 @@ const imageNames = (await readdir(referenceDir))
   .sort((a, b) => a.localeCompare(b, 'en'))
 
 assert.ok(imageNames.length > 0, 'No UI reference images were found.')
-const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration] =
+const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration, statementMigration, utilityPages] =
   await Promise.all([
     read('docs/ui-reference/README.md'),
     read('docs/ui-reference/UI-REFERENCE-ASSET-INDEX.md'),
@@ -30,6 +30,8 @@ const [readme, index, pricingMigration, safeProductSelect, storefront, store, ca
     read('src/App.tsx'),
     read('src/components/admin/AdminShell.tsx'),
     read('supabase/migrations/20261011000000_inventory_procurement_finance_operations.sql'),
+    read('supabase/migrations/20261012000000_organization_statement_rpc.sql'),
+    read('src/pages/admin/UtilityPages.tsx'),
   ])
 
 for (const imageName of imageNames) {
@@ -145,6 +147,17 @@ assert.ok(operationalMigration.includes('stock_changed_since_count'), 'Stock-cou
 assert.ok(transactionPages.includes("supabase.rpc('receive_purchase_order'"), 'Receiving must use the server-side transaction RPC.')
 assert.ok(transactionPages.includes("supabase.rpc('post_inventory_transfer'"), 'Transfer posting must use the server-side transaction RPC.')
 assert.ok(transactionPages.includes("supabase.rpc('post_stock_count'"), 'Stock-count posting must use the server-side transaction RPC.')
+
+assert.ok(statementMigration.includes('CREATE OR REPLACE FUNCTION public.generate_organization_statement'), 'Statement generation RPC is missing.')
+assert.ok(statementMigration.includes('REVOKE INSERT, UPDATE, DELETE ON public.statements FROM anon, authenticated'), 'Statements must be immutable from direct browser DML.')
+assert.ok(statementMigration.includes('statement_generation_forbidden'), 'Statement generation must enforce tenant-admin authorization.')
+assert.ok(statementMigration.includes('RETURN v_statement_id'), 'Statement generation must replay an existing snapshot for the same organization and period.')
+assert.ok(adminOperations.includes("supabase.rpc('generate_organization_statement'"), 'Statement screen is not wired to the server-side generation RPC.')
+assert.ok(adminOperations.includes('total_invoiced,total_paid'), 'Statement list must show the saved invoice/payment totals.')
+assert.ok(utilityPages.includes(".eq('organization_id', organizationId)"), 'CSV exports must be restricted to the active organization.')
+assert.ok(utilityPages.includes('Prevent spreadsheet formula injection'), 'CSV exports must mitigate spreadsheet formula injection.')
+assert.ok(utilityPages.includes(".eq('barcode', code)"), 'Barcode lookup must use the actual database barcode column.')
+assert.ok(adminOperations.includes("supabase.rpc('confirm_order_payment'"), 'Admin payment review must use the authorized confirmation RPC.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
