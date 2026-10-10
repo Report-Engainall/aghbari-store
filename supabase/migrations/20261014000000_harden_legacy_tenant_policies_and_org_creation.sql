@@ -582,6 +582,16 @@ USING (EXISTS (
   SELECT 1 FROM public.orders o
   WHERE o.id = order_status_history.order_id
     AND private.is_org_member(o.organization_id)
+    AND (
+      o.user_id = auth.uid()
+      OR EXISTS (
+        SELECT 1 FROM public.organization_members om
+        WHERE om.organization_id = o.organization_id
+          AND om.user_id = auth.uid()
+          AND om.status = 'active'
+          AND om.role IN ('owner','admin','manager','warehouse','accountant','sales','system_admin','customer_manager')
+      )
+    )
 ));
 REVOKE ALL ON public.order_status_history FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.order_status_history TO authenticated;
