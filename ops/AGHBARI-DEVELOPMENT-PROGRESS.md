@@ -56,3 +56,14 @@ Use one entry per execution run. Keep implementation, verification, proof and de
 - **Backup safety remains:** strict JSON manifest/filename/size/hash validation; output outside repository; absolute external pre-restore path for production; verified fresh encrypted pre-restore snapshot; target host and explicit destructive restore confirmation. Real database backup/decryption/restore remains NOT_PROVEN without securely configured secrets and a recovery drill.
 - **Deployment:** HOLD; PR #4 remains open; no main merge or production deploy.
 - **Next:** inspect exact latest run conclusions, fix any residual contract/type/build issue, then continue import/DQS, event coverage map, private AI governance and E2E.
+
+
+## Run update — audited lifecycle of commercial drafts (2026-10-10)
+
+- **New migration:** `supabase/migrations/20261014000000_audit_commercial_draft_creation.sql`.
+- **Implementation:** one shared security-definer trigger records `purchase_order_created`, `inventory_transfer_created` and `stock_count_created`. Each record contains tenant/entity identity and a bounded allow-list of non-free-form metadata; notes and payloads are not copied.
+- **Atomicity:** audit write runs from AFTER INSERT trigger in the same transaction as the existing validated create RPC; failed create transactions roll back the audit row too.
+- **Integration proof added:** PostgreSQL 17 migration workflow now checks each RPC-created draft produces the expected audit row under the correct organization and entity reference.
+- **AI connection:** existing tenant-scoped audit/outbox timeline immediately surfaces these records without reading event payloads; posting/receiving/expense audit functions were preserved.
+- **Pending:** current Build/SQL Migration Chain/Backup Tool Safety Checks must complete on the final latest head; only afterward can the migration be marked verified. No live migration was applied.
+- **Merge/deploy:** HOLD until all exact-head required gates are green.
