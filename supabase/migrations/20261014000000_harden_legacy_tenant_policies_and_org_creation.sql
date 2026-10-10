@@ -2,12 +2,25 @@
 -- This migration removes prototype-wide policies, closes direct membership writes, and
 -- restores tenant-scoped read/write policies for the operational tables used by the app.
 
-ALTER TABLE public.organizations
-  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'pending';
-
-UPDATE public.organizations SET status = 'pending' WHERE status IS NULL;
-ALTER TABLE public.organizations ALTER COLUMN status SET DEFAULT 'pending';
-ALTER TABLE public.organizations ALTER COLUMN status SET NOT NULL;
+-- Preserve the activation state of pre-existing legacy organizations exactly once.
+DO $organization_status_backfill$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'organizations'
+      AND column_name = 'status'
+  ) THEN
+    ALTER TABLE public.organizations ADD COLUMN status text;
+    UPDATE public.organizations
+    SET status = CASE WHEN is_active THEN 'active' ELSE 'inactive' END;
+  ELSE
+    UPDATE public.organizations SET status = 'pending' WHERE status IS NULL;
+  END IF;
+  ALTER TABLE public.organizations ALTER COLUMN status SET DEFAULT 'pending';
+  ALTER TABLE public.organizations ALTER COLUMN status SET NOT NULL;
+END
+$organization_status_backfill$;
 
 DO $status_constraint$
 BEGIN
@@ -663,15 +676,17 @@ DROP POLICY IF EXISTS notifications_owner_mark_read ON public.notifications;
 CREATE POLICY notifications_owner_mark_read
 ON public.notifications FOR UPDATE TO authenticated
 USING (
-  EXISTS (SELECT 1 FROM public.profiles p
-          WHERE p.id = notifications.profile_id AND p.auth_user_id = auth.uid())
+  notifications.user_id = auth.uid()
+  OR EXISTS (SELECT 1 FROM public.profiles p
+             WHERE p.id = notifications.profile_id AND p.auth_user_id = auth.uid())
 )
 WITH CHECK (
-  EXISTS (SELECT 1 FROM public.profiles p
-          WHERE p.id = notifications.profile_id AND p.auth_user_id = auth.uid())
+  notifications.user_id = auth.uid()
+  OR EXISTS (SELECT 1 FROM public.profiles p
+             WHERE p.id = notifications.profile_id AND p.auth_user_id = auth.uid())
 );
 REVOKE ALL ON public.notifications FROM PUBLIC, anon, authenticated;
-GRANT SELECT, UPDATE (is_read) ON public.notifications TO authenticated;
+GRANT SELECT, UPDATE (read, is_read) ON public.notifications TO authenticated;
 
 -- Import logs are not consistently organization-tagged in older installations; restrict them
 -- to the authenticated actor until an organization key is present in the canonical schema.
