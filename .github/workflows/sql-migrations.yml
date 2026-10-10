@@ -261,6 +261,149 @@ jobs:
           RESET ROLE;
           SQL
 
+      - name: Run purchasing, receiving, inventory transfer, stock count and expense smoke test
+        run: |
+          psql --set ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO public.organizations (id, name, currency)
+          VALUES ('a1000000-0000-4000-8000-000000000002', 'Aghbari CI Isolation Organization', 'YER');
+          INSERT INTO public.suppliers (id, organization_id, supplier_code, name, status)
+          VALUES ('a5000000-0000-4000-8000-000000000001',
+                  'a1000000-0000-4000-8000-000000000001',
+                  'CI-SUPPLIER-001', 'Aghbari CI Test Supplier', 'active');
+          INSERT INTO public.warehouses (id, organization_id, name, code, is_active)
+          VALUES
+            ('a6000000-0000-4000-8000-000000000001','a1000000-0000-4000-8000-000000000001','CI Main Warehouse','CI-WH-1',true),
+            ('a6000000-0000-4000-8000-000000000002','a1000000-0000-4000-8000-000000000001','CI Secondary Warehouse','CI-WH-2',true);
+          INSERT INTO public.inventory_balances
+            (product_id, warehouse_id, quantity_on_hand, quantity_reserved)
+          VALUES
+            ('a4000000-0000-4000-8000-000000000001','a6000000-0000-4000-8000-000000000001',20,0),
+            ('a4000000-0000-4000-8000-000000000001','a6000000-0000-4000-8000-000000000002',0,0)
+          ON CONFLICT (product_id, warehouse_id) DO UPDATE
+          SET quantity_on_hand = EXCLUDED.quantity_on_hand,
+              quantity_reserved = EXCLUDED.quantity_reserved,
+              updated_at = now();
+          SQL
+
+          psql --set ON_ERROR_STOP=1 <<'SQL'
+          SELECT set_config('request.jwt.claim.sub', 'a2000000-0000-4000-8000-000000000001', false);
+          SET ROLE authenticated;
+
+          DO $ci_inventory_smoke$
+          DECLARE
+            v_org uuid := 'a1000000-0000-4000-8000-000000000001';
+            v_other_org uuid := 'a1000000-0000-4000-8000-000000000002';
+            v_product uuid := 'a4000000-0000-4000-8000-000000000001';
+            v_supplier uuid := 'a5000000-0000-4000-8000-000000000001';
+            v_wh1 uuid := 'a6000000-0000-4000-8000-000000000001';
+            v_wh2 uuid := 'a6000000-0000-4000-8000-000000000002';
+            v_purchase uuid;
+            v_purchase_item uuid;
+            v_receipt uuid;
+            v_transfer uuid;
+            v_count uuid;
+            v_stale_count uuid;
+            v_expense uuid;
+            v_stock1 numeric(15,3);
+            v_stock2 numeric(15,3);
+            v_status text;
+            v_guard_hit boolean := false;
+            v_result jsonb;
+          BEGIN
+            v_purchase := public.create_purchase_order(
+              v_org, v_supplier, v_wh1,
+              jsonb_build_array(jsonb_build_object('product_id',v_product,'quantity_ordered',5,'unit_cost',3.25)),
+              'CI purchase-to-receipt smoke test'
+            );
+            SELECT id INTO v_purchase_item FROM public.purchase_order_items
+            WHERE purchase_order_id = v_purchase;
+            IF v_purchase_item IS NULL THEN RAISE EXCEPTION 'purchase order line was not persisted'; END IF;
+
+            v_receipt := public.receive_purchase_order(
+              v_org, v_purchase, v_wh1,
+              jsonb_build_array(jsonb_build_object('purchase_order_item_id',v_purchase_item,'quantity',2)),
+              'CI partial receipt'
+            );
+            IF v_receipt IS NULL THEN RAISE EXCEPTION 'partial receipt did not return a reference'; END IF;
+            SELECT quantity_on_hand INTO v_stock1 FROM public.inventory_balances
+            WHERE product_id=v_product AND warehouse_id=v_wh1;
+            IF v_stock1 <> 22 THEN RAISE EXCEPTION 'partial receiving did not atomically increase stock'; END IF;
+
+            PERFORM public.receive_purchase_order(
+              v_org, v_purchase, v_wh1,
+              jsonb_build_array(jsonb_build_object('purchase_order_item_id',v_purchase_item,'quantity',3)),
+              'CI complete receipt'
+            );
+            SELECT status INTO v_status FROM public.purchase_orders WHERE id=v_purchase;
+            IF v_status <> 'received' THEN RAISE EXCEPTION 'purchase order did not transition to received'; END IF;
+            SELECT quantity_on_hand INTO v_stock1 FROM public.inventory_balances
+            WHERE product_id=v_product AND warehouse_id=v_wh1;
+            IF v_stock1 <> 25 THEN RAISE EXCEPTION 'complete receiving balance is incorrect'; END IF;
+
+            v_transfer := public.create_inventory_transfer(
+              v_org, v_wh1, v_wh2,
+              jsonb_build_array(jsonb_build_object('product_id',v_product,'quantity',4)),
+              'CI atomic transfer'
+            );
+            v_result := public.post_inventory_transfer(v_org,v_transfer);
+            SELECT quantity_on_hand INTO v_stock1 FROM public.inventory_balances WHERE product_id=v_product AND warehouse_id=v_wh1;
+            SELECT quantity_on_hand INTO v_stock2 FROM public.inventory_balances WHERE product_id=v_product AND warehouse_id=v_wh2;
+            IF v_stock1 <> 21 OR v_stock2 <> 4 THEN RAISE EXCEPTION 'transfer did not atomically update both warehouse balances'; END IF;
+            IF (SELECT status FROM public.inventory_transfers WHERE id=v_transfer) <> 'posted' THEN
+              RAISE EXCEPTION 'transfer status was not posted';
+            END IF;
+
+            v_count := public.create_stock_count(
+              v_org, v_wh1,
+              jsonb_build_array(jsonb_build_object('product_id',v_product,'counted_quantity',20)),
+              'CI stock count'
+            );
+            v_result := public.post_stock_count(v_org,v_count);
+            SELECT quantity_on_hand INTO v_stock1 FROM public.inventory_balances WHERE product_id=v_product AND warehouse_id=v_wh1;
+            IF v_stock1 <> 20 THEN RAISE EXCEPTION 'stock count did not reconcile the counted balance'; END IF;
+
+            v_stale_count := public.create_stock_count(
+              v_org, v_wh1,
+              jsonb_build_array(jsonb_build_object('product_id',v_product,'counted_quantity',19)),
+              'CI stale snapshot must be rejected'
+            );
+            UPDATE public.inventory_balances SET quantity_on_hand=quantity_on_hand+1
+            WHERE product_id=v_product AND warehouse_id=v_wh1;
+            v_guard_hit := false;
+            BEGIN
+              PERFORM public.post_stock_count(v_org,v_stale_count);
+              RAISE EXCEPTION 'expected_stale_stock_count_guard_not_triggered';
+            EXCEPTION WHEN OTHERS THEN
+              IF SQLERRM = 'stock_changed_since_count' THEN v_guard_hit := true; ELSE RAISE; END IF;
+            END;
+            IF NOT v_guard_hit THEN RAISE EXCEPTION 'stale stock snapshot was not rejected'; END IF;
+
+            v_expense := public.record_expense(v_org,'operations','CI expense smoke test',12.50,'YER',current_date);
+            IF NOT EXISTS (SELECT 1 FROM public.expenses WHERE id=v_expense AND amount=12.50) THEN
+              RAISE EXCEPTION 'expense was not persisted';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM public.audit_logs WHERE entity_type='expense' AND entity_id=v_expense) THEN
+              RAISE EXCEPTION 'expense audit record is missing';
+            END IF;
+
+            v_guard_hit := false;
+            BEGIN
+              PERFORM public.create_inventory_transfer(
+                v_other_org, v_wh1, v_wh2,
+                jsonb_build_array(jsonb_build_object('product_id',v_product,'quantity',1)),
+                'cross-tenant request must be rejected'
+              );
+              RAISE EXCEPTION 'expected_cross_tenant_guard_not_triggered';
+            EXCEPTION WHEN OTHERS THEN
+              IF SQLERRM = 'inventory_transfer_forbidden' THEN v_guard_hit := true; ELSE RAISE; END IF;
+            END;
+            IF NOT v_guard_hit THEN RAISE EXCEPTION 'cross-tenant transfer request was not rejected'; END IF;
+          END;
+          $ci_inventory_smoke$;
+
+          RESET ROLE;
+          SQL
+
       - name: Verify required post-migration contracts
         run: |
           psql --set ON_ERROR_STOP=1 --tuples-only --no-align <<'SQL'
