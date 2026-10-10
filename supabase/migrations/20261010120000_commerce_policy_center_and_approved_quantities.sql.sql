@@ -301,7 +301,8 @@ $$;
 
 REVOKE ALL ON FUNCTION public.calculate_commerce_price(uuid, integer, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.calculate_commerce_price(uuid, integer, text) FROM anon;
-GRANT EXECUTE ON FUNCTION public.calculate_commerce_price(uuid, integer, text) TO authenticated;
+REVOKE ALL ON FUNCTION public.calculate_commerce_price(uuid, integer, text) FROM authenticated;
+-- This evaluator is an internal building block for SECURITY DEFINER order RPCs, never a client-callable price oracle.
 
 CREATE OR REPLACE FUNCTION public.recalculate_organization_product_prices(p_organization_id uuid)
 RETURNS void
