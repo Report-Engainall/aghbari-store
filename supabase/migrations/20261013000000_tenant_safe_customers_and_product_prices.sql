@@ -53,7 +53,7 @@ GRANT SELECT (
   id, organization_id, category_id, brand_id, item_code, sku,
   name, name_ar, slug, description, unit, box_quantity, carton_quantity,
   min_order_qty, stock_quantity, reserved_stock, min_stock, max_stock,
-  weight, barcode, image_url, is_active, is_featured, is_new, tags,
+  barcode, image_url, is_active, is_featured, is_new, tags,
   status, created_at, updated_at
 ) ON public.products TO anon, authenticated;
 
@@ -164,9 +164,9 @@ BEGIN
   INSERT INTO public.audit_logs (
     organization_id, actor_id, action, entity_type, entity_id, old_value, new_value
   ) VALUES (
-    COALESCE(NEW.organization_id, OLD.organization_id),
+    CASE WHEN TG_OP = 'DELETE' THEN OLD.organization_id ELSE NEW.organization_id END,
     v_actor_profile_id, v_action, 'product',
-    COALESCE(NEW.id, OLD.id), v_old, v_new
+    CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END, v_old, v_new
   );
 
   IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
