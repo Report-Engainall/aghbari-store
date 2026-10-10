@@ -97,13 +97,19 @@ jobs:
               OR has_table_privilege('authenticated', 'public.organization_members', 'DELETE') THEN
               RAISE EXCEPTION 'browser roles can mutate organization memberships directly';
             END IF;
-            IF has_table_privilege('authenticated', 'public.orders', 'INSERT')
+            IF has_table_privilege('anon', 'public.orders', 'SELECT')
+              OR has_table_privilege('anon', 'public.invoices', 'SELECT')
+              OR has_table_privilege('authenticated', 'public.orders', 'INSERT')
               OR has_table_privilege('authenticated', 'public.orders', 'UPDATE')
               OR has_table_privilege('authenticated', 'public.orders', 'DELETE')
               OR has_table_privilege('authenticated', 'public.order_items', 'INSERT')
               OR has_table_privilege('authenticated', 'public.invoices', 'INSERT')
               OR has_table_privilege('authenticated', 'public.payments', 'INSERT') THEN
-              RAISE EXCEPTION 'order and billing DML must be limited to privileged RPCs';
+              RAISE EXCEPTION 'orders/billing must be tenant-only reads and privileged RPC writes';
+            END IF;
+            IF has_table_privilege('anon', 'public.audit_logs', 'SELECT')
+              OR has_table_privilege('anon', 'public.outbox_events', 'SELECT') THEN
+              RAISE EXCEPTION 'audit and outbox tables must not grant public reads';
             END IF;
             IF has_table_privilege('authenticated', 'public.order_status_history', 'INSERT')
               OR has_table_privilege('authenticated', 'public.order_status_history', 'UPDATE')
