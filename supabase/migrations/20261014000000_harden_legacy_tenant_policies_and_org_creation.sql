@@ -124,6 +124,151 @@ REVOKE ALL ON FUNCTION private.is_org_admin(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION private.is_org_admin(uuid) FROM anon;
 GRANT EXECUTE ON FUNCTION private.is_org_admin(uuid) TO authenticated;
 
+-- Platform approval is global and cannot be granted by tenant owners through the browser.
+-- Provision the first platform administrator through the trusted Supabase SQL editor; user_roles
+-- has no browser write grants after this migration.
+CREATE OR REPLACE FUNCTION private.is_platform_admin()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $is_platform_admin$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.profiles p
+    JOIN public.user_roles ur ON ur.profile_id = p.id
+    WHERE p.auth_user_id = auth.uid()
+      AND p.is_active = true
+      AND ur.role = 'system_admin'
+  );
+$is_platform_admin$;
+
+REVOKE ALL ON FUNCTION private.is_platform_admin() FROM PUBLIC;
+REVOKE ALL ON FUNCTION private.is_platform_admin() FROM anon;
+GRANT EXECUTE ON FUNCTION private.is_platform_admin() TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.is_platform_admin()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $is_platform_admin_public$
+  SELECT private.is_platform_admin();
+$is_platform_admin_public$;
+
+REVOKE ALL ON FUNCTION public.is_platform_admin() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.is_platform_admin() FROM anon;
+GRANT EXECUTE ON FUNCTION public.is_platform_admin() TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.list_pending_organizations()
+RETURNS TABLE (
+  id uuid,
+  name text,
+  email text,
+  phone text,
+  created_at timestamptz
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $list_pending_organizations$
+BEGIN
+  IF NOT private.is_platform_admin() THEN
+    RAISE EXCEPTION 'platform_admin_required';
+  END IF;
+
+  RETURN QUERY
+  SELECT org.id, org.name, org.email, org.phone, org.created_at
+  FROM public.organizations org
+  WHERE org.status = 'pending' AND org.is_active = false
+  ORDER BY org.created_at ASC;
+END
+$list_pending_organizations$;
+
+REVOKE ALL ON FUNCTION public.list_pending_organizations() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.list_pending_organizations() FROM anon;
+GRANT EXECUTE ON FUNCTION public.list_pending_organizations() TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.review_organization(
+  p_organization_id uuid,
+  p_decision text,
+  p_reason text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $review_organization$
+DECLARE
+  v_current_status text;
+  v_current_active boolean;
+  v_new_status text;
+  v_new_active boolean;
+  v_actor_profile_id uuid;
+  v_reason text := NULLIF(pg_catalog.btrim(p_reason), '');
+BEGIN
+  IF NOT private.is_platform_admin() THEN
+    RAISE EXCEPTION 'platform_admin_required';
+  END IF;
+  IF p_organization_id IS NULL OR p_decision IS NULL OR p_decision NOT IN ('approve', 'reject') THEN
+    RAISE EXCEPTION 'invalid_organization_review_decision';
+  END IF;
+  IF v_reason IS NOT NULL AND pg_catalog.char_length(v_reason) > 1000 THEN
+    RAISE EXCEPTION 'organization_review_reason_too_long';
+  END IF;
+
+  SELECT org.status, org.is_active
+    INTO v_current_status, v_current_active
+  FROM public.organizations org
+  WHERE org.id = p_organization_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'organization_not_found';
+  END IF;
+  IF v_current_status <> 'pending' OR v_current_active THEN
+    RAISE EXCEPTION 'organization_is_not_pending';
+  END IF;
+
+  v_new_status := CASE WHEN p_decision = 'approve' THEN 'active' ELSE 'inactive' END;
+  v_new_active := (p_decision = 'approve');
+
+  UPDATE public.organizations
+  SET status = v_new_status, is_active = v_new_active, updated_at = pg_catalog.now()
+  WHERE id = p_organization_id;
+
+  SELECT p.id INTO v_actor_profile_id
+  FROM public.profiles p
+  WHERE p.auth_user_id = auth.uid()
+  LIMIT 1;
+
+  INSERT INTO public.audit_logs (
+    organization_id, actor_id, action, entity_type, entity_id, old_value, new_value
+  ) VALUES (
+    p_organization_id,
+    v_actor_profile_id,
+    CASE WHEN p_decision = 'approve' THEN 'organization.approved' ELSE 'organization.rejected' END,
+    'organization',
+    p_organization_id,
+    pg_catalog.jsonb_build_object('status', v_current_status, 'is_active', v_current_active),
+    pg_catalog.jsonb_build_object('status', v_new_status, 'is_active', v_new_active, 'reason', v_reason)
+  );
+
+  RETURN pg_catalog.jsonb_build_object(
+    'organization_id', p_organization_id,
+    'status', v_new_status,
+    'is_active', v_new_active
+  );
+END
+$review_organization$;
+
+REVOKE ALL ON FUNCTION public.review_organization(uuid, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.review_organization(uuid, text, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.review_organization(uuid, text, text) TO authenticated, service_role;
+
+
 -- A user may read their own membership and the memberships of their active tenant,
 -- but cannot self-assign an owner/admin role or remove/change membership records.
 ALTER TABLE public.organization_members ENABLE ROW LEVEL SECURITY;
