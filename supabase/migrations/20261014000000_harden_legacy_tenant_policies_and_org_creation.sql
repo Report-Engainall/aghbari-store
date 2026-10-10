@@ -1,0 +1,479 @@
+-- Security hardening for the legacy multi-tenant schema and safe company onboarding.
+-- This migration removes prototype-wide policies, closes direct membership writes, and
+-- restores tenant-scoped read/write policies for the operational tables used by the app.
+
+ALTER TABLE public.organizations
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'pending';
+
+DO $status_constraint$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.organizations'::regclass
+      AND conname = 'organizations_status_allowed_check'
+  ) THEN
+    ALTER TABLE public.organizations
+      ADD CONSTRAINT organizations_status_allowed_check
+      CHECK (status IN ('pending', 'active', 'suspended', 'inactive'));
+  END IF;
+END
+$status_constraint$;
+
+-- Legacy bootstrap policies were permissive and therefore OR-ed with newer tenant rules.
+DO $drop_legacy_anon_policies$
+DECLARE
+  policy_row record;
+BEGIN
+  FOR policy_row IN
+    SELECT schemaname, tablename, policyname
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND policyname LIKE 'anon\_%' ESCAPE '\'
+  LOOP
+    EXECUTE format(
+      'DROP POLICY IF EXISTS %I ON %I.%I',
+      policy_row.policyname, policy_row.schemaname, policy_row.tablename
+    );
+  END LOOP;
+END
+$drop_legacy_anon_policies$;
+
+-- Remove remaining broad prototype policies from the older commerce migration.
+DROP POLICY IF EXISTS org_insert_authenticated ON public.organizations;
+DROP POLICY IF EXISTS orgmem_insert_self ON public.organization_members;
+DROP POLICY IF EXISTS orgmem_update_self ON public.organization_members;
+DROP POLICY IF EXISTS orgmem_delete_self ON public.organization_members;
+DROP POLICY IF EXISTS cat_select_all ON public.categories;
+DROP POLICY IF EXISTS prod_select_all ON public.products;
+DROP POLICY IF EXISTS var_select_all ON public.product_variants;
+DROP POLICY IF EXISTS img_select_all ON public.product_images;
+DROP POLICY IF EXISTS ai_select_auth ON public.ai_tasks;
+DROP POLICY IF EXISTS aialert_select_auth ON public.ai_alerts;
+DROP POLICY IF EXISTS audit_select_auth ON public.audit_logs;
+DROP POLICY IF EXISTS implog_select_auth ON public.import_logs;
+
+CREATE OR REPLACE FUNCTION private.is_org_admin(p_organization_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $is_org_admin$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.organization_members om
+    WHERE om.organization_id = p_organization_id
+      AND om.user_id = auth.uid()
+      AND om.status = 'active'
+      AND om.role IN ('owner', 'admin')
+  );
+$is_org_admin$;
+
+REVOKE ALL ON FUNCTION private.is_org_admin(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION private.is_org_admin(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION private.is_org_admin(uuid) TO authenticated;
+
+-- A user may read their own membership and the memberships of their active tenant,
+-- but cannot self-assign an owner/admin role or remove/change membership records.
+ALTER TABLE public.organization_members ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS orgmem_select_member ON public.organization_members;
+CREATE POLICY orgmem_select_member
+ON public.organization_members FOR SELECT TO authenticated
+USING (auth.uid() = user_id OR private.is_org_member(organization_id));
+
+REVOKE INSERT, UPDATE, DELETE ON public.organization_members FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.organization_members TO authenticated;
+
+ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_select_authenticated ON public.organizations;
+CREATE POLICY org_select_authenticated
+ON public.organizations FOR SELECT TO authenticated
+USING (private.is_org_member(id));
+
+DROP POLICY IF EXISTS org_update_owner ON public.organizations;
+CREATE POLICY org_update_owner
+ON public.organizations FOR UPDATE TO authenticated
+USING (private.is_org_admin(id))
+WITH CHECK (private.is_org_admin(id));
+
+-- Keep company verification/activation and financial controls server-managed.
+REVOKE INSERT, DELETE ON public.organizations FROM PUBLIC, anon, authenticated;
+REVOKE UPDATE ON public.organizations FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.organizations TO authenticated;
+GRANT UPDATE (name, legal_name, tax_number, phone, email, address, logo_url)
+  ON public.organizations TO authenticated;
+
+-- Atomically create a pending company and its first owner membership. No client-supplied
+-- user ID or organization ID is accepted; retries for the same signed-in user are idempotent.
+CREATE OR REPLACE FUNCTION public.create_organization_for_current_user(
+  p_name text,
+  p_email text DEFAULT NULL,
+  p_phone text DEFAULT NULL
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $create_organization$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_organization_id uuid;
+  v_membership_status text;
+  v_name text := NULLIF(pg_catalog.btrim(p_name), '');
+  v_email text := NULLIF(pg_catalog.btrim(p_email), '');
+  v_phone text := NULLIF(pg_catalog.btrim(p_phone), '');
+BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'authentication_required';
+  END IF;
+
+  IF v_name IS NULL OR pg_catalog.char_length(v_name) > 160 THEN
+    RAISE EXCEPTION 'invalid_organization_name';
+  END IF;
+  IF v_email IS NOT NULL AND (pg_catalog.char_length(v_email) > 254 OR v_email !~* '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$') THEN
+    RAISE EXCEPTION 'invalid_organization_email';
+  END IF;
+  IF v_phone IS NOT NULL AND pg_catalog.char_length(v_phone) > 40 THEN
+    RAISE EXCEPTION 'invalid_organization_phone';
+  END IF;
+
+  -- Serialize concurrent retries for one user to prevent duplicate tenant creation.
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(v_user_id::text, 0)
+  );
+
+  SELECT om.organization_id, om.status
+    INTO v_organization_id, v_membership_status
+  FROM public.organization_members om
+  WHERE om.user_id = v_user_id
+  ORDER BY CASE WHEN om.status = 'active' THEN 0 ELSE 1 END, om.created_at
+  LIMIT 1;
+
+  IF v_organization_id IS NOT NULL THEN
+    IF v_membership_status = 'active' THEN
+      RETURN v_organization_id;
+    END IF;
+    RAISE EXCEPTION 'organization_membership_requires_review';
+  END IF;
+
+  INSERT INTO public.organizations (name, email, phone, status)
+  VALUES (v_name, v_email, v_phone, 'pending')
+  RETURNING id INTO v_organization_id;
+
+  INSERT INTO public.organization_members (organization_id, user_id, role, status)
+  VALUES (v_organization_id, v_user_id, 'owner', 'active');
+
+  RETURN v_organization_id;
+END
+$create_organization$;
+
+REVOKE ALL ON FUNCTION public.create_organization_for_current_user(text, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.create_organization_for_current_user(text, text, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.create_organization_for_current_user(text, text, text) TO authenticated;
+
+-- Catalog and organization-scoped master data.
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS categories_member_read ON public.categories;
+CREATE POLICY categories_member_read
+ON public.categories FOR SELECT TO authenticated
+USING (private.is_org_member(organization_id));
+DROP POLICY IF EXISTS categories_admin_insert ON public.categories;
+CREATE POLICY categories_admin_insert
+ON public.categories FOR INSERT TO authenticated
+WITH CHECK (private.is_org_admin(organization_id));
+DROP POLICY IF EXISTS categories_admin_update ON public.categories;
+CREATE POLICY categories_admin_update
+ON public.categories FOR UPDATE TO authenticated
+USING (private.is_org_admin(organization_id))
+WITH CHECK (private.is_org_admin(organization_id));
+DROP POLICY IF EXISTS categories_admin_delete ON public.categories;
+CREATE POLICY categories_admin_delete
+ON public.categories FOR DELETE TO authenticated
+USING (private.is_org_admin(organization_id));
+REVOKE ALL ON public.categories FROM PUBLIC, anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.categories TO authenticated;
+
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS products_member_read ON public.products;
+CREATE POLICY products_member_read
+ON public.products FOR SELECT TO authenticated
+USING (private.is_org_member(organization_id));
+
+-- Descriptive catalog columns only. Pricing and cost data stay behind the staff-only view/RPCs.
+REVOKE SELECT ON public.products FROM PUBLIC, anon, authenticated;
+GRANT SELECT (
+  id, organization_id, category_id, brand_id, item_code, sku,
+  name, name_ar, slug, description, unit, box_quantity, carton_quantity,
+  min_order_qty, stock_quantity, barcode, image_url, is_active, is_featured,
+  is_new, tags, status, created_at, updated_at
+) ON public.products TO authenticated;
+REVOKE INSERT, UPDATE, DELETE ON public.products FROM PUBLIC, anon;
+GRANT INSERT, UPDATE ON public.products TO authenticated;
+
+ALTER TABLE public.product_variants ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS variants_member_read ON public.product_variants;
+CREATE POLICY variants_member_read
+ON public.product_variants FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = product_variants.product_id
+    AND private.is_org_member(p.organization_id)
+));
+DROP POLICY IF EXISTS variants_admin_insert ON public.product_variants;
+CREATE POLICY variants_admin_insert
+ON public.product_variants FOR INSERT TO authenticated
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = product_variants.product_id
+    AND private.is_org_admin(p.organization_id)
+));
+DROP POLICY IF EXISTS variants_admin_update ON public.product_variants;
+CREATE POLICY variants_admin_update
+ON public.product_variants FOR UPDATE TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = product_variants.product_id
+    AND private.is_org_admin(p.organization_id)
+))
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = product_variants.product_id
+    AND private.is_org_admin(p.organization_id)
+));
+DROP POLICY IF EXISTS variants_admin_delete ON public.product_variants;
+CREATE POLICY variants_admin_delete
+ON public.product_variants FOR DELETE TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = product_variants.product_id
+    AND private.is_org_admin(p.organization_id)
+));
+REVOKE ALL ON public.product_variants FROM PUBLIC, anon;
+GRANT SELECT (id, product_id, sku, name, stock_quantity, attributes, created_at)
+  ON public.product_variants TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.product_variants TO authenticated;
+
+ALTER TABLE public.product_images ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS images_member_read ON public.product_images;
+CREATE POLICY images_member_read
+ON public.product_images FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = product_images.product_id
+    AND private.is_org_member(p.organization_id)
+));
+DROP POLICY IF EXISTS images_admin_insert ON public.product_images;
+CREATE POLICY images_admin_insert
+ON public.product_images FOR INSERT TO authenticated
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = product_images.product_id
+    AND private.is_org_admin(p.organization_id)
+));
+DROP POLICY IF EXISTS images_admin_update ON public.product_images;
+CREATE POLICY images_admin_update
+ON public.product_images FOR UPDATE TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = product_images.product_id
+    AND private.is_org_admin(p.organization_id)
+))
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = product_images.product_id
+    AND private.is_org_admin(p.organization_id)
+));
+DROP POLICY IF EXISTS images_admin_delete ON public.product_images;
+CREATE POLICY images_admin_delete
+ON public.product_images FOR DELETE TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = product_images.product_id
+    AND private.is_org_admin(p.organization_id)
+));
+REVOKE ALL ON public.product_images FROM PUBLIC, anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.product_images TO authenticated;
+
+ALTER TABLE public.product_media ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS product_media_member_read ON public.product_media;
+CREATE POLICY product_media_member_read
+ON public.product_media FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = product_media.product_id
+    AND private.is_org_member(p.organization_id)
+));
+DROP POLICY IF EXISTS product_media_admin_insert ON public.product_media;
+CREATE POLICY product_media_admin_insert
+ON public.product_media FOR INSERT TO authenticated
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = product_media.product_id
+    AND private.is_org_admin(p.organization_id)
+));
+DROP POLICY IF EXISTS product_media_admin_update ON public.product_media;
+CREATE POLICY product_media_admin_update
+ON public.product_media FOR UPDATE TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = product_media.product_id
+    AND private.is_org_admin(p.organization_id)
+))
+WITH CHECK (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = product_media.product_id
+    AND private.is_org_admin(p.organization_id)
+));
+DROP POLICY IF EXISTS product_media_admin_delete ON public.product_media;
+CREATE POLICY product_media_admin_delete
+ON public.product_media FOR DELETE TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = product_media.product_id
+    AND private.is_org_admin(p.organization_id)
+));
+REVOKE ALL ON public.product_media FROM PUBLIC, anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.product_media TO authenticated;
+
+-- Warehouse, branch and supplier maintenance is tenant-scoped and admin-only for writes.
+DO $master_data_policies$
+DECLARE
+  table_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY['branches', 'warehouses', 'suppliers']
+  LOOP
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', table_name || '_member_read', table_name);
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING (private.is_org_member(organization_id))',
+      table_name || '_member_read', table_name
+    );
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', table_name || '_admin_insert', table_name);
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR INSERT TO authenticated WITH CHECK (private.is_org_admin(organization_id))',
+      table_name || '_admin_insert', table_name
+    );
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', table_name || '_admin_update', table_name);
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR UPDATE TO authenticated USING (private.is_org_admin(organization_id)) WITH CHECK (private.is_org_admin(organization_id))',
+      table_name || '_admin_update', table_name
+    );
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', table_name || '_admin_delete', table_name);
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I FOR DELETE TO authenticated USING (private.is_org_admin(organization_id))',
+      table_name || '_admin_delete', table_name
+    );
+    EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC, anon', table_name);
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO authenticated', table_name);
+  END LOOP;
+END
+$master_data_policies$;
+
+-- Price history, stock ledgers, AI operations and import job details are read-only in the browser.
+ALTER TABLE public.price_change_log ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS price_change_log_admin_read ON public.price_change_log;
+CREATE POLICY price_change_log_admin_read
+ON public.price_change_log FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.products p
+  WHERE p.id = price_change_log.product_id
+    AND private.is_org_admin(p.organization_id)
+));
+REVOKE ALL ON public.price_change_log FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.price_change_log TO authenticated;
+
+ALTER TABLE public.product_prices ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.product_prices FROM PUBLIC, anon, authenticated;
+
+ALTER TABLE public.inventory_balances ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS inventory_balances_admin_read ON public.inventory_balances;
+CREATE POLICY inventory_balances_admin_read
+ON public.inventory_balances FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.products p
+  JOIN public.warehouses w ON w.id = inventory_balances.warehouse_id
+  WHERE p.id = inventory_balances.product_id
+    AND p.organization_id = w.organization_id
+    AND private.is_org_admin(p.organization_id)
+));
+REVOKE ALL ON public.inventory_balances FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.inventory_balances TO authenticated;
+
+ALTER TABLE public.inventory_movements ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS inventory_movements_admin_read ON public.inventory_movements;
+CREATE POLICY inventory_movements_admin_read
+ON public.inventory_movements FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.products p
+  JOIN public.warehouses w ON w.id = inventory_movements.warehouse_id
+  WHERE p.id = inventory_movements.product_id
+    AND p.organization_id = w.organization_id
+    AND private.is_org_admin(p.organization_id)
+));
+REVOKE ALL ON public.inventory_movements FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.inventory_movements TO authenticated;
+
+ALTER TABLE public.ai_tasks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ai_tasks_admin_read ON public.ai_tasks;
+CREATE POLICY ai_tasks_admin_read
+ON public.ai_tasks FOR SELECT TO authenticated
+USING (private.is_org_admin(organization_id));
+REVOKE ALL ON public.ai_tasks FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.ai_tasks TO authenticated;
+
+ALTER TABLE public.ai_alerts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ai_alerts_admin_read ON public.ai_alerts;
+CREATE POLICY ai_alerts_admin_read
+ON public.ai_alerts FOR SELECT TO authenticated
+USING (private.is_org_admin(organization_id));
+REVOKE ALL ON public.ai_alerts FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.ai_alerts TO authenticated;
+
+ALTER TABLE public.import_jobs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS import_jobs_admin_read ON public.import_jobs;
+CREATE POLICY import_jobs_admin_read
+ON public.import_jobs FOR SELECT TO authenticated
+USING (organization_id IS NOT NULL AND private.is_org_admin(organization_id));
+REVOKE ALL ON public.import_jobs FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.import_jobs TO authenticated;
+
+ALTER TABLE public.import_job_rows ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS import_job_rows_admin_read ON public.import_job_rows;
+CREATE POLICY import_job_rows_admin_read
+ON public.import_job_rows FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.import_jobs j
+  WHERE j.id = import_job_rows.import_job_id
+    AND j.organization_id IS NOT NULL
+    AND private.is_org_admin(j.organization_id)
+));
+REVOKE ALL ON public.import_job_rows FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.import_job_rows TO authenticated;
+
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS notifications_owner_or_admin_read ON public.notifications;
+CREATE POLICY notifications_owner_or_admin_read
+ON public.notifications FOR SELECT TO authenticated
+USING (
+  EXISTS (SELECT 1 FROM public.profiles p
+          WHERE p.id = notifications.profile_id AND p.auth_user_id = auth.uid())
+  OR (organization_id IS NOT NULL AND private.is_org_admin(organization_id))
+);
+REVOKE ALL ON public.notifications FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.notifications TO authenticated;
+
+-- Import logs are not consistently organization-tagged in older installations; restrict them
+-- to the authenticated actor until an organization key is present in the canonical schema.
+ALTER TABLE public.import_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS import_logs_creator_read ON public.import_logs;
+CREATE POLICY import_logs_creator_read
+ON public.import_logs FOR SELECT TO authenticated
+USING (created_by = auth.uid());
+REVOKE ALL ON public.import_logs FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.import_logs TO authenticated;
+
+-- These policies intentionally keep the legacy global brand dictionary read-only/public.
+DROP POLICY IF EXISTS brand_insert_all ON public.brands;
+DROP POLICY IF EXISTS brand_update_all ON public.brands;
+DROP POLICY IF EXISTS brand_delete_all ON public.brands;
+REVOKE INSERT, UPDATE, DELETE ON public.brands FROM PUBLIC, anon;
