@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { LayoutDashboard, ShoppingCart, Users, Package, Database, Brain, ChartBar as BarChart3, Settings, Shield, LogOut, Menu, X, Bell, Search, FileText, Warehouse, ChevronLeft, Wrench, ArrowRight, SlidersHorizontal, Boxes, ArrowLeftRight, Truck, CreditCard, Wallet, ShieldCheck, Activity, ClipboardCheck, ShoppingBag, PackageCheck, ReceiptText } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, Users, Package, Database, Brain, ChartBar as BarChart3, Settings, Shield, LogOut, Menu, X, Bell, Search, FileText, Warehouse, ChevronLeft, Wrench, ArrowRight, SlidersHorizontal, Boxes, ArrowLeftRight, Truck, CreditCard, Wallet, ShieldCheck, Activity, ClipboardCheck, ShoppingBag, PackageCheck, ReceiptText, ScanLine, Download } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
 
@@ -43,6 +43,8 @@ const adminNav: { section: string; items: { to: string; label: string; icon: typ
       { to: '/admin/payments', label: 'المدفوعات', icon: CreditCard },
       { to: '/admin/statements', label: 'كشوف الحساب', icon: Wallet },
       { to: '/admin/expenses', label: 'المصروفات', icon: ReceiptText },
+      { to: '/admin/barcode', label: 'ماسح الباركود', icon: ScanLine },
+      { to: '/admin/exports', label: 'تصدير البيانات', icon: Download },
     ],
   },
   {
