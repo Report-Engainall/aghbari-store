@@ -183,6 +183,8 @@ assert.ok(securityMigration.includes('DROP POLICY IF EXISTS "orgmem_insert_self"
 assert.ok(securityMigration.includes('DROP POLICY IF EXISTS "audit_select_auth"'), 'Cross-tenant authenticated-wide audit read policy must be removed.')
 assert.ok(securityMigration.includes('CREATE POLICY ai_tasks_member_read'), 'AI task reads must be tenant-scoped.')
 assert.ok(securityMigration.includes('CREATE POLICY import_logs_member_read'), 'Import log reads must be tenant-scoped.')
+assert.ok(securityMigration.includes('CREATE OR REPLACE FUNCTION public.update_organization_member_role'), 'Organization role updates must use the audited RPC.')
+assert.ok(adminOperations.includes("supabase.rpc('update_organization_member_role'"), 'Role management UI must call the audited role RPC.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
