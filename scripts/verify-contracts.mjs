@@ -266,6 +266,7 @@ required(tenantSecurityMigration, /CREATE POLICY invoices_active_tenant_read[\s\
 required(tenantSecurityMigration, /CREATE POLICY payments_active_tenant_read[\s\S]*private\.is_org_member\(organization_id\)/, 'Payment reads must enforce active tenant status.')
 required(tenantSecurityMigration, /CREATE POLICY statements_active_tenant_read[\s\S]*private\.is_org_member\(organization_id\)/, 'Statement reads must enforce active tenant status.')
 required(tenantSecurityMigration, /CREATE POLICY order_status_history_active_tenant_read[\s\S]*private\.is_org_member\(o\.organization_id\)/, 'Order history must not bypass tenant approval via an own-user shortcut.')
+required(tenantSecurityMigration, /CREATE POLICY order_status_history_active_tenant_read[\s\S]*o\.user_id = auth\.uid\(\)[\s\S]*om\.role IN \('owner','admin','manager','warehouse','accountant','sales','system_admin','customer_manager'\)/, 'Order history remains private to the order owner and authorized staff.')
 required(tenantSecurityMigration, /GRANT UPDATE \(name\) ON public\.organizations TO authenticated/, 'Company editing must be limited to the supported name field.')
 required(migrationWorkflow, /pending_tenant_catalog_gate[\s\S]*admin_product_catalog[\s\S]*v_write_denied/, 'PostgreSQL CI must prove unapproved tenants cannot read catalog/prices or create products.')
 
