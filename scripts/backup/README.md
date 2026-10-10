@@ -4,7 +4,7 @@
 
 ## What this backs up
 
-The workflow creates a PostgreSQL logical custom-format dump using `pg_dump`, encrypts it with age public-key encryption, then stores only the encrypted dump and an integrity manifest as a GitHub Actions artifact. The scheduled trigger runs daily at 02:17 UTC; manual execution is also supported. Artifact retention is 14 days. This is a zero-additional-service-cost-first option subject to available GitHub Actions usage/storage limits and the database connection configuration.
+The workflow creates a PostgreSQL logical custom-format dump using `pg_dump`, encrypts it with age public-key encryption, then stores only the encrypted dump and an integrity manifest as a GitHub Actions artifact. The standalone backup script defaults to `$HOME/.local/share/aghbari/encrypted-backups`; override `BACKUP_OUTPUT_DIR` only with a dedicated directory outside the repository and outside shared/group-writable directories. The scheduled trigger runs daily at 02:17 UTC; manual execution is also supported. Artifact retention is 14 days. This is a zero-additional-service-cost-first option subject to available GitHub Actions usage/storage limits and the database connection configuration.
 
 It is **not** a complete Supabase-project backup: Storage object bytes, Edge Function source/secrets, project configuration, external-provider credentials, and a verified recovery point are not included. The manifest declares those exclusions. A PostgreSQL archive is not called a full disaster-recovery guarantee until an isolated restore and application checks pass.
 
@@ -18,7 +18,7 @@ It is **not** a complete Supabase-project backup: Storage object bytes, Edge Fun
 
 ## Verify an artifact offline
 
-Install `age` and `postgresql-client`, keep the private key outside the repository, and run:
+Install `age`, `postgresql-client` and Python 3, keep the private key outside the repository, and run:
 
 ```bash
 AGE_IDENTITY_FILE=/secure/path/aghbari-backup.agekey \
