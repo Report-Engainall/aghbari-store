@@ -232,8 +232,8 @@ assert.ok(offlineUi.includes('لن تُحفظ الطلبات أو المدفوع
 assert.ok(offlineBoundary.includes('لا يخزّن عامل الخدمة استجابات Supabase/API أو بيانات العملاء'), 'Offline policy must prohibit caching private business data.')
 assert.ok(offlineBoundary.includes('لا توجد قائمة انتظار محلية للطلبات أو الدفع'), 'Offline policy must record that sensitive transaction queues are not implemented.')
 assert.ok(appRoutes.includes('<ConnectivityStatus />'), 'Global offline status must be wired into the application tree.')
-assert.ok(appRoutes.includes("import AIAssistant from '@/pages/admin/AIAssistant'"), 'AI assistant must be a first-party page in the main application.')
-assert.ok(appRoutes.includes('<Route path="ai/assistant" element={<AIAssistant />} />'), 'AI assistant route must use its dedicated integrated page.')
+assert.ok(appRoutes.includes("const AIAssistant = lazy(() => import('@/pages/admin/AIAssistant'))"), 'AI assistant must be a first-party lazy-loaded page in the main application.')
+assert.ok(appRoutes.includes('<Route path="ai/assistant" element={suspendPage(<AIAssistant />)} />'), 'AI assistant route must use its dedicated integrated lazy page.')
 assert.ok(adminShell.includes("to: '/admin/ai/assistant', label: 'المساعد الذكي'"), 'AI assistant must be reachable from the shared administration navigation.')
 for (const table of ['ai_reports', 'ai_alerts', 'ai_tasks']) {
   assert.ok(aiAssistant.includes(`from('${table}')`), `The integrated assistant must read its supported source table: ${table}`)
