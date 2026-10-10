@@ -584,6 +584,8 @@ jobs:
           SELECT (
             has_table_privilege('authenticated', 'public.import_uploads', 'INSERT')
             OR has_table_privilege('authenticated', 'public.import_uploads', 'DELETE')
+            OR has_table_privilege('anon', 'public.import_uploads', 'INSERT')
+            OR has_table_privilege('anon', 'public.import_uploads', 'DELETE')
           )::text;
           SQL
           )"
