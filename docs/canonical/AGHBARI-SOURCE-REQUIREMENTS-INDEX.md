@@ -24,6 +24,12 @@ The sole product identity is **الأغبري | Aghbari Commerce**. The strings 
 - Passwords must never be stored reversibly or in a shared unsalted hash to enforce cross-user password uniqueness. This requirement requires security review and a privacy-preserving architecture; a safer breached-password check, strong-password policy and rate limiting must not be undermined.
 - No native-platform guarantee (e.g. iOS screenshot blocking or Android FLAG_SECURE) may be claimed for a browser-only app unless the actual native wrapper/API supports and proves it.
 
+## Implementation additions recorded on 2026-10-10
+
+- Integrated AI operational timeline reads only minimal organization-scoped `audit_logs` and `outbox_events` fields; it never selects event `payload` or arbitrary audit JSON.
+- Draft creation for purchase orders, inventory transfers and stock counts is now recorded by a shared metadata-only trigger. SQL CI includes smoke assertions that each action creates an audit record tied to the correct tenant and entity.
+- Backup/restore tools now include encrypted database dump, strict JSON/hash verification, a guarded restore, and a dedicated pre-restore snapshot requirement before any production-labelled destructive restore. Configuration and actual restore proof remain prerequisites.
+
 ## Screenshot preservation
 
 Current index reference: `docs/ui-reference/UI-REFERENCE-ASSET-INDEX.md`. Its audited count is 89 files / 85 unique Git blobs / 4 redundant file entries at the time recorded. Duplicate screenshots remain in source control for evidence/provenance. Deduplicate rendered screens and behavior, not the historical files.
