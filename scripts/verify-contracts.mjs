@@ -43,6 +43,9 @@ const [readme, index, pricingMigration, safeProductSelect, storefront, store, ca
     read('docs/OFFLINE-BOUNDARY.md'),
   ])
 
+const aiAssistant = await read('src/pages/admin/AIAssistant.tsx')
+const aiIntegration = await read('docs/AI-PORTAL-INTEGRATION.md')
+
 for (const imageName of imageNames) {
   assert.ok(index.includes(`[${imageName}](./${imageName})`), `Reference index is missing ${imageName}`)
 }
@@ -199,6 +202,15 @@ assert.ok(offlineUi.includes('لن تُحفظ الطلبات أو المدفوع
 assert.ok(offlineBoundary.includes('لا يخزّن عامل الخدمة استجابات Supabase/API أو بيانات العملاء'), 'Offline policy must prohibit caching private business data.')
 assert.ok(offlineBoundary.includes('لا توجد قائمة انتظار محلية للطلبات أو الدفع'), 'Offline policy must record that sensitive transaction queues are not implemented.')
 assert.ok(appRoutes.includes('<ConnectivityStatus />'), 'Global offline status must be wired into the application tree.')
+assert.ok(appRoutes.includes("import AIAssistant from '@/pages/admin/AIAssistant'"), 'AI assistant must be a first-party page in the main application.')
+assert.ok(appRoutes.includes('<Route path="ai/assistant" element={<AIAssistant />} />'), 'AI assistant route must use its dedicated integrated page.')
+assert.ok(adminShell.includes("to: '/admin/ai/assistant', label: 'المساعد الذكي'"), 'AI assistant must be reachable from the shared administration navigation.')
+for (const table of ['ai_reports', 'ai_alerts', 'ai_tasks']) {
+  assert.ok(aiAssistant.includes(`from('${table}')`), `The integrated assistant must read its supported source table: ${table}`)
+}
+assert.ok(aiAssistant.includes(".eq('organization_id', organizationId)"), 'AI assistant queries must explicitly scope records to the active organization.')
+assert.ok(aiAssistant.includes('لا يوجد نموذج توليدي مفعّل لهذا المساعد'), 'The assistant must disclose that no generative provider is configured.')
+assert.ok(aiIntegration.includes('ليست منتجًا مستقلًا أو تطبيقًا منفصلًا'), 'The integration decision must explicitly prohibit treating AI as a separate application.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
