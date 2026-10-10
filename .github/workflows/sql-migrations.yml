@@ -254,8 +254,16 @@ jobs:
           DO $pending_tenant_catalog_gate$
           DECLARE
             v_count integer;
+            v_pending_organization_id uuid;
             v_write_denied boolean := false;
           BEGIN
+            SELECT id INTO v_pending_organization_id
+            FROM public.organizations
+            WHERE email = 'aghbari-ci-org-create@example.invalid';
+            IF v_pending_organization_id IS NULL THEN
+              RAISE EXCEPTION 'tenant owner cannot read their own pending organization';
+            END IF;
+
             SELECT count(*) INTO v_count FROM public.products
             WHERE id = 'a4000000-0000-4000-8000-000000000097';
             IF v_count <> 0 THEN
@@ -272,7 +280,7 @@ jobs:
               INSERT INTO public.products (
                 organization_id, name, item_code, sku, name_ar, slug, unit, status, is_active
               ) VALUES (
-                'a0000000-0000-4000-8000-000000000099',
+                v_pending_organization_id,
                 'Unauthorized Pending Product', 'CI-PENDING-DENIED', 'CI-PENDING-DENIED',
                 'منتج مرفوض', 'ci-pending-denied-product', 'piece', 'active', true
               );
