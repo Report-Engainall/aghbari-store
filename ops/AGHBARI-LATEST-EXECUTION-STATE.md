@@ -28,17 +28,17 @@
 ## Not proven / open
 - The first observed Build run failed on a wrong README variable in the static contract test; after fixing the root README binding, the next observed Build failed because the source-index content lacked an explicit legacy-brand section. Both roots are corrected. A final current-head run is now in progress for Build, SQL Migration Chain (including the new audit migration) and Backup Tool Safety Checks; capture exact conclusions before merge.
 - No local `npm run build`, browser E2E, responsive/accessibility, live Supabase/RLS proof or production deploy performed by this connected GitHub-only execution.
-- PR #4 has not merged to main. Production remains HOLD / NO TOUCH.
+- PR #4 merged to main via squash commit `2dbc96fd5cb51b42924238d8d3cead955d90b1e6` on 2026-10-10. Build, SQL Migration Chain and Backup Tool Safety Checks passed on exact PR head `658382a5b09e4ef0363f7e1af11b2e0cc93581c4`. Production remains HOLD / NO TOUCH.
 - Native/private AI inference runtime, sanitization pipeline, event graph, recommendation evidence/action cards, quota ledger and model governance are not yet implemented by the current assistant.
 - Automatic backup/restore and isolated recovery drill are not proven.
 - Full XLSX/PDF structured extraction/resumable chunks, import DQS acceptance, outbox worker/DLQ recovery and complete browser test matrix remain open.
 
 ## Exact next executable action
-1. Inspect the actual latest PR #4 HEAD and read Build, SQL Migration Chain and Backup Tool Safety Checks conclusions for that exact SHA; the last run was queued before the latest audit/outbox and spec updates.
-2. Fix any remaining static/build/type error and re-run all required checks against the resulting exact head. Merge remains blocked until Build + SQL chain + backup shell gate all pass.
-3. The build workflow now uses Node 22 to match the resolved Supabase package engine requirement; keep that pin unless package metadata changes.
-4. Configure repository Actions secrets `SUPABASE_DB_URL` and public `BACKUP_AGE_RECIPIENT` through GitHub Settings; keep the age private key offline. Then manually run the encrypted backup workflow, verify a real artifact/manifest and restore to an isolated compatible target with application login/tenant/commerce/RLS smoke tests.
-5. Continue through import/DQS acceptance, SSOT/Onyx, full audit/outbox coverage mapping, private/local AI governance and complete E2E regression. Record exact-SHA results after each cycle.
+1. Verify current main HEAD and the Build result after the post-merge execution-state documentation updates. The PR merge commit was `2dbc96fd5cb51b42924238d8d3cead955d90b1e6`; the pre-merge exact PR head `658382a5b09e4ef0363f7e1af11b2e0cc93581c4` passed Build, PostgreSQL 17 Migration Chain and Backup Tool Safety Checks. The bundle-budget script reported 454,026 bytes raw / 127,606 bytes gzip under the 500,000-byte limit.
+2. Continue from the next highest-value product gap: strengthen the unified import engine’s tenant-switch stale-response handling and duplicate-upload race/idempotency behavior; preserve the rule that CSV can create a validated Snapshot, while Excel/PDF remain manual review until real parsers exist.
+3. Map remaining transactional/import/finance paths to audit or outbox events and add PostgreSQL smoke tests per path. Do not claim total audit coverage until the map is complete.
+4. Configure repository Actions secrets `SUPABASE_DB_URL` and public `BACKUP_AGE_RECIPIENT` through GitHub Settings; keep the age private key offline. Then run a real encrypted backup, verify manifest/decryption, restore to an isolated compatible target and run application login/tenant/commerce/RLS smoke tests.
+5. Continue private/local AI governance, security hardening and browser E2E proof. Update this state/progress ledger after each exact-SHA verification cycle.
 
 ## Do not repeat / do not do
 - Do not rebuild from zero or delete screenshot files, specs, migrations, current modules or git history.
@@ -76,18 +76,18 @@
 - New migration and SQL smoke test remain unverified until the current latest workflow concludes successfully.
 
 
-## Route-level code splitting — verified on SHA a6cfdabda8f9ac6a42f5a5b74d510aca99d3c6b9
+## Route-level code splitting — verified on PR head 658382a5b09e4ef0363f7e1af11b2e0cc93581c4
 
 - **Implementation:** `src/App.tsx` now lazy-loads storefront screens and admin modules by route using React `lazy` + `Suspense`; a small Arabic RTL `role=status` fallback is rendered during module loading. Auth providers, route guards, storefront/admin shells, connectivity UX and the in-app AI module remain within the same application.
 - **Measured build output:** main `index-*.js` changed from 732.55 kB (196.43 kB gzip) on the earlier monolithic build to 452.62 kB (127.61 kB gzip) after route splitting: **279.93 kB / about 38.2% less uncompressed initial JS**. Dedicated chunks include AIAssistant 15.05 kB, OperationsPages 26.93 kB, TransactionsPages 27.83 kB, StorefrontPages 67.13 kB and AdminPages 71.06 kB.
-- **Exact-SHA CI:** Build succeeded, SQL Migration Chain succeeded, and Backup Tool Safety Checks succeeded for `a6cfdabda8f9ac6a42f5a5b74d510aca99d3c6b9`. SQL workflow includes the new commercial draft audit migration and verifies purchase-order, inventory-transfer and stock-count audit entries under the expected tenant/entity.
+- **Exact-SHA CI:** Build, SQL Migration Chain and Backup Tool Safety Checks succeeded for PR head `658382a5b09e4ef0363f7e1af11b2e0cc93581c4`; PR #4 then merged to main via squash commit `2dbc96fd5cb51b42924238d8d3cead955d90b1e6`. Post-merge Build and Backup Tool Safety Checks also passed on that squash SHA. SQL workflow includes the new commercial draft audit migration and verifies purchase-order, inventory-transfer and stock-count audit entries under the expected tenant/entity.
 - **Scope:** this verifies TypeScript and production bundling plus clean PostgreSQL migration/smoke tests. It does not prove live production deployment, browser E2E, real backup/restore, or complete audit coverage for every operational path.
-- **Next exact action:** add static contracts so future changes cannot accidentally restore eager imports or remove the route loading boundary; run all three workflows on the final head and merge PR #4 only if they stay green. Keep production deployment on HOLD.
+- **Next exact action:** continue with the unified import engine’s tenant-switch stale-response and duplicate-upload race handling, keeping real parsers and live-data merge behavior explicitly gated. Production deployment remains on HOLD.
 
 
-## Entry bundle budget guard — implemented, awaiting exact-head CI
+## Entry bundle budget guard — verified on PR head 658382a5b09e4ef0363f7e1af11e16bf01263fe
 
 - Added scripts/verify-bundle-budget.mjs; it requires exactly one non-empty Vite entry file matching index-*.js, computes actual gzip bytes, and fails the build if the uncompressed entry exceeds **500,000 bytes**.
 - The production build command now runs the guard after vite build; this converts the measured improvement into an enforced regression budget.
-- Previous measured entry = 452.62 kB / 127.61 kB gzip. The new guard should pass under that output, but it is **not marked verified until CI runs on the exact head containing this script/package change**.
-- Next action: add contract checks that package build calls the budget verifier and that the script enforces the threshold; run Build + SQL Migration Chain + Backup Tool Safety Checks on the final head, then merge PR #4 if all remain green. Deployment remains HOLD.
+- Previous measured entry = 452.62 kB / 127.61 kB gzip. On final PR head `658382a5b09e4ef0363f7e1af11b2e0cc93581c4`, the guard printed `Bundle budget PASS: index-Bf1jHErw.js = 454026 bytes, gzip 127606 bytes; budget 500000 bytes.`
+- Next action: verify the latest post-merge main Build after this state update, then address the import-engine concurrency/tenant-switch gap. PR #4 is merged; no production deploy has occurred. Deployment remains HOLD.
