@@ -22,6 +22,57 @@ DROP POLICY IF EXISTS "orgmem_insert_self" ON public.organization_members;
 DROP POLICY IF EXISTS "orgmem_update_self" ON public.organization_members;
 DROP POLICY IF EXISTS "orgmem_delete_self" ON public.organization_members;
 
+-- The earlier RLS migration also installed authenticated-wide read policies; these
+-- must not OR-bypass the later organization-scoped policies.
+DROP POLICY IF EXISTS "audit_select_auth" ON public.audit_logs;
+DROP POLICY IF EXISTS "ai_select_auth" ON public.ai_tasks;
+DROP POLICY IF EXISTS "aialert_select_auth" ON public.ai_alerts;
+DROP POLICY IF EXISTS "implog_select_auth" ON public.import_logs;
+
+ALTER TABLE public.ai_tasks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ai_tasks_member_read ON public.ai_tasks;
+CREATE POLICY ai_tasks_member_read ON public.ai_tasks FOR SELECT TO authenticated
+USING (
+  organization_id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = ai_tasks.organization_id AND om.user_id = auth.uid()
+      AND om.status = 'active' AND om.role IN ('owner','admin','manager')
+  )
+);
+
+ALTER TABLE public.ai_alerts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ai_alerts_member_read ON public.ai_alerts;
+CREATE POLICY ai_alerts_member_read ON public.ai_alerts FOR SELECT TO authenticated
+USING (
+  organization_id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = ai_alerts.organization_id AND om.user_id = auth.uid()
+      AND om.status = 'active' AND om.role IN ('owner','admin','manager')
+  )
+);
+
+ALTER TABLE public.import_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS import_logs_member_read ON public.import_logs;
+CREATE POLICY import_logs_member_read ON public.import_logs FOR SELECT TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM public.import_uploads iu
+    WHERE iu.id = NULLIF(COALESCE(to_jsonb(import_logs)->>'upload_id',
+                                 to_jsonb(import_logs)->>'import_upload_id'), '')::uuid
+      AND EXISTS (
+        SELECT 1 FROM public.organization_members om
+        WHERE om.organization_id = iu.organization_id AND om.user_id = auth.uid()
+          AND om.status = 'active' AND om.role IN ('owner','admin','manager')
+      )
+  )
+  OR EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = NULLIF(to_jsonb(import_logs)->>'organization_id', '')::uuid
+      AND om.user_id = auth.uid() AND om.status = 'active'
+      AND om.role IN ('owner','admin','manager')
+  )
+);
+
 -- The catalog's public surface exposes descriptive/availability columns only.
 -- Authorized staff use admin_product_catalog, whose WHERE clause enforces active tenant membership.
 
