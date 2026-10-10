@@ -1,0 +1,65 @@
+name: Encrypted PostgreSQL Backup
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aghbari-encrypted-postgres-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Create encrypted database artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout trusted repository source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check required secret configuration without printing secrets
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
+        run: |
+          set -eu
+          missing=0
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "- BLOCKED: configure repository secret `SUPABASE_DB_URL` with a PostgreSQL connection string using SSL." >> "$GITHUB_STEP_SUMMARY"
+            missing=1
+          fi
+          if [ -z "$BACKUP_AGE_RECIPIENT" ]; then
+            echo "- BLOCKED: configure repository secret `BACKUP_AGE_RECIPIENT` with the age public recipient. Keep the private key offline." >> "$GITHUB_STEP_SUMMARY"
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            echo "Backup is not configured. No backup was created." >&2
+            exit 1
+          fi
+
+      - name: Install PostgreSQL client and age encryption tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client age
+
+      - name: Dump and encrypt database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
+          BACKUP_OUTPUT_DIR: ${{ runner.temp }}/aghbari-encrypted-backup
+          BACKUP_GIT_SHA: ${{ github.sha }}
+        run: bash scripts/backup/create-encrypted-backup.sh
+
+      - name: Upload encrypted artifact and integrity manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: aghbari-encrypted-postgres-${{ github.run_id }}
+          path: ${{ runner.temp }}/aghbari-encrypted-backup/*
+          if-no-files-found: error
+          retention-days: 14
