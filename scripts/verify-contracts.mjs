@@ -117,7 +117,7 @@ assert.equal((pricingMigration.match(/CREATE POLICY [^\n]*idempotency/gi) || [])
 for (const route of [
   '/admin/inventory', '/admin/warehouses', '/admin/inventory/movements', '/admin/suppliers',
   '/admin/purchasing', '/admin/receiving', '/admin/transfers', '/admin/stock-counts',
-  '/admin/expenses', '/admin/invoices', '/admin/payments', '/admin/statements',
+  '/admin/expenses', '/admin/barcode', '/admin/exports', '/admin/invoices', '/admin/payments', '/admin/statements',
   '/admin/roles', '/admin/outbox', '/admin/idempotency', '/admin/policy-center',
 ]) {
   const path = route.slice('/admin/'.length)
