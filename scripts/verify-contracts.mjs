@@ -224,8 +224,8 @@ required(tenantSecurityMigration, /CREATE POLICY reorder_templates_owner_update[
 required(tenantSecurityMigration, /DROP POLICY IF EXISTS ordhist_insert_org/, 'Legacy direct order-history insertion must be removed.')
 required(tenantSecurityMigration, /REVOKE ALL ON public\.order_status_history FROM PUBLIC, anon, authenticated/, 'Order status history must be immutable to browser roles.')
 required(tenantSecurityMigration, /CREATE POLICY price_tiers_same_tenant_read/, 'Price-tier reads must enforce product and organization consistency.')
-required(tenantSecurityMigration, /REVOKE INSERT, UPDATE, DELETE ON[\\s\\S]*public\\.orders, public\\.order_items, public\\.invoices, public\\.payments/, 'Order and billing writes must use audited idempotent RPCs.')
-required(tenantSecurityMigration, /REVOKE INSERT, UPDATE, DELETE ON public\\.audit_logs, public\\.outbox_events/, 'Browser clients cannot forge audit or outbox records.')
+required(tenantSecurityMigration, /REVOKE INSERT, UPDATE, DELETE ON[\s\S]*public\.orders, public\.order_items, public\.invoices, public\.payments/, 'Order and billing writes must use audited idempotent RPCs.')
+required(tenantSecurityMigration, /REVOKE INSERT, UPDATE, DELETE ON public\.audit_logs, public\.outbox_events/, 'Browser clients cannot forge audit or outbox records.')
 assert.ok(tenantSecurityMigration.includes('GRANT SELECT, UPDATE (read, is_read) ON public.notifications TO authenticated'), 'Users may mark only their own notifications as read.')
 required(tenantSecurityMigration, /Preserve the activation state of pre-existing legacy organizations exactly once/, 'The upgrade must preserve legacy organization active/inactive state without activating new pending applications.')
 
