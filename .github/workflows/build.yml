@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# Keep CI evidence focused on the latest commit for each PR instead of queuing every intermediate push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest

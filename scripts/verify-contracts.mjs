@@ -13,7 +13,7 @@ const imageNames = (await readdir(referenceDir))
   .sort((a, b) => a.localeCompare(b, 'en'))
 
 assert.ok(imageNames.length > 0, 'No UI reference images were found.')
-const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration, statementMigration, utilityPages, adminScreens, securityMigration, legacyApi, offlineWorker, offlineUi, mainEntry, webManifest, htmlShell, offlineBoundary] =
+const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration, statementMigration, utilityPages, adminScreens, securityMigration, legacyApi, offlineWorker, offlineUi, mainEntry, webManifest, htmlShell, offlineBoundary, tenantSecurityMigration, authContext, registerPage, routeGuards, loginPage, approvalPage, migrationWorkflow] =
   await Promise.all([
     read('docs/ui-reference/README.md'),
     read('docs/ui-reference/UI-REFERENCE-ASSET-INDEX.md'),
@@ -41,6 +41,13 @@ const [readme, index, pricingMigration, safeProductSelect, storefront, store, ca
     read('public/manifest.webmanifest'),
     read('index.html'),
     read('docs/OFFLINE-BOUNDARY.md'),
+    read('supabase/migrations/20261014000000_harden_legacy_tenant_policies_and_org_creation.sql'),
+    read('src/context/AuthContext.tsx'),
+    read('src/pages/storefront/Register.tsx'),
+    read('src/components/guards/RouteGuards.tsx'),
+    read('src/pages/storefront/Login.tsx'),
+    read('src/pages/admin/OrganizationApprovals.tsx'),
+    read('.github/workflows/sql-migrations.yml'),
   ])
 
 for (const imageName of imageNames) {
@@ -199,6 +206,74 @@ assert.ok(offlineUi.includes('لن تُحفظ الطلبات أو المدفوع
 assert.ok(offlineBoundary.includes('لا يخزّن عامل الخدمة استجابات Supabase/API أو بيانات العملاء'), 'Offline policy must prohibit caching private business data.')
 assert.ok(offlineBoundary.includes('لا توجد قائمة انتظار محلية للطلبات أو الدفع'), 'Offline policy must record that sensitive transaction queues are not implemented.')
 assert.ok(appRoutes.includes('<ConnectivityStatus />'), 'Global offline status must be wired into the application tree.')
+
+required(tenantSecurityMigration, /DROP POLICY IF EXISTS orgmem_insert_self/, 'Legacy self-service owner-membership escalation policy must be removed.')
+required(tenantSecurityMigration, /CREATE OR REPLACE FUNCTION public\.create_organization_for_current_user/, 'Company creation must use a server-side onboarding RPC.')
+required(tenantSecurityMigration, /REVOKE INSERT, UPDATE, DELETE ON public\.organization_members FROM PUBLIC, anon, authenticated/, 'Browser clients must not directly mutate tenant membership.')
+required(tenantSecurityMigration, /CREATE POLICY products_member_read[\s\S]*private\.is_org_member\(organization_id\)/, 'Product reads must be tenant-scoped.')
+required(tenantSecurityMigration, /DROP POLICY IF EXISTS prod_select_all/, 'Global product read policy must be removed.')
+assert.ok(tenantSecurityMigration.includes("left(policyname, 5) = 'anon_'"), 'Legacy permissive anon policies must be removed dynamically.')
+assert.ok(tenantSecurityMigration.includes('GRANT USAGE ON SCHEMA private TO authenticated, service_role'), 'Authenticated RLS policies must be able to invoke only granted private security helpers.')
+assert.ok(tenantSecurityMigration.includes('REVOKE SELECT (') && tenantSecurityMigration.includes('FROM PUBLIC, anon, authenticated;'), 'Previously granted customer-visible product columns must be explicitly revoked before re-granting the safe projection.')
+assert.ok(!registerPage.includes("from('organizations').insert"), 'Registration must not directly insert organizations from the browser.')
+assert.ok(!registerPage.includes("from('organization_members').insert"), 'Registration must not directly create owner memberships from the browser.')
+assert.ok(registerPage.includes('form.companyName, form.phone'), 'Registration must pass company metadata to the secure signup flow.')
+required(authContext, /create_organization_for_current_user/, 'Authenticated signup/sign-in must use the secure organization creation RPC.')
+assert.ok(!authContext.includes("from('audit_logs').insert"), 'Signup must not write an incompatible audit-log shape directly from the browser.')
+
+required(tenantSecurityMigration, /CREATE POLICY addresses_active_member_read[\s\S]*private\.is_org_member\(organization_id\)/, 'Address reads must require active tenant membership.')
+required(tenantSecurityMigration, /CREATE POLICY cart_insert_own_active_tenant[\s\S]*private\.is_org_member\(p\.organization_id\)/, 'Cart inserts must reject products from a different tenant.')
+required(tenantSecurityMigration, /CREATE POLICY wish_insert_own_active_tenant[\s\S]*private\.is_org_member\(p\.organization_id\)/, 'Wishlist inserts must reject products from a different tenant.')
+required(tenantSecurityMigration, /CREATE POLICY wish_select_own_active_tenant[\s\S]*private\.is_org_member\(p\.organization_id\)/, 'Wishlist reads must hide items belonging to disabled tenants.')
+required(tenantSecurityMigration, /DROP POLICY IF EXISTS ord_select_org[\s\S]*DROP POLICY IF EXISTS ord_insert_org[\s\S]*CREATE POLICY orders_active_tenant_read/, 'Legacy orders policies must be removed before installing approved-tenant read rules.')
+required(tenantSecurityMigration, /DROP POLICY IF EXISTS inv_select_org[\s\S]*CREATE POLICY invoices_active_tenant_read/, 'Legacy invoice policy must be replaced with an approved-tenant rule.')
+required(tenantSecurityMigration, /DROP POLICY IF EXISTS pay_select_org[\s\S]*CREATE POLICY payments_active_tenant_read/, 'Legacy payment policy must be replaced with an approved-tenant rule.')
+required(tenantSecurityMigration, /DROP POLICY IF EXISTS stmt_select_org[\s\S]*CREATE POLICY statements_active_tenant_read/, 'Legacy statement policy must be replaced with an approved-tenant rule.')
+required(migrationWorkflow, /legacy active-tenant bypass policies remain/, 'PostgreSQL CI must reject old permissive tenant policies that survive the hardening migration.')
+required(tenantSecurityMigration, /CREATE POLICY reorder_templates_owner_update[\s\S]*private\.is_org_member\(organization_id\)/, 'Reorder template updates must retain owner and tenant scope.')
+required(tenantSecurityMigration, /DROP POLICY IF EXISTS ordhist_insert_org/, 'Legacy direct order-history insertion must be removed.')
+required(tenantSecurityMigration, /REVOKE ALL ON public\.order_status_history FROM PUBLIC, anon, authenticated/, 'Order status history must be immutable to browser roles.')
+required(tenantSecurityMigration, /CREATE POLICY price_tiers_same_tenant_read/, 'Price-tier reads must enforce product and organization consistency.')
+required(tenantSecurityMigration, /REVOKE ALL ON[\s\S]*public\.orders, public\.order_items, public\.invoices, public\.payments/, 'Order and billing writes must use audited idempotent RPCs.')
+required(tenantSecurityMigration, /REVOKE ALL ON public\.audit_logs, public\.outbox_events/, 'Browser clients cannot forge audit or outbox records.')
+assert.ok(tenantSecurityMigration.includes('GRANT SELECT, UPDATE (read, is_read) ON public.notifications TO authenticated'), 'Users may mark only their own notifications as read.')
+required(tenantSecurityMigration, /Preserve the activation state of pre-existing legacy organizations exactly once/, 'The upgrade must preserve legacy organization active/inactive state without activating new pending applications.')
+required(tenantSecurityMigration, /CREATE OR REPLACE FUNCTION private\.is_org_member[\s\S]*o\.status = 'active'[\s\S]*o\.is_active = true/, 'Pending, suspended or inactive tenants must not pass the active membership helper.')
+required(tenantSecurityMigration, /INSERT INTO public\.organizations \(name, email, phone, status, is_active\)[\s\S]*'pending', false/, 'New company requests must not be active before platform approval.')
+required(tenantSecurityMigration, /CREATE POLICY organizations_pending_owner_update_name[\s\S]*status = 'pending' AND is_active = false/, 'Pending owners may edit only their company name while tenant operations remain blocked.')
+required(routeGuards, /organization\.status !== 'active' \|\| !organization\.is_active/, 'Protected and admin routes must block pending tenant access.')
+required(loginPage, /navigate\(redirectTo \|\|/, 'Login must honor the server-verified pending-organization redirect.')
+required(storefront, /export function OnboardingCompany[\s\S]*create_organization_for_current_user/, 'The company onboarding page must support secure RPC-based creation when membership is missing.')
+required(tenantSecurityMigration, /CREATE OR REPLACE FUNCTION private\.is_platform_admin[\s\S]*ur\.role = 'system_admin'/, 'Global platform approval must use a server-verified non-tenant role.')
+required(tenantSecurityMigration, /CREATE OR REPLACE FUNCTION public\.list_pending_organizations[\s\S]*platform_admin_required/, 'Only platform administrators can enumerate pending tenant applications.')
+required(tenantSecurityMigration, /CREATE OR REPLACE FUNCTION public\.review_organization[\s\S]*organization\.approved[\s\S]*organization\.rejected/, 'Company decisions must be validated and audited in a privileged transactional RPC.')
+required(tenantSecurityMigration, /REVOKE ALL ON public\.user_roles FROM PUBLIC, anon, authenticated/, 'Browser users cannot grant themselves a system-wide platform role.')
+required(approvalPage, /supabase\.rpc\('list_pending_organizations'\)/, 'The platform screen must load its queue from the authorized server RPC.')
+required(approvalPage, /supabase\.rpc\('review_organization'/, 'The platform screen must submit decisions through the audited server RPC.')
+required(approvalPage, /if \(!window\.confirm/, 'Company approval/rejection requires an explicit confirmation.')
+required(appRoutes, /path="\/platform\/organizations" element={<PlatformAdminRoute/, 'The platform approval route must be protected separately from tenant administration.')
+required(routeGuards, /export function PlatformAdminRoute[\s\S]*isPlatformAdmin/, 'Platform routes must be guarded by the loaded platform-role state.')
+required(authContext, /data: platformAccess[\s\S]*is_platform_admin/, 'Platform-role discovery must be verified by the server on sign-in.')
+required(adminShell, /isPlatformAdmin &&[\s\S]*\/platform\/organizations/, 'A platform administrator must have a visible navigation entry for company approvals.')
+required(migrationWorkflow, /platform_approval_smoke[\s\S]*review_organization[\s\S]*organization\.rejected/, 'PostgreSQL CI must prove both approved and rejected tenant lifecycle outcomes.')
+required(tenantSecurityMigration, /DROP POLICY IF EXISTS products_staff_insert[\s\S]*CREATE POLICY products_active_staff_insert[\s\S]*private\.is_org_member\(organization_id\)/, 'Legacy product writes must be blocked until the tenant is approved.')
+required(tenantSecurityMigration, /CREATE POLICY products_active_staff_update[\s\S]*private\.is_org_member\(organization_id\)/, 'Product updates must check active tenant status.')
+required(tenantSecurityMigration, /CREATE OR REPLACE VIEW public\.admin_product_catalog[\s\S]*private\.is_org_member\(p\.organization_id\)/, 'The financial product view must not leak prices to pending tenants.')
+required(tenantSecurityMigration, /DROP POLICY IF EXISTS customers_staff_insert[\s\S]*CREATE POLICY customers_staff_insert[\s\S]*private\.is_org_member\(organization_id\)/, 'Customer-directory writes must require an approved tenant.')
+required(tenantSecurityMigration, /DROP POLICY IF EXISTS ord_select_org[\s\S]*CREATE POLICY orders_active_tenant_read[\s\S]*private\.is_org_member\(organization_id\)/, 'Order reads must enforce active tenant status.')
+required(tenantSecurityMigration, /DROP POLICY IF EXISTS orditem_select_org[\s\S]*CREATE POLICY order_items_active_tenant_read[\s\S]*private\.is_org_member\(o\.organization_id\)/, 'Order-item reads must enforce active tenant status.')
+required(tenantSecurityMigration, /CREATE POLICY invoices_active_tenant_read[\s\S]*private\.is_org_member\(organization_id\)/, 'Invoice reads must enforce active tenant status.')
+required(tenantSecurityMigration, /CREATE POLICY payments_active_tenant_read[\s\S]*private\.is_org_member\(organization_id\)/, 'Payment reads must enforce active tenant status.')
+required(tenantSecurityMigration, /CREATE POLICY statements_active_tenant_read[\s\S]*private\.is_org_member\(organization_id\)/, 'Statement reads must enforce active tenant status.')
+required(tenantSecurityMigration, /CREATE POLICY expenses_read_member[\s\S]*private\.is_org_member\(organization_id\)/, 'Expenses must require an active tenant and accounting role.')
+required(tenantSecurityMigration, /CREATE OR REPLACE FUNCTION private\.guard_active_organization_write[\s\S]*organization_not_active[\s\S]*CREATE OR REPLACE FUNCTION private\.guard_active_parent_write/, 'Transactional SECURITY DEFINER writes must be blocked while their organization is pending, inactive or suspended.')
+required(tenantSecurityMigration, /CREATE OR REPLACE FUNCTION private\.guard_active_parent_write[\s\S]*organization_not_active[\s\S]*CREATE OR REPLACE FUNCTION private\.guard_active_inventory_write/, 'Child rows must inherit the active status guard from their parent transaction.')
+required(tenantSecurityMigration, /CREATE OR REPLACE FUNCTION private\.guard_active_inventory_write[\s\S]*inventory_product_warehouse_tenant_mismatch/, 'Inventory ledger writes must use a same-tenant product and warehouse and an active organization.')
+required(migrationWorkflow, /record_expense\([\s\S]*v_expense_denied/, 'PostgreSQL CI must prove a pending tenant cannot perform a financial write even via a privileged RPC.')
+required(tenantSecurityMigration, /CREATE POLICY order_status_history_active_tenant_read[\s\S]*private\.is_org_member\(o\.organization_id\)/, 'Order history must not bypass tenant approval via an own-user shortcut.')
+required(tenantSecurityMigration, /CREATE POLICY order_status_history_active_tenant_read[\s\S]*o\.user_id = auth\.uid\(\)[\s\S]*om\.role IN \('owner','admin','manager','warehouse','accountant','sales','system_admin','customer_manager'\)/, 'Order history remains private to the order owner and authorized staff.')
+required(tenantSecurityMigration, /GRANT UPDATE \(name\) ON public\.organizations TO authenticated/, 'Company editing must be limited to the supported name field.')
+required(migrationWorkflow, /pending_tenant_catalog_gate[\s\S]*admin_product_catalog[\s\S]*v_write_denied/, 'PostgreSQL CI must prove unapproved tenants cannot read catalog/prices or create products.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')

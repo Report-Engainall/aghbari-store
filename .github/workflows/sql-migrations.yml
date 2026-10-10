@@ -4,6 +4,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Only test the latest revision of a PR; stale migration runs can block the current proof.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   migration-chain:
     name: Apply migrations on clean PostgreSQL 17
@@ -75,6 +80,490 @@ jobs:
             psql --set ON_ERROR_STOP=1 --file "$migration"
             echo "::endgroup::"
           done
+
+      - name: Verify tenant policy hardening and company onboarding
+        run: |
+          psql --set ON_ERROR_STOP=1 <<'SQL'
+          DO $tenant_security_contract$
+          BEGIN
+            IF EXISTS (
+              SELECT 1 FROM pg_policies
+              WHERE schemaname = 'public' AND left(policyname, 5) = 'anon_'
+            ) THEN
+              RAISE EXCEPTION 'legacy permissive anon_* row policies remain';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_policies
+              WHERE schemaname = 'public'
+                AND (
+                  (tablename = 'products' AND policyname IN ('products_staff_insert', 'products_staff_update'))
+                  OR (tablename = 'orders' AND policyname IN ('ord_select_org', 'ord_insert_org', 'ord_update_org', 'orders_read_staff_only', 'orders_update_admin_only', 'orders_customer_read_own'))
+                  OR (tablename = 'order_items' AND policyname IN ('orditem_select_org', 'order_items_read_staff_only', 'order_items_customer_read_own'))
+                  OR (tablename = 'invoices' AND policyname IN ('inv_select_org', 'invoices_read_staff_only', 'invoices_customer_read_own'))
+                  OR (tablename = 'payments' AND policyname IN ('pay_select_org', 'payments_read_staff_only', 'payments_customer_read_own'))
+                  OR (tablename = 'statements' AND policyname = 'stmt_select_org')
+                  OR (tablename = 'outbox_events' AND policyname = 'outbox_select_org')
+                  OR (tablename = 'customers' AND policyname IN ('customers_staff_insert', 'customers_staff_update'))
+                )
+            ) THEN
+              RAISE EXCEPTION 'legacy active-tenant bypass policies remain';
+            END IF;
+            IF has_table_privilege('anon', 'public.organizations', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.organizations', 'INSERT') THEN
+              RAISE EXCEPTION 'organizations may be inserted directly by browser roles';
+            END IF;
+            IF has_table_privilege('anon', 'public.organization_members', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.organization_members', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.organization_members', 'UPDATE')
+              OR has_table_privilege('authenticated', 'public.organization_members', 'DELETE') THEN
+              RAISE EXCEPTION 'browser roles can mutate organization memberships directly';
+            END IF;
+            IF has_table_privilege('anon', 'public.orders', 'SELECT')
+              OR has_table_privilege('anon', 'public.invoices', 'SELECT')
+              OR has_table_privilege('authenticated', 'public.orders', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.orders', 'UPDATE')
+              OR has_table_privilege('authenticated', 'public.orders', 'DELETE')
+              OR has_table_privilege('authenticated', 'public.order_items', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.invoices', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.payments', 'INSERT') THEN
+              RAISE EXCEPTION 'orders/billing must be tenant-only reads and privileged RPC writes';
+            END IF;
+            IF has_table_privilege('anon', 'public.audit_logs', 'SELECT')
+              OR has_table_privilege('anon', 'public.outbox_events', 'SELECT') THEN
+              RAISE EXCEPTION 'audit and outbox tables must not grant public reads';
+            END IF;
+            IF has_table_privilege('authenticated', 'public.order_status_history', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.order_status_history', 'UPDATE')
+              OR has_table_privilege('authenticated', 'public.order_status_history', 'DELETE')
+              OR has_table_privilege('authenticated', 'public.audit_logs', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.audit_logs', 'UPDATE')
+              OR has_table_privilege('authenticated', 'public.outbox_events', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.outbox_events', 'DELETE') THEN
+              RAISE EXCEPTION 'audit/outbox/order history must be immutable to browser roles';
+            END IF;
+            IF EXISTS (
+              SELECT 1 FROM public.organizations
+              WHERE status = 'pending' AND is_active = true
+            ) THEN
+              RAISE EXCEPTION 'legacy active organizations were incorrectly downgraded to pending';
+            END IF;
+            IF has_function_privilege('anon', 'public.create_organization_for_current_user(text,text,text)', 'EXECUTE')
+              OR NOT has_function_privilege('authenticated', 'public.create_organization_for_current_user(text,text,text)', 'EXECUTE')
+              OR has_function_privilege('anon', 'public.is_platform_admin()', 'EXECUTE')
+              OR NOT has_function_privilege('authenticated', 'public.is_platform_admin()', 'EXECUTE')
+              OR has_function_privilege('anon', 'public.list_pending_organizations()', 'EXECUTE')
+              OR NOT has_function_privilege('authenticated', 'public.list_pending_organizations()', 'EXECUTE')
+              OR has_function_privilege('anon', 'public.review_organization(uuid,text,text)', 'EXECUTE')
+              OR NOT has_function_privilege('authenticated', 'public.review_organization(uuid,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'organization onboarding/review RPC grants are incorrect';
+            END IF;
+            IF has_table_privilege('authenticated', 'public.user_roles', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.user_roles', 'UPDATE')
+              OR has_table_privilege('authenticated', 'public.user_roles', 'DELETE') THEN
+              RAISE EXCEPTION 'browser roles can grant global platform administrator privileges';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'organizations'
+                AND column_name = 'status' AND is_nullable = 'NO'
+            ) THEN
+              RAISE EXCEPTION 'legacy organizations table lacks required status column';
+            END IF;
+          END
+          $tenant_security_contract$;
+
+          INSERT INTO auth.users (id, email)
+          VALUES ('a2000000-0000-4000-8000-000000000099', 'aghbari-ci-org-create@example.invalid');
+
+          SELECT set_config('request.jwt.claim.sub', 'a2000000-0000-4000-8000-000000000099', false);
+          SET ROLE authenticated;
+          DO $org_creation_smoke$
+          DECLARE
+            v_org_id uuid;
+            v_replay_id uuid;
+            v_status text;
+            v_is_active boolean;
+            v_can_operate boolean;
+            v_role text;
+            v_membership_status text;
+          BEGIN
+            v_org_id := public.create_organization_for_current_user(
+              'Aghbari CI Onboarding Company', 'aghbari-ci-org-create@example.invalid', '+967700000099'
+            );
+            v_replay_id := public.create_organization_for_current_user(
+              'Aghbari CI Onboarding Company', 'aghbari-ci-org-create@example.invalid', '+967700000099'
+            );
+            IF v_org_id IS DISTINCT FROM v_replay_id THEN
+              RAISE EXCEPTION 'organization onboarding retry created a duplicate tenant';
+            END IF;
+
+            SELECT o.status, o.is_active, om.role, om.status
+              INTO v_status, v_is_active, v_role, v_membership_status
+            FROM public.organizations o
+            JOIN public.organization_members om ON om.organization_id = o.id
+            WHERE o.id = v_org_id AND om.user_id = auth.uid();
+
+            IF v_status <> 'pending' OR v_is_active OR v_role <> 'owner' OR v_membership_status <> 'active' THEN
+              RAISE EXCEPTION 'onboarding must create an inactive pending organization and active owner membership';
+            END IF;
+
+            v_can_operate := private.is_org_member(v_org_id);
+            IF v_can_operate THEN
+              RAISE EXCEPTION 'pending organization received active tenant access before approval';
+            END IF;
+
+            IF public.is_platform_admin() THEN
+              RAISE EXCEPTION 'ordinary new tenant must not be a platform administrator';
+            END IF;
+            v_can_operate := false;
+            BEGIN
+              PERFORM 1 FROM public.list_pending_organizations();
+            EXCEPTION WHEN raise_exception THEN
+              v_can_operate := true;
+            END;
+            IF NOT v_can_operate THEN
+              RAISE EXCEPTION 'tenant owner can list platform-wide pending organizations';
+            END IF;
+
+          END
+          $org_creation_smoke$;
+          RESET ROLE;
+
+          DO $organization_audit_smoke$
+          DECLARE
+            v_audit_count integer;
+          BEGIN
+            SELECT count(*) INTO v_audit_count
+            FROM public.audit_logs
+            WHERE organization_id = (
+              SELECT id FROM public.organizations
+              WHERE email = 'aghbari-ci-org-create@example.invalid'
+            )
+              AND action = 'organization.created'
+              AND entity_type = 'organization'
+              AND entity_id = (
+                SELECT id FROM public.organizations
+                WHERE email = 'aghbari-ci-org-create@example.invalid'
+              );
+            IF v_audit_count <> 1 THEN
+              RAISE EXCEPTION 'organization creation must write exactly one audit record atomically';
+            END IF;
+          END
+          $organization_audit_smoke$;
+
+          -- Seed a catalog row under the migration owner. An unapproved tenant must neither
+          -- read it through the base table/staff view nor write a product of its own.
+          INSERT INTO public.products (
+            id, organization_id, name, item_code, sku, name_ar, slug, unit,
+            base_price, price, bulk_price, retail_price, wholesale_price,
+            stock_quantity, min_order_qty, box_quantity, carton_quantity, is_active, status
+          )
+          SELECT
+            'a4000000-0000-4000-8000-000000000097', id, 'CI Pending Tenant Product',
+            'CI-PENDING-001', 'CI-PENDING-001', 'صنف مؤسسة معلقة',
+            'ci-pending-tenant-product', 'piece',
+            10, 10, 10, 10, 10, 3, 1, 1, 1, false, 'active'
+          FROM public.organizations WHERE email = 'aghbari-ci-org-create@example.invalid';
+
+          SET ROLE anon;
+          DO $anonymous_catalog_gate$
+          DECLARE
+            v_count integer;
+          BEGIN
+            SELECT count(*) INTO v_count FROM public.products
+            WHERE id = 'a4000000-0000-4000-8000-000000000097';
+            IF v_count <> 0 THEN
+              RAISE EXCEPTION 'anonymous visitor can read a tenant product row';
+            END IF;
+            IF has_column_privilege('anon', 'public.products', 'base_price', 'SELECT')
+              OR has_column_privilege('anon', 'public.products', 'cost_price', 'SELECT')
+              OR has_column_privilege('anon', 'public.products', 'retail_price', 'SELECT')
+              OR has_column_privilege('anon', 'public.products', 'wholesale_price', 'SELECT') THEN
+              RAISE EXCEPTION 'anonymous visitor has direct access to product financial columns';
+            END IF;
+          END
+          $anonymous_catalog_gate$;
+          RESET ROLE;
+
+          SELECT set_config('request.jwt.claim.sub', 'a2000000-0000-4000-8000-000000000099', false);
+          SET ROLE authenticated;
+          DO $pending_tenant_catalog_gate$
+          DECLARE
+            v_count integer;
+            v_pending_organization_id uuid;
+            v_write_denied boolean := false;
+            v_expense_denied boolean := false;
+          BEGIN
+            SELECT id INTO v_pending_organization_id
+            FROM public.organizations
+            WHERE email = 'aghbari-ci-org-create@example.invalid';
+            IF v_pending_organization_id IS NULL THEN
+              RAISE EXCEPTION 'tenant owner cannot read their own pending organization';
+            END IF;
+
+            SELECT count(*) INTO v_count FROM public.products
+            WHERE id = 'a4000000-0000-4000-8000-000000000097';
+            IF v_count <> 0 THEN
+              RAISE EXCEPTION 'unapproved tenant can read catalog rows before approval';
+            END IF;
+
+            SELECT count(*) INTO v_count FROM public.admin_product_catalog
+            WHERE id = 'a4000000-0000-4000-8000-000000000097';
+            IF v_count <> 0 THEN
+              RAISE EXCEPTION 'unapproved tenant can read the privileged pricing view';
+            END IF;
+
+            BEGIN
+              INSERT INTO public.products (
+                organization_id, name, item_code, sku, name_ar, slug, unit, status, is_active
+              ) VALUES (
+                v_pending_organization_id,
+                'Unauthorized Pending Product', 'CI-PENDING-DENIED', 'CI-PENDING-DENIED',
+                'منتج مرفوض', 'ci-pending-denied-product', 'piece', 'active', true
+              );
+            EXCEPTION WHEN insufficient_privilege THEN
+              v_write_denied := true;
+            END;
+            IF NOT v_write_denied THEN
+              RAISE EXCEPTION 'unapproved tenant can create product rows before platform approval';
+            END IF;
+
+            BEGIN
+              PERFORM public.record_expense(
+                v_pending_organization_id, 'ci-test', 'Must be rejected until approval', 10, 'YER', CURRENT_DATE
+              );
+            EXCEPTION WHEN raise_exception THEN
+              v_expense_denied := true;
+            END;
+            IF NOT v_expense_denied THEN
+              RAISE EXCEPTION 'unapproved tenant can execute a financial operation before platform approval';
+            END IF;
+          END
+          $pending_tenant_catalog_gate$;
+          RESET ROLE;
+
+          -- Also test rejection of a separate pending organization.
+          INSERT INTO public.organizations (id, name, email, status, is_active)
+          VALUES ('a1000000-0000-4000-8000-000000000097', 'Aghbari CI Rejected Company',
+                  'aghbari-ci-org-reject@example.invalid', 'pending', false);
+
+          -- A platform administrator is provisioned in the trusted test bootstrap, then uses
+          -- the same audited RPC as the application to approve the tenant.
+          INSERT INTO auth.users (id, email)
+          VALUES ('a2000000-0000-4000-8000-000000000098', 'aghbari-ci-platform-admin@example.invalid');
+          INSERT INTO public.profiles (auth_user_id, full_name, email, is_active)
+          VALUES ('a2000000-0000-4000-8000-000000000098', 'Aghbari CI Platform Admin',
+                  'aghbari-ci-platform-admin@example.invalid', true);
+          INSERT INTO public.user_roles (profile_id, role)
+          SELECT id, 'system_admin'
+          FROM public.profiles
+          WHERE auth_user_id = 'a2000000-0000-4000-8000-000000000098';
+
+          SELECT set_config('request.jwt.claim.sub', 'a2000000-0000-4000-8000-000000000098', false);
+          SET ROLE authenticated;
+          DO $platform_approval_smoke$
+          DECLARE
+            v_org_id uuid;
+            v_count integer;
+            v_result jsonb;
+            v_rejection_result jsonb;
+            v_status text;
+            v_is_active boolean;
+          BEGIN
+            IF public.is_platform_admin() IS NOT TRUE THEN
+              RAISE EXCEPTION 'platform administrator role was not recognized';
+            END IF;
+
+            SELECT pending.id INTO v_org_id
+            FROM public.list_pending_organizations() pending
+            WHERE pending.email = 'aghbari-ci-org-create@example.invalid';
+
+            SELECT count(*) INTO v_count
+            FROM public.list_pending_organizations() pending
+            WHERE pending.id = v_org_id;
+            IF v_count <> 1 THEN
+              RAISE EXCEPTION 'platform admin cannot see pending tenant in review queue';
+            END IF;
+
+            v_result := public.review_organization(v_org_id, 'approve', 'CI approval smoke test');
+            IF v_result->>'status' <> 'active' OR v_result->>'is_active' <> 'true' THEN
+              RAISE EXCEPTION 'platform approval RPC returned incorrect activation status';
+            END IF;
+
+            v_rejection_result := public.review_organization(
+              'a1000000-0000-4000-8000-000000000097',
+              'reject',
+              'CI rejection smoke test'
+            );
+            IF v_rejection_result->>'status' <> 'inactive' OR v_rejection_result->>'is_active' <> 'false' THEN
+              RAISE EXCEPTION 'platform rejection RPC returned incorrect inactive state';
+            END IF;
+
+          END
+          $platform_approval_smoke$;
+          RESET ROLE;
+
+          DO $approved_tenant_fixture$
+          DECLARE
+            v_count integer;
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM public.organizations
+              WHERE email = 'aghbari-ci-org-create@example.invalid'
+                AND status = 'active' AND is_active = true
+            ) THEN RAISE EXCEPTION 'test tenant activation failed'; END IF;
+
+            SELECT count(*) INTO v_count
+            FROM public.audit_logs
+            WHERE organization_id = (
+              SELECT id FROM public.organizations
+              WHERE email = 'aghbari-ci-org-create@example.invalid'
+            )
+              AND action = 'organization.approved';
+            IF v_count <> 1 THEN RAISE EXCEPTION 'platform approval must write exactly one audit record'; END IF;
+
+            SELECT count(*) INTO v_count
+            FROM public.audit_logs
+            WHERE organization_id = 'a1000000-0000-4000-8000-000000000097'
+              AND action = 'organization.rejected';
+            IF v_count <> 1 THEN RAISE EXCEPTION 'platform rejection must write exactly one audit record'; END IF;
+
+            IF NOT EXISTS (
+              SELECT 1 FROM public.organizations
+              WHERE id = 'a1000000-0000-4000-8000-000000000097'
+                AND status = 'inactive' AND is_active = false
+            ) THEN RAISE EXCEPTION 'platform rejection did not deactivate the company'; END IF;
+          END
+          $approved_tenant_fixture$;
+
+          -- Build one row in the created tenant and one in a second tenant, then assert RLS.
+          INSERT INTO public.organizations (id, name, email, currency, status)
+          VALUES ('a1000000-0000-4000-8000-000000000099', 'Aghbari CI Other Tenant', 'other-tenant@example.invalid', 'YER', 'active');
+
+          INSERT INTO public.products (
+            id, organization_id, name, name_ar, item_code, sku, slug, unit,
+            base_price, price, bulk_price, retail_price, wholesale_price,
+            stock_quantity, min_order_qty, box_quantity, carton_quantity, status, is_active
+          )
+          SELECT
+            'a4000000-0000-4000-8000-000000000099', id, 'CI Tenant A Product', 'صنف المؤسسة أ',
+            'CI-TENANT-A-001', 'CI-TENANT-A-001', 'ci-tenant-a-product', 'piece',
+            12, 12, 12, 12, 12, 8, 1, 1, 1, 'active', true
+          FROM public.organizations WHERE email = 'aghbari-ci-org-create@example.invalid';
+
+          INSERT INTO public.products (
+            id, organization_id, name, name_ar, item_code, sku, slug, unit,
+            base_price, price, bulk_price, retail_price, wholesale_price,
+            stock_quantity, min_order_qty, box_quantity, carton_quantity, status, is_active
+          )
+          VALUES (
+            'a4000000-0000-4000-8000-000000000098', 'a1000000-0000-4000-8000-000000000099',
+            'CI Tenant B Product', 'صنف المؤسسة ب', 'CI-TENANT-B-001', 'CI-TENANT-B-001',
+            'ci-tenant-b-product', 'piece', 22, 22, 22, 22, 22, 6, 1, 1, 1, 'active', true
+          );
+
+          INSERT INTO public.customers (id, organization_id, customer_code, business_name, tier, status)
+          SELECT 'a7000000-0000-4000-8000-000000000099', id, 'CI-CUSTOMER-A-001', 'CI Tenant A Customer', 'wholesale', 'approved'
+          FROM public.organizations WHERE email = 'aghbari-ci-org-create@example.invalid';
+
+          INSERT INTO public.customers (id, organization_id, customer_code, business_name, tier, status)
+          VALUES ('a7000000-0000-4000-8000-000000000098', 'a1000000-0000-4000-8000-000000000099',
+                  'CI-CUSTOMER-B-001', 'CI Tenant B Customer', 'wholesale', 'approved');
+
+          INSERT INTO public.addresses (id, organization_id, user_id, line1, city)
+          SELECT 'a8000000-0000-4000-8000-000000000099', id,
+                 'a2000000-0000-4000-8000-000000000099', 'CI Tenant A Address', 'Sana''a'
+          FROM public.organizations WHERE email = 'aghbari-ci-org-create@example.invalid';
+          INSERT INTO public.addresses (id, organization_id, user_id, line1, city)
+          VALUES ('a8000000-0000-4000-8000-000000000098', 'a1000000-0000-4000-8000-000000000099',
+                  'a2000000-0000-4000-8000-000000000099', 'CI Tenant B Address', 'Taiz');
+
+          INSERT INTO public.reorder_templates (id, user_id, organization_id, name, items)
+          SELECT 'a9000000-0000-4000-8000-000000000099',
+                 'a2000000-0000-4000-8000-000000000099', id, 'CI Tenant A Reorder', '[]'::jsonb
+          FROM public.organizations WHERE email = 'aghbari-ci-org-create@example.invalid';
+          INSERT INTO public.reorder_templates (id, user_id, organization_id, name, items)
+          VALUES ('a9000000-0000-4000-8000-000000000098',
+                  'a2000000-0000-4000-8000-000000000099', 'a1000000-0000-4000-8000-000000000099',
+                  'CI Tenant B Reorder', '[]'::jsonb);
+
+          INSERT INTO public.price_tiers (organization_id, product_id, tier_price, min_quantity)
+          SELECT o.id, 'a4000000-0000-4000-8000-000000000099', 9, 1
+          FROM public.organizations o WHERE o.email = 'aghbari-ci-org-create@example.invalid';
+          INSERT INTO public.price_tiers (organization_id, product_id, tier_price, min_quantity)
+          VALUES ('a1000000-0000-4000-8000-000000000099',
+                  'a4000000-0000-4000-8000-000000000098', 19, 1);
+
+          SELECT set_config('request.jwt.claim.sub', 'a2000000-0000-4000-8000-000000000099', false);
+          SET ROLE authenticated;
+          DO $tenant_row_isolation$
+          DECLARE
+            v_count integer;
+          BEGIN
+            SELECT count(*) INTO v_count FROM public.products WHERE id = 'a4000000-0000-4000-8000-000000000099';
+            IF v_count <> 1 THEN RAISE EXCEPTION 'tenant member cannot read own catalog'; END IF;
+
+            SELECT count(*) INTO v_count FROM public.products WHERE id = 'a4000000-0000-4000-8000-000000000098';
+            IF v_count <> 0 THEN RAISE EXCEPTION 'cross-tenant product row leaked'; END IF;
+
+            SELECT count(*) INTO v_count FROM public.customers WHERE id = 'a7000000-0000-4000-8000-000000000099';
+            IF v_count <> 1 THEN RAISE EXCEPTION 'tenant member cannot read own customer records'; END IF;
+
+            SELECT count(*) INTO v_count FROM public.customers WHERE id = 'a7000000-0000-4000-8000-000000000098';
+            IF v_count <> 0 THEN RAISE EXCEPTION 'cross-tenant customer record leaked'; END IF;
+
+            IF has_column_privilege('authenticated', 'public.products', 'cost_price', 'SELECT')
+              OR has_column_privilege('authenticated', 'public.products', 'retail_price', 'SELECT')
+              OR has_column_privilege('authenticated', 'public.products', 'wholesale_price', 'SELECT')
+              OR has_column_privilege('anon', 'public.products', 'cost_price', 'SELECT') THEN
+              RAISE EXCEPTION 'financial product columns remain readable by browser roles';
+            END IF;
+
+            INSERT INTO public.cart_items (user_id, product_id, quantity, unit_type)
+            VALUES (auth.uid(), 'a4000000-0000-4000-8000-000000000099', 1, 'piece');
+
+            SELECT count(*) INTO v_count FROM public.addresses WHERE id = 'a8000000-0000-4000-8000-000000000099';
+            IF v_count <> 1 THEN RAISE EXCEPTION 'tenant member cannot read own address'; END IF;
+            SELECT count(*) INTO v_count FROM public.addresses WHERE id = 'a8000000-0000-4000-8000-000000000098';
+            IF v_count <> 0 THEN RAISE EXCEPTION 'cross-tenant address leaked'; END IF;
+
+            SELECT count(*) INTO v_count FROM public.reorder_templates WHERE id = 'a9000000-0000-4000-8000-000000000099';
+            IF v_count <> 1 THEN RAISE EXCEPTION 'tenant owner cannot read own reorder template'; END IF;
+            SELECT count(*) INTO v_count FROM public.reorder_templates WHERE id = 'a9000000-0000-4000-8000-000000000098';
+            IF v_count <> 0 THEN RAISE EXCEPTION 'cross-tenant reorder template leaked'; END IF;
+
+            SELECT count(*) INTO v_count FROM public.price_tiers WHERE organization_id = (
+              SELECT id FROM public.organizations WHERE email = 'aghbari-ci-org-create@example.invalid'
+            );
+            IF v_count <> 1 THEN RAISE EXCEPTION 'tenant member cannot read own price tier'; END IF;
+            SELECT count(*) INTO v_count FROM public.price_tiers WHERE organization_id = 'a1000000-0000-4000-8000-000000000099';
+            IF v_count <> 0 THEN RAISE EXCEPTION 'cross-tenant price tier leaked'; END IF;
+
+            v_count := 0;
+            BEGIN
+              INSERT INTO public.cart_items (user_id, product_id, quantity, unit_type)
+              VALUES (auth.uid(), 'a4000000-0000-4000-8000-000000000098', 1, 'piece');
+            EXCEPTION WHEN insufficient_privilege THEN v_count := 1;
+            END;
+            IF v_count <> 1 THEN RAISE EXCEPTION 'cross-tenant product was accepted into cart'; END IF;
+
+            v_count := 0;
+            BEGIN
+              INSERT INTO public.wishlist_items (user_id, product_id)
+              VALUES (auth.uid(), 'a4000000-0000-4000-8000-000000000098');
+            EXCEPTION WHEN insufficient_privilege THEN v_count := 1;
+            END;
+            IF v_count <> 1 THEN RAISE EXCEPTION 'cross-tenant product was accepted into wishlist'; END IF;
+
+            IF has_table_privilege('authenticated', 'public.order_status_history', 'INSERT')
+              OR has_table_privilege('authenticated', 'public.order_status_history', 'UPDATE')
+              OR has_table_privilege('authenticated', 'public.order_status_history', 'DELETE') THEN
+              RAISE EXCEPTION 'browser roles can directly tamper with immutable order history';
+            END IF;
+          END
+          $tenant_row_isolation$;
+          RESET ROLE;
+          SQL
 
       - name: Run order idempotency, quantity approval and payment workflow smoke test
         run: |

@@ -17,10 +17,10 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true); setError('')
-    const { error } = await signIn(email, password)
+    const { error, redirectTo } = await signIn(email, password)
     setLoading(false)
     if (error) { setError(error); show('error', 'فشل تسجيل الدخول', error) }
-    else { show('success', 'تم تسجيل الدخول بنجاح'); navigate((location.state as any)?.from?.pathname || '/store') }
+    else { show('success', 'تم تسجيل الدخول بنجاح'); navigate(redirectTo || (location.state as any)?.from?.pathname || '/store') }
   }
 
   return (

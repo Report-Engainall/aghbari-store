@@ -87,7 +87,7 @@ const adminNav: { section: string; items: { to: string; label: string; icon: typ
 ]
 
 export function AdminShell() {
-  const { user, signOut } = useAuth()
+  const { user, signOut, isPlatformAdmin } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -107,7 +107,13 @@ export function AdminShell() {
       <div className="mx-auto flex max-w-[1700px] items-start gap-5 px-3 py-4 lg:px-5">
         <aside className={cn('fixed inset-y-0 right-0 z-50 mt-[72px] w-[310px] overflow-y-auto bg-[#f3fafb] px-3 pb-5 transition-transform duration-300 lg:sticky lg:top-[88px] lg:z-10 lg:mt-0 lg:block lg:w-[330px] lg:shrink-0 lg:translate-x-0 lg:px-0', sidebarOpen ? 'translate-x-0' : 'translate-x-full')}>
           <div className="mb-3 flex items-center justify-between px-2 lg:hidden"><span className="font-bold">القائمة الرئيسية</span><button onClick={() => setSidebarOpen(false)} className="rounded-lg p-2 hover:bg-white"><X className="h-5 w-5" /></button></div>
-          <nav className="space-y-3">{adminNav.map((group, index) => <div key={group.section} className="overflow-hidden rounded-[22px] border border-[#d5edf0] bg-white shadow-[0_4px_18px_rgba(13,113,128,0.06)]"><div className={cn('flex items-center justify-between px-4 py-3.5 font-bold text-[#075b69]', index === 0 ? 'bg-[#0c97a9] text-white' : 'bg-[#dff3f5]')}><span>{group.section}</span><span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/70 text-[#0c97a9]"><LayoutDashboard className="h-4 w-4" /></span></div><div className="grid grid-cols-2 gap-2 p-3">{group.items.map(item => <Link key={item.to} to={item.to} onClick={() => setSidebarOpen(false)} className={cn('flex min-h-10 items-center justify-center gap-2 rounded-full px-2 py-2 text-center text-xs font-semibold transition-all', isActive(item.to, item.exact) ? 'bg-[#0c97a9] text-white shadow-sm' : 'bg-[#f0fafb] text-[#174f58] hover:-translate-y-0.5 hover:bg-[#d8f2f4]')}><item.icon className="h-4 w-4 shrink-0" /><span>{item.label}</span></Link>)}</div></div>)}</nav>
+          <nav className="space-y-3">
+            {isPlatformAdmin && <div className="overflow-hidden rounded-[22px] border border-amber-200 bg-white shadow-sm">
+              <div className="bg-amber-50 px-4 py-3 font-bold text-amber-900">إشراف المنصة</div>
+              <div className="p-3"><Link to="/platform/organizations" onClick={() => setSidebarOpen(false)} className={cn('flex min-h-10 items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-semibold', isActive('/platform/organizations') ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-900 hover:bg-amber-100')}><ShieldCheck className="h-4 w-4" /><span>اعتماد الشركات</span></Link></div>
+            </div>}
+            {adminNav.map((group, index) => <div key={group.section} className="overflow-hidden rounded-[22px] border border-[#d5edf0] bg-white shadow-[0_4px_18px_rgba(13,113,128,0.06)]"><div className={cn('flex items-center justify-between px-4 py-3.5 font-bold text-[#075b69]', index === 0 ? 'bg-[#0c97a9] text-white' : 'bg-[#dff3f5]')}><span>{group.section}</span><span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/70 text-[#0c97a9]"><LayoutDashboard className="h-4 w-4" /></span></div><div className="grid grid-cols-2 gap-2 p-3">{group.items.map(item => <Link key={item.to} to={item.to} onClick={() => setSidebarOpen(false)} className={cn('flex min-h-10 items-center justify-center gap-2 rounded-full px-2 py-2 text-center text-xs font-semibold transition-all', isActive(item.to, item.exact) ? 'bg-[#0c97a9] text-white shadow-sm' : 'bg-[#f0fafb] text-[#174f58] hover:-translate-y-0.5 hover:bg-[#d8f2f4]')}><item.icon className="h-4 w-4 shrink-0" /><span>{item.label}</span></Link>)}</div></div>)}
+          </nav>
           <button onClick={() => { signOut(); navigate('/') }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-white px-4 py-3 text-sm font-bold text-error-600 shadow-sm transition hover:bg-error-50"><LogOut className="h-4 w-4" /> تسجيل الخروج</button>
         </aside>
         {sidebarOpen && <div className="fixed inset-0 z-40 bg-[#06343b]/45 lg:hidden" onClick={() => setSidebarOpen(false)} />}
