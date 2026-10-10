@@ -1,0 +1,40 @@
+name: Backup Tool Safety Checks
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/backup/**'
+      - '.github/workflows/encrypted-postgres-backup.yml'
+      - '.github/workflows/backup-tools-validation.yml'
+      - 'scripts/verify-contracts.mjs'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/backup/**'
+      - '.github/workflows/encrypted-postgres-backup.yml'
+      - '.github/workflows/backup-tools-validation.yml'
+      - 'scripts/verify-contracts.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  syntax-and-static-safety:
+    name: Validate backup shell tools
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Parse every backup shell script
+        run: |
+          set -eu
+          bash -n scripts/backup/create-encrypted-backup.sh
+          bash -n scripts/backup/verify-encrypted-backup.sh
+          bash -n scripts/backup/restore-postgres.sh
+      - name: Run ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck
+          shellcheck --severity=warning scripts/backup/create-encrypted-backup.sh scripts/backup/verify-encrypted-backup.sh scripts/backup/restore-postgres.sh
