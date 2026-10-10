@@ -97,7 +97,7 @@ for (const view of [
   'customer_payment_summaries',
   'customer_statement_summaries',
 ]) {
-  required(pricingMigration, new RegExp('ALTER VIEW public\\\\.' + view + ' SET \\\\(security_invoker = true\\\\)'), view + ' must run with invoker security and base-table RLS.')
+  required(pricingMigration, new RegExp('ALTER VIEW public\.' + view + ' SET \(security_invoker = true\)'), view + ' must run with invoker security and base-table RLS.')
 }
 assert.equal((pricingMigration.match(/CREATE POLICY [^\n]*idempotency/gi) || []).length, 0, 'Idempotency keys must not be directly accessible through client table policies.')
 
