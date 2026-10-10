@@ -67,3 +67,13 @@ Use one entry per execution run. Keep implementation, verification, proof and de
 - **AI connection:** existing tenant-scoped audit/outbox timeline immediately surfaces these records without reading event payloads; posting/receiving/expense audit functions were preserved.
 - **Pending:** current Build/SQL Migration Chain/Backup Tool Safety Checks must complete on the final latest head; only afterward can the migration be marked verified. No live migration was applied.
 - **Merge/deploy:** HOLD until all exact-head required gates are green.
+
+
+## Run update — route-level code splitting and bundle reduction (2026-10-10)
+
+- **Change:** refactored `src/App.tsx` from eager imports to route-driven lazy imports for storefront pages, admin pages, operations/transactions and utility screens. Protected routes still wrap their loaded screens; AI remains a first-party page in the same app. Each lazy route uses a small accessible Arabic RTL loading fallback.
+- **Build measurement:** prior main JS bundle = 732.55 kB (196.43 kB gzip); new main JS bundle = 452.62 kB (127.61 kB gzip). Absolute reduction 279.93 kB, relative reduction 38.2% in uncompressed initial JS and 68.82 kB gzip. The Vite >500 kB chunk warning is no longer present. Vite emitted separate chunks for AIAssistant, AdminPages, StorefrontPages, OperationsPages and TransactionsPages.
+- **Exact candidate evidence:** SHA `a6cfdabda8f9ac6a42f5a5b74d510aca99d3c6b9`: Build PASS; SQL Migration Chain PASS; Backup Tool Safety Checks PASS. Build log states 1,649 modules transformed and completed in 10.44 s. SQL chain applied all migrations on PostgreSQL 17 and passed order/payment, procurement/receiving/transfer/stock-count/expense, tenant-isolation and product-price privilege checks.
+- **Previous failures fixed before this pass:** root README assertion variable mismatch; missing explicit legacy-brand rule in source index; resume heading assertion mismatch and a punctuation typo; `useCallback` missing import and `unknown` timestamp JSX type; static AI route assertions updated for lazy loading.
+- **Not proven:** live hosted deployment, browser E2E, live Supabase run, actual encrypted backup/decryption/restore, full audit-event coverage for all app flows.
+- **Next:** keep a contract against accidental eager route imports, rerun all three gates on the resulting exact head, then merge PR #4 if the final checks pass. Deployment remains HOLD.
