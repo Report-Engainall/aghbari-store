@@ -11,6 +11,10 @@
 5. Explicit follow-up correction: the AI platform must be integrated into Aghbari, not separated. It should analyze and recommend on authorized movement across the app, with local/private data handling.
 6. Explicit follow-up instruction: preserve all sent instructions in the repository; continue and complete what exists, add missing requirements, merge only when safe, and choose better technical methods proactively.
 
+## Product identity and source lineage
+
+The sole product identity is **الأغبري | Aghbari Commerce**. The strings **العامري**, **Alamri**, **Amiri**, and **بوابة العامري الذكية** may appear in historical screenshots, older requirement files or source material, but must never become the active product brand. These old references remain historical provenance only; preserve source artifacts instead of deleting them, and implement the useful screen behavior once per deduplicated screen family.
+
 ## Canonical precedence for conflicts
 
 - Latest direct user instruction takes precedence over an older conflicting design rule while retaining the older requirement as provenance in this index.
