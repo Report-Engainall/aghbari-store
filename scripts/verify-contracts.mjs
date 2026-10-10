@@ -238,6 +238,12 @@ for (const table of ['ai_reports', 'ai_alerts', 'ai_tasks']) {
 }
 assert.ok(aiAssistant.includes(".eq('organization_id', organizationId)"), 'AI assistant queries must explicitly scope records to the active organization.')
 assert.ok(aiAssistant.includes("from('audit_logs')"), 'Integrated AI assistant must read recent persisted operational activity.')
+assert.ok(aiAssistant.includes("from('outbox_events')"), 'Integrated AI assistant must read transactional outbox events as operational activity.')
+assert.ok(aiAssistant.includes("select('id,event_type,aggregate_type,status,created_at')"), 'Outbox event inspection must use a minimal projection without reading payload content.')
+assert.ok(aiAssistant.includes(".eq('organization_id', organizationId)"), 'Outbox events must be explicitly scoped to the active organization.')
+assert.ok(aiAssistant.includes("const combinedActivity = [...auditActivity, ...outboxActivity]"), 'Audit and outbox records must form one time-sorted operational activity stream.')
+assert.ok(aiAssistant.includes('dead_letter') && aiAssistant.includes('failed'), 'Deterministic review rules must identify failed/dead-letter outbox states.')
+assert.ok(aiAssistant.includes('تعذر تحميل الأحداث التشغيلية'), 'Outbox read errors must be surfaced rather than represented as an empty timeline.')
 assert.ok(aiAssistant.includes("select('id,action,entity_type,created_at')"), 'Operational activity must use a minimal audit projection instead of reading event payloads or unnecessary identifiers.')
 assert.ok(aiAssistant.includes('reviewCandidates') && aiAssistant.includes('لا يثبت شمول الأحداث'), 'Activity review flags must be deterministic and explicitly disclose incomplete audit coverage.')
 assert.ok(aiAssistant.indexOf("q.includes('تستحق')") < aiAssistant.indexOf("q.includes('حركة')"), 'Explicit risk/review questions must reach review-candidate rules before the generic activity summary handler.')
