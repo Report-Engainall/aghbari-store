@@ -617,6 +617,54 @@ jobs:
           RESET ROLE;
           SQL
 
+          abandoned_id="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT set_config('request.jwt.claim.sub', '$user_id', false) AS subject \\gset
+          SET ROLE authenticated;
+          SELECT claimed_upload_id
+          FROM public.claim_import_upload(
+            '$org_id'::uuid,
+            '$profile_id'::uuid,
+            'CI-ABANDONED-CLAIM.csv',
+            'csv',
+            64,
+            '$(printf 'c%.0s' {1..64})',
+            NULL,
+            NULL,
+            now() + interval '30 days',
+            'staged',
+            NULL,
+            NULL
+          );
+          RESET ROLE;
+          SQL
+          )"
+          abandoned_result="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT set_config('request.jwt.claim.sub', '$user_id', false) AS subject \\gset
+          SET ROLE authenticated;
+          SELECT public.abandon_staged_import_claim('$org_id'::uuid, '$abandoned_id'::uuid);
+          RESET ROLE;
+          SQL
+          )"
+          abandoned_state="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT status || '|' || error_code
+          FROM public.import_uploads
+          WHERE id = '$abandoned_id'::uuid AND organization_id = '$org_id'::uuid;
+          SQL
+          )"
+          abandoned_audits="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<SQL
+          SELECT count(*)
+          FROM public.audit_logs
+          WHERE organization_id = '$org_id'::uuid
+            AND entity_type = 'import_upload'
+            AND entity_id = '$abandoned_id'::uuid
+            AND action = 'import_upload_staged_abandoned';
+          SQL
+          )"
+          [[ "$abandoned_result" == "t" && "$abandoned_state" == "failed|IMPORT_CONTEXT_CHANGED" && "$abandoned_audits" == "1" ]] || {
+            printf 'FAIL: abandoned staged claim was not converted to retryable failed state with one audit event; result=%s state=%s audits=%s\\n' "$abandoned_result" "$abandoned_state" "$abandoned_audits" >&2
+            exit 1
+          }
+
           printf 'PASS: two concurrent same-hash import claims reused one upload; two concurrent failed retries produced one winner.\\n'
 
       - name: Verify tenant isolation and product-price column privileges
