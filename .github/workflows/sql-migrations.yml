@@ -235,6 +235,57 @@ jobs:
           END
           $organization_audit_smoke$;
 
+          -- Seed a catalog row under the migration owner. An unapproved tenant must neither
+          -- read it through the base table/staff view nor write a product of its own.
+          INSERT INTO public.products (
+            id, organization_id, name, item_code, sku, name_ar, slug, unit,
+            base_price, price, bulk_price, retail_price, wholesale_price,
+            stock_quantity, min_order_qty, box_quantity, carton_quantity, is_active, status
+          )
+          SELECT
+            'a4000000-0000-4000-8000-000000000097', id, 'CI Pending Tenant Product',
+            'CI-PENDING-001', 'CI-PENDING-001', 'صنف مؤسسة معلقة',
+            'ci-pending-tenant-product', 'piece',
+            10, 10, 10, 10, 10, 3, 1, 1, 1, false, 'active'
+          FROM public.organizations WHERE email = 'aghbari-ci-org-create@example.invalid';
+
+          SELECT set_config('request.jwt.claim.sub', 'a2000000-0000-4000-8000-000000000099', false);
+          SET ROLE authenticated;
+          DO $pending_tenant_catalog_gate$
+          DECLARE
+            v_count integer;
+            v_write_denied boolean := false;
+          BEGIN
+            SELECT count(*) INTO v_count FROM public.products
+            WHERE id = 'a4000000-0000-4000-8000-000000000097';
+            IF v_count <> 0 THEN
+              RAISE EXCEPTION 'unapproved tenant can read catalog rows before approval';
+            END IF;
+
+            SELECT count(*) INTO v_count FROM public.admin_product_catalog
+            WHERE id = 'a4000000-0000-4000-8000-000000000097';
+            IF v_count <> 0 THEN
+              RAISE EXCEPTION 'unapproved tenant can read the privileged pricing view';
+            END IF;
+
+            BEGIN
+              INSERT INTO public.products (
+                organization_id, name, item_code, sku, name_ar, slug, unit, status, is_active
+              ) VALUES (
+                'a0000000-0000-4000-8000-000000000099',
+                'Unauthorized Pending Product', 'CI-PENDING-DENIED', 'CI-PENDING-DENIED',
+                'منتج مرفوض', 'ci-pending-denied-product', 'piece', 'active', true
+              );
+            EXCEPTION WHEN insufficient_privilege THEN
+              v_write_denied := true;
+            END;
+            IF NOT v_write_denied THEN
+              RAISE EXCEPTION 'unapproved tenant can create product rows before platform approval';
+            END IF;
+          END
+          $pending_tenant_catalog_gate$;
+          RESET ROLE;
+
           -- Also test rejection of a separate pending organization.
           INSERT INTO public.organizations (id, name, email, status, is_active)
           VALUES ('a1000000-0000-4000-8000-000000000097', 'Aghbari CI Rejected Company',
