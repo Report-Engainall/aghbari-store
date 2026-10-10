@@ -104,3 +104,13 @@ Use one entry per execution run. Keep implementation, verification, proof and de
 - **Import truth:** CSV continues through the existing validated Snapshot pipeline. Excel/PDF stay metadata-only/manual review; no fake parser, data merge, or fake completion was introduced.
 - **Acceptance contract:** static guardrails cover request IDs, tenant match, cleared state, abort cleanup, selected-profile reset and disabled writes until the active context is loaded.
 - **Status:** implementation is committed and read back; tests are awaiting the PR's exact-head CI. No browser E2E is claimed.
+
+
+## Run update — PR #5 merge: tenant-switch-safe import (2026-10-10)
+
+- **Merge:** PR #5 `fix: prevent stale import state across organization switches` merged to main by squash; SHA `33ccd26fb666977a74d6b99e8c123210d6b3183b`.
+- **Exact PR head CI:** `e1d429d824a97bed6e91ab924df30ce27bdbe0fb` — Build PASS, SQL Migration Chain PASS, Backup Tool Safety Checks PASS.
+- **Post-merge CI:** Build PASS and Backup Tool Safety Checks PASS on merge commit `33ccd26fb666977a74d6b99e8c123210d6b3183b`. Build output confirmed contract tests passed; entry bundle was 454,026 bytes raw / 127,601 bytes gzip within the 500,000-byte cap.
+- **Delivered behavior:** stale import profile/upload requests are discarded; previous tenant rows/files/progress/duplicate state are cleared and not rendered during tenant switch; selected profile is repaired against active tenant data; supported CSV processing is aborted during tenant switch/unmount; creation/version/retry/stage handlers reject stale post-await UI results; operations stay disabled until both active-tenant reads succeed and can be retried on read failure.
+- **Not claimed:** no browser E2E, live production deploy, or real hosted Supabase proof.
+- **Next gap:** server/database duplicate-upload race/idempotency. Existing uniqueness key has nullable period fields, so duplicate general-file claims need a separate concurrency-safe arbiter plus a PostgreSQL test issuing two concurrent same-tenant/same-profile/same-hash claims. Preserve historical upload rows and partial retries; do not fake dedupe.
