@@ -13,7 +13,7 @@ const imageNames = (await readdir(referenceDir))
   .sort((a, b) => a.localeCompare(b, 'en'))
 
 assert.ok(imageNames.length > 0, 'No UI reference images were found.')
-const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook] =
+const [readme, index, pricingMigration, safeProductSelect, storefront, store, catalog, productDetail, policyCenter, policiesHook, adminOperations, transactionPages, appRoutes, adminShell, operationalMigration] =
   await Promise.all([
     read('docs/ui-reference/README.md'),
     read('docs/ui-reference/UI-REFERENCE-ASSET-INDEX.md'),
@@ -25,6 +25,11 @@ const [readme, index, pricingMigration, safeProductSelect, storefront, store, ca
     read('src/pages/storefront/ProductDetail.tsx'),
     read('src/pages/admin/PolicyCenter.tsx'),
     read('src/lib/useCommercePolicies.ts'),
+    read('src/pages/admin/OperationsPages.tsx'),
+    read('src/pages/admin/TransactionsPages.tsx'),
+    read('src/App.tsx'),
+    read('src/components/admin/AdminShell.tsx'),
+    read('supabase/migrations/20261011000000_inventory_procurement_finance_operations.sql'),
   ])
 
 for (const imageName of imageNames) {
@@ -109,5 +114,37 @@ for (const view of [
 }
 assert.equal((pricingMigration.match(/CREATE POLICY [^\n]*idempotency/gi) || []).length, 0, 'Idempotency keys must not be directly accessible through client table policies.')
 
-console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing fallbacks, and order/payment invariants.`)
+for (const route of [
+  '/admin/inventory', '/admin/warehouses', '/admin/inventory/movements', '/admin/suppliers',
+  '/admin/purchasing', '/admin/receiving', '/admin/transfers', '/admin/stock-counts',
+  '/admin/expenses', '/admin/invoices', '/admin/payments', '/admin/statements',
+  '/admin/roles', '/admin/outbox', '/admin/idempotency', '/admin/policy-center',
+]) {
+  const path = route.slice('/admin/'.length)
+  assert.ok(appRoutes.includes('path="' + path + '"'), 'Missing dedicated admin route: ' + route)
+  assert.ok(adminShell.includes("to: '" + route + "'"), 'Admin navigation omits route: ' + route)
+}
+
+for (const rpc of [
+  'create_purchase_order', 'receive_purchase_order', 'create_inventory_transfer',
+  'post_inventory_transfer', 'create_stock_count', 'post_stock_count', 'record_expense',
+]) {
+  assert.ok(operationalMigration.includes('CREATE OR REPLACE FUNCTION public.' + rpc), 'Operational database RPC missing: ' + rpc)
+  assert.ok(transactionPages.includes("supabase.rpc('" + rpc + "'"), 'Transactional UI is not connected to RPC: ' + rpc)
+}
+for (const table of [
+  'purchase_orders', 'purchase_order_items', 'goods_receipts', 'goods_receipt_items',
+  'inventory_transfers', 'inventory_transfer_items', 'stock_counts', 'stock_count_items', 'expenses',
+]) {
+  assert.ok(operationalMigration.includes('CREATE TABLE IF NOT EXISTS public.' + table), 'Operational table missing: ' + table)
+}
+required(operationalMigration, /REVOKE INSERT, UPDATE, DELETE ON public\\.purchase_orders[\\s\\S]{0,250}FROM anon, authenticated/, 'Operational ledgers must not allow direct browser writes.')
+required(operationalMigration, /receipt_warehouse_must_match_purchase_order/, 'Receiving must be restricted to the purchase-order warehouse.')
+required(operationalMigration, /insufficient_available_stock/, 'Transfers must reject insufficient available stock.')
+required(operationalMigration, /stock_changed_since_count/, 'Stock-count posting must reject stale stock snapshots.')
+required(transactionPages, /supabase\\.rpc\\('receive_purchase_order'/, 'Receiving must use the server-side transaction RPC.')
+required(transactionPages, /supabase\\.rpc\\('post_inventory_transfer'/, 'Transfer posting must use the server-side transaction RPC.')
+required(transactionPages, /supabase\\.rpc\\('post_stock_count'/, 'Stock-count posting must use the server-side transaction RPC.')
+
+console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
