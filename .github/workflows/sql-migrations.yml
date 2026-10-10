@@ -159,7 +159,6 @@ jobs:
             v_can_operate boolean;
             v_role text;
             v_membership_status text;
-            v_audit_count integer;
           BEGIN
             v_org_id := public.create_organization_for_current_user(
               'Aghbari CI Onboarding Company', 'aghbari-ci-org-create@example.invalid', '+967700000099'
@@ -186,16 +185,31 @@ jobs:
               RAISE EXCEPTION 'pending organization received active tenant access before approval';
             END IF;
 
-            SELECT count(*) INTO v_audit_count
-            FROM public.audit_logs
-            WHERE organization_id = v_org_id AND action = 'organization.created'
-              AND entity_type = 'organization' AND entity_id = v_org_id;
-            IF v_audit_count <> 1 THEN
-              RAISE EXCEPTION 'organization creation must write one audit record atomically';
-            END IF;
           END
           $org_creation_smoke$;
           RESET ROLE;
+
+          DO $organization_audit_smoke$
+          DECLARE
+            v_audit_count integer;
+          BEGIN
+            SELECT count(*) INTO v_audit_count
+            FROM public.audit_logs
+            WHERE organization_id = (
+              SELECT id FROM public.organizations
+              WHERE email = 'aghbari-ci-org-create@example.invalid'
+            )
+              AND action = 'organization.created'
+              AND entity_type = 'organization'
+              AND entity_id = (
+                SELECT id FROM public.organizations
+                WHERE email = 'aghbari-ci-org-create@example.invalid'
+              );
+            IF v_audit_count <> 1 THEN
+              RAISE EXCEPTION 'organization creation must write exactly one audit record atomically';
+            END IF;
+          END
+          $organization_audit_smoke$;
 
           -- Simulate platform approval before the separate cross-tenant isolation tests.
           UPDATE public.organizations
