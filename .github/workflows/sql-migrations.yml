@@ -304,6 +304,8 @@ jobs:
             v_count uuid;
             v_stale_count uuid;
             v_expense uuid;
+            v_statement_id uuid;
+            v_statement_replay_id uuid;
             v_stock1 numeric(15,3);
             v_stock2 numeric(15,3);
             v_status text;
@@ -384,6 +386,26 @@ jobs:
             END IF;
             IF NOT EXISTS (SELECT 1 FROM public.audit_logs WHERE entity_type='expense' AND entity_id=v_expense) THEN
               RAISE EXCEPTION 'expense audit record is missing';
+            END IF;
+
+            v_statement_id := public.generate_organization_statement(v_org, current_date - 1, current_date);
+            v_statement_replay_id := public.generate_organization_statement(v_org, current_date - 1, current_date);
+            IF v_statement_replay_id IS DISTINCT FROM v_statement_id THEN
+              RAISE EXCEPTION 'statement generation is not idempotent for one organization and period';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM public.statements
+              WHERE id=v_statement_id AND organization_id=v_org
+                AND period_start=current_date - 1 AND period_end=current_date
+                AND closing_balance = opening_balance + total_invoiced - total_paid
+            ) THEN
+              RAISE EXCEPTION 'generated account statement snapshot is missing or inconsistent';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM public.audit_logs
+              WHERE entity_type='statement' AND entity_id=v_statement_id AND action='statement.generated'
+            ) THEN
+              RAISE EXCEPTION 'statement audit record is missing';
             END IF;
 
             v_guard_hit := false;
