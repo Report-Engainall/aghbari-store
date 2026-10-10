@@ -43,3 +43,16 @@ Use one entry per execution run. Keep implementation, verification, proof and de
 - **Verification:** repository files read back; contract assertions added; Backup Tool Safety Checks, Build and SQL Migration Chain reported queued on the previously inspected candidate and must be rechecked on latest PR head. No actual backup artifact, decryption, isolated restore, browser E2E or live database test is claimed.
 - **Deployment:** HOLD / not merged / not deployed.
 - **Next:** check exact-head Actions; fix shell/static/build/migration failures; configure secrets securely; run the first encrypted backup; verify with offline key; perform and record isolated restore + application smoke tests. Only then call backup/restore operationally proven.
+
+
+## Run update — operational event intelligence + CI fault correction (2026-10-10)
+
+- **Assistant implementation:** in addition to organization-scoped AI reports/alerts/tasks, it reads `audit_logs` (minimal `id, action, entity_type, created_at`) and `outbox_events` (minimal `id, event_type, aggregate_type, status, created_at`), explicitly scoped to the active organization. It merges the results into one time-sorted stream capped at 50 events, displays source/status, and flags preliminary review candidates including failed/dead-letter events. Outbox payload is not selected.
+- **Limitations preserved:** query failures show warnings; RLS remains authoritative; the stream reflects only emitted events and is not claimed to be a complete audit. No generative model, forecast or universal risk engine is claimed.
+- **CI diagnosis 1:** Build failed because the contract test used a variable bound to `docs/ui-reference/README.md` while asserting the root README memory link. Fixed by reading root `README.md` into a separate `rootReadme`.
+- **CI diagnosis 2:** The source-preservation index assertion expected the English term “Legacy”, but the document recorded the policy in another form. Added an explicit product identity/provenance section listing the excluded brand strings and replaced the assertion with checks for the actual canonical identity and names.
+- **Build environment:** updated the Build workflow to Node 22 because the lockfile resolves Supabase JS packages that declare Node >=22. This removes observed engine mismatch warnings at the runner level.
+- **Verification observed:** a previous Build attempt failed at the above assertions, not at TypeScript/Vite. SQL migration chain and backup shell safety checks passed on an older SHA; a prior later Build failed on the second assertion. A new exact-head run after the newest code/docs commits is required before marking PASS.
+- **Backup safety remains:** strict JSON manifest/filename/size/hash validation; output outside repository; absolute external pre-restore path for production; verified fresh encrypted pre-restore snapshot; target host and explicit destructive restore confirmation. Real database backup/decryption/restore remains NOT_PROVEN without securely configured secrets and a recovery drill.
+- **Deployment:** HOLD; PR #4 remains open; no main merge or production deploy.
+- **Next:** inspect exact latest run conclusions, fix any residual contract/type/build issue, then continue import/DQS, event coverage map, private AI governance and E2E.
