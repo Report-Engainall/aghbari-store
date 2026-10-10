@@ -440,6 +440,8 @@ END $$;
 
 -- Replace the original order RPC so all order prices use the single server-side pricing evaluator
 -- and idempotency keys cannot be replayed with a different cart or request body.
+ALTER TABLE public.idempotency_keys ADD COLUMN IF NOT EXISTS request_context_hash text;
+
 CREATE OR REPLACE FUNCTION public.create_order_from_cart(
   p_shipping_address jsonb,
   p_billing_address jsonb,
@@ -462,6 +464,8 @@ DECLARE
   v_invoice_id uuid;
   v_existing uuid;
   v_existing_hash text;
+  v_existing_context_hash text;
+  v_context_hash text;
   v_existing_status text;
   v_idempotency_id uuid;
   v_claimed boolean := false;
@@ -496,6 +500,37 @@ BEGIN
   WHERE user_id = v_user_id AND status = 'active'
   LIMIT 1;
 
+  -- Keep a stable fingerprint of the non-cart context so a retry after the
+  -- server has cleared cart_items can still safely return the first order.
+  v_context_hash := md5(
+    COALESCE(p_shipping_address::text, '') || '|' ||
+    COALESCE(p_billing_address::text, '') || '|' ||
+    COALESCE(p_notes, '')
+  );
+
+  SELECT k.response_reference, k.request_hash, k.request_context_hash, k.status
+    INTO v_existing, v_existing_hash, v_existing_context_hash, v_existing_status
+  FROM public.idempotency_keys k
+  LEFT JOIN public.orders existing_order ON existing_order.id = k.response_reference
+  WHERE k.organization_id = v_org_id
+    AND k.idempotency_key = p_idempotency_key
+    AND k.operation_type = 'create_order'
+    AND k.expires_at > now()
+    AND (k.response_reference IS NULL OR existing_order.user_id = v_user_id)
+  FOR UPDATE OF k;
+
+  IF FOUND THEN
+    IF v_existing_context_hash IS DISTINCT FROM v_context_hash THEN
+      RAISE EXCEPTION 'idempotency_key_reused_with_different_request';
+    END IF;
+    IF v_existing_status = 'completed' AND v_existing IS NOT NULL THEN
+      RETURN v_existing;
+    END IF;
+    IF v_existing_status = 'processing' THEN
+      RAISE EXCEPTION 'idempotent_request_in_progress';
+    END IF;
+  END IF;
+
   -- Derive the customer class from the authenticated user's linked customer record.
   -- No price level or organization identifier is trusted from the browser.
   SELECT c.id, c.tier
@@ -526,10 +561,11 @@ BEGIN
     COALESCE(p_notes, '') || '|' || COALESCE(v_cart_hash, 'empty-cart')
   );
 
-  INSERT INTO idempotency_keys (organization_id, idempotency_key, request_hash, operation_type, status, created_at, expires_at)
-  VALUES (v_org_id, p_idempotency_key, v_request_hash, 'create_order', 'processing', now(), now() + make_interval(hours => COALESCE((SELECT cps.idempotency_ttl_hours FROM public.commerce_policy_settings cps WHERE cps.organization_id = v_org_id), 24)))
+  INSERT INTO idempotency_keys (organization_id, idempotency_key, request_hash, request_context_hash, operation_type, status, created_at, expires_at)
+  VALUES (v_org_id, p_idempotency_key, v_request_hash, v_context_hash, 'create_order', 'processing', now(), now() + make_interval(hours => COALESCE((SELECT cps.idempotency_ttl_hours FROM public.commerce_policy_settings cps WHERE cps.organization_id = v_org_id), 24)))
   ON CONFLICT (organization_id, idempotency_key, operation_type) DO UPDATE
     SET request_hash = EXCLUDED.request_hash,
+        request_context_hash = EXCLUDED.request_context_hash,
         response_reference = NULL,
         status = 'processing',
         created_at = now(),
@@ -541,17 +577,21 @@ BEGIN
   IF FOUND THEN
     v_claimed := true;
   ELSE
-    SELECT response_reference, request_hash, status
-      INTO v_existing, v_existing_hash, v_existing_status
-    FROM idempotency_keys
-    WHERE organization_id = v_org_id
-      AND idempotency_key = p_idempotency_key
-      AND operation_type = 'create_order';
+    SELECT k.response_reference, k.request_hash, k.request_context_hash, k.status
+      INTO v_existing, v_existing_hash, v_existing_context_hash, v_existing_status
+    FROM public.idempotency_keys k
+    LEFT JOIN public.orders existing_order ON existing_order.id = k.response_reference
+    WHERE k.organization_id = v_org_id
+      AND k.idempotency_key = p_idempotency_key
+      AND k.operation_type = 'create_order'
+      AND k.expires_at > now()
+      AND (k.response_reference IS NULL OR existing_order.user_id = v_user_id)
+    FOR UPDATE OF k;
 
-    IF v_existing_hash IS DISTINCT FROM v_request_hash THEN
+    IF v_existing_context_hash IS DISTINCT FROM v_context_hash THEN
       RAISE EXCEPTION 'idempotency_key_reused_with_different_request';
     END IF;
-    IF v_existing IS NOT NULL THEN RETURN v_existing; END IF;
+    IF v_existing IS NOT NULL AND v_existing_status = 'completed' THEN RETURN v_existing; END IF;
     IF v_existing_status = 'processing' THEN RAISE EXCEPTION 'idempotent_request_in_progress'; END IF;
     RAISE EXCEPTION 'idempotent_request_not_reusable';
   END IF;
