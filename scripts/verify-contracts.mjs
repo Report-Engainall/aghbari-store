@@ -53,9 +53,10 @@ const [rootReadme, projectMemory, canonicalSpec, sourceIndex, executionState, pr
   read('ops/AGHBARI-LATEST-EXECUTION-STATE.md'),
   read('ops/AGHBARI-DEVELOPMENT-PROGRESS.md'),
 ])
-const [backupWorkflow, backupCheckWorkflow, backupCreate, backupVerify, backupRestore, backupGuide] = await Promise.all([
+const [backupWorkflow, backupCheckWorkflow, sqlMigrationWorkflow, backupCreate, backupVerify, backupRestore, backupGuide] = await Promise.all([
   read('.github/workflows/encrypted-postgres-backup.yml'),
   read('.github/workflows/backup-tools-validation.yml'),
+  read('.github/workflows/sql-migrations.yml'),
   read('scripts/backup/create-encrypted-backup.sh'),
   read('scripts/backup/verify-encrypted-backup.sh'),
   read('scripts/backup/restore-postgres.sh'),
@@ -252,6 +253,8 @@ assert.ok(commercialAuditMigration.includes("SET search_path = ''") && commercia
 assert.ok(commercialAuditMigration.includes('AFTER INSERT ON public.purchase_orders') && commercialAuditMigration.includes('AFTER INSERT ON public.inventory_transfers') && commercialAuditMigration.includes('AFTER INSERT ON public.stock_counts'), 'New purchase orders, inventory-transfer drafts and stock-count drafts must be recorded atomically.')
 assert.ok(commercialAuditMigration.includes("'purchase_order_created'") && commercialAuditMigration.includes("'inventory_transfer_created'") && commercialAuditMigration.includes("'stock_count_created'"), 'Commercial creation audit events must have distinct semantic action names.')
 assert.ok(commercialAuditMigration.includes('REVOKE ALL ON FUNCTION public.audit_commercial_draft_creation() FROM PUBLIC, anon, authenticated'), 'Commercial audit trigger helper must not be directly callable by browser roles.')
+assert.ok(sqlMigrationWorkflow.includes("purchase order creation audit event missing") && sqlMigrationWorkflow.includes("inventory transfer creation audit event missing") && sqlMigrationWorkflow.includes("stock count creation audit event missing"), 'PostgreSQL integration smoke test must prove all three draft audit triggers write tenant-scoped records.')
+assert.ok(sqlMigrationWorkflow.includes("organization_id = v_org AND entity_type = 'purchase_order'") && sqlMigrationWorkflow.includes("organization_id = v_org AND entity_type = 'inventory_transfer'") && sqlMigrationWorkflow.includes("organization_id = v_org AND entity_type = 'stock_count'"), 'Draft audit smoke tests must verify the target organization and entity IDs.')
 assert.ok(!commercialAuditMigration.includes("v_row->>'notes'") && !commercialAuditMigration.includes("'payload'"), 'Commercial draft audit must not copy free-form notes or event payloads.')
 assert.ok(aiAssistant.includes("select('id,action,entity_type,created_at')"), 'Operational activity must use a minimal audit projection instead of reading event payloads or unnecessary identifiers.')
 assert.ok(aiAssistant.includes('reviewCandidates') && aiAssistant.includes('لا يثبت شمول الأحداث'), 'Activity review flags must be deterministic and explicitly disclose incomplete audit coverage.')
