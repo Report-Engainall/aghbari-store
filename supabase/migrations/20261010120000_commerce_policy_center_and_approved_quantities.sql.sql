@@ -83,6 +83,11 @@ CREATE TABLE IF NOT EXISTS commerce_policy_settings (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Add the mandatory workflow fields before constraints that reference them.
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_external_data_requires_consent boolean NOT NULL DEFAULT true;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_rule_based_fallback boolean NOT NULL DEFAULT true;
+ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS offline_orders_disabled boolean NOT NULL DEFAULT true;
+
 ALTER TABLE commerce_policy_settings DROP CONSTRAINT IF EXISTS commerce_policy_prices_hidden;
 ALTER TABLE commerce_policy_settings
   ADD CONSTRAINT commerce_policy_prices_hidden CHECK (customer_prices_hidden = true);
@@ -116,11 +121,7 @@ ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS search_p95_target_
 ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_daily_token_quota bigint NOT NULL DEFAULT 0;
 ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_monthly_token_quota bigint NOT NULL DEFAULT 0;
 ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_request_budget_usd numeric(10,4) NOT NULL DEFAULT 0;
-ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_external_data_requires_consent boolean NOT NULL DEFAULT true;
-ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS ai_rule_based_fallback boolean NOT NULL DEFAULT true;
-ALTER TABLE commerce_policy_settings ADD COLUMN IF NOT EXISTS offline_orders_disabled boolean NOT NULL DEFAULT true;
-
-DO $$
+DO $
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'commerce_policy_limits_check') THEN
     ALTER TABLE commerce_policy_settings ADD CONSTRAINT commerce_policy_limits_check CHECK (
