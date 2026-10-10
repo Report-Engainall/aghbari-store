@@ -704,7 +704,7 @@ BEGIN
     SELECT 1 FROM public.invoices inv
     WHERE inv.order_id = p_order_id AND inv.invoice_kind = 'sales'
   ) THEN RAISE EXCEPTION 'sales_invoice_already_finalized'; END IF;
-  IF (SELECT count(*) FROM public.order_items oi WHERE oi.order_id = p_order_id) <> jsonb_object_length(p_quantities) THEN
+  IF (SELECT count(*) FROM public.order_items oi WHERE oi.order_id = p_order_id) <> (SELECT count(*) FROM jsonb_object_keys(p_quantities)) THEN
     RAISE EXCEPTION 'all_order_items_required';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.order_items oi WHERE oi.order_id = p_order_id) THEN
