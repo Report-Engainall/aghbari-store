@@ -92,6 +92,21 @@ jobs:
             ) THEN
               RAISE EXCEPTION 'legacy permissive anon_* row policies remain';
             END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_policies
+              WHERE schemaname = 'public'
+                AND (
+                  (tablename = 'products' AND policyname IN ('products_staff_insert', 'products_staff_update'))
+                  OR (tablename = 'orders' AND policyname IN ('ord_select_org', 'ord_insert_org', 'ord_update_org'))
+                  OR (tablename = 'order_items' AND policyname = 'orditem_select_org')
+                  OR (tablename = 'invoices' AND policyname = 'inv_select_org')
+                  OR (tablename = 'payments' AND policyname = 'pay_select_org')
+                  OR (tablename = 'statements' AND policyname = 'stmt_select_org')
+                  OR (tablename = 'customers' AND policyname IN ('customers_staff_insert', 'customers_staff_update'))
+                )
+            ) THEN
+              RAISE EXCEPTION 'legacy active-tenant bypass policies remain';
+            END IF;
             IF has_table_privilege('anon', 'public.organizations', 'INSERT')
               OR has_table_privilege('authenticated', 'public.organizations', 'INSERT') THEN
               RAISE EXCEPTION 'organizations may be inserted directly by browser roles';
