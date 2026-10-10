@@ -258,6 +258,8 @@ assert.ok(backupCreate.includes('pg_dump') && backupCreate.includes('--format=cu
 assert.ok(backupCreate.includes('age --encrypt') && backupCreate.includes('ciphertext_sha256'), 'Backup tool must encrypt the archive and create an integrity manifest.')
 assert.ok(backupCreate.includes('SUPABASE_DB_URL') && !backupCreate.includes('echo "$SUPABASE_DB_URL"'), 'Database connection material must not be printed by the backup tool.')
 assert.ok(backupVerify.includes('ciphertext_sha256') && backupVerify.includes('pg_restore --list'), 'Backup verification must check the hash and recognize the decrypted archive format.')
+assert.ok(backupVerify.includes('json.load(handle)') && backupVerify.includes('hashlib.sha256()'), 'Backup verification must parse the manifest as JSON and validate the actual artifact digest.')
+assert.ok(backupVerify.includes('ciphertext_bytes') && backupVerify.includes('artifact_file'), 'Backup verification must validate artifact size and manifest identity as well as its hash.')
 assert.ok(backupRestore.includes('RESTORE_CONFIRM') && backupRestore.includes('I_HAVE_VERIFIED_THE_TARGET'), 'Restore must require explicit destination confirmation.')
 assert.ok(backupRestore.includes('RESTORE_EXPECTED_HOST') && backupRestore.includes('actual_target_host'), 'Restore must match the URL against an independently specified expected hostname.')
 assert.ok(backupRestore.includes('I_ACCEPT_PRODUCTION_DATA_OVERWRITE') && backupRestore.includes('--clean'), 'Production overwrite must need a separate explicit acknowledgment.')
