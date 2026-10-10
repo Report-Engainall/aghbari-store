@@ -132,7 +132,7 @@ jobs:
           SELECT set_config('request.jwt.claim.sub', 'a2000000-0000-4000-8000-000000000001', false);
           SET ROLE authenticated;
 
-          DO $
+          DO $$
           DECLARE
             v_order_id uuid;
             v_replayed_order_id uuid;
@@ -250,7 +250,7 @@ jobs:
               RAISE EXCEPTION 'payment confirmation did not finalize invoice and transition order';
             END IF;
           END;
-          $;
+          $$;
 
           RESET ROLE;
           SQL
