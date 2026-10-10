@@ -349,6 +349,21 @@ UPDATE public.products
 SET is_active = COALESCE(is_active, status = 'active', true);
 ALTER TABLE public.products ALTER COLUMN is_active SET DEFAULT true;
 
+-- Bridge notification columns used by the current commerce UI to the legacy profile-based schema.
+-- Existing installs store profile_id/is_read; the app consistently reads user_id/read.
+ALTER TABLE public.notifications
+  ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE public.notifications
+  ADD COLUMN IF NOT EXISTS read boolean DEFAULT false;
+UPDATE public.notifications n
+SET user_id = p.auth_user_id
+FROM public.profiles p
+WHERE n.profile_id = p.id
+  AND n.user_id IS NULL;
+UPDATE public.notifications
+SET read = COALESCE(is_read, false);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications(user_id);
+
 -- INDEXES
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand_id);
