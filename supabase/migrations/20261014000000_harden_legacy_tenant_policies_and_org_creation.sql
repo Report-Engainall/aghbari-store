@@ -220,6 +220,151 @@ USING (EXISTS (
 REVOKE ALL ON public.user_roles FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.user_roles TO authenticated;
 
+-- Shared addresses require active membership. Rebuild old policies that ignored suspended/invited status.
+ALTER TABLE public.addresses ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS addr_select_org ON public.addresses;
+DROP POLICY IF EXISTS addr_insert_org ON public.addresses;
+DROP POLICY IF EXISTS addr_update_org ON public.addresses;
+DROP POLICY IF EXISTS addr_delete_org ON public.addresses;
+DROP POLICY IF EXISTS addresses_active_member_read ON public.addresses;
+CREATE POLICY addresses_active_member_read
+ON public.addresses FOR SELECT TO authenticated
+USING (private.is_org_member(organization_id));
+CREATE POLICY addresses_active_member_insert
+ON public.addresses FOR INSERT TO authenticated
+WITH CHECK (private.is_org_member(organization_id));
+CREATE POLICY addresses_active_member_update
+ON public.addresses FOR UPDATE TO authenticated
+USING (private.is_org_member(organization_id))
+WITH CHECK (private.is_org_member(organization_id));
+CREATE POLICY addresses_active_member_delete
+ON public.addresses FOR DELETE TO authenticated
+USING (private.is_org_member(organization_id));
+REVOKE ALL ON public.addresses FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.addresses TO authenticated;
+
+-- A user's cart may only contain catalog items belonging to one of their active organizations.
+ALTER TABLE public.cart_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS cart_select_own ON public.cart_items;
+DROP POLICY IF EXISTS cart_insert_own ON public.cart_items;
+DROP POLICY IF EXISTS cart_update_own ON public.cart_items;
+DROP POLICY IF EXISTS cart_delete_own ON public.cart_items;
+CREATE POLICY cart_select_own
+ON public.cart_items FOR SELECT TO authenticated
+USING (user_id = auth.uid());
+CREATE POLICY cart_insert_own_active_tenant
+ON public.cart_items FOR INSERT TO authenticated
+WITH CHECK (
+  user_id = auth.uid()
+  AND EXISTS (
+    SELECT 1 FROM public.products p
+    WHERE p.id = cart_items.product_id
+      AND private.is_org_member(p.organization_id)
+  )
+);
+CREATE POLICY cart_update_own_active_tenant
+ON public.cart_items FOR UPDATE TO authenticated
+USING (user_id = auth.uid())
+WITH CHECK (
+  user_id = auth.uid()
+  AND EXISTS (
+    SELECT 1 FROM public.products p
+    WHERE p.id = cart_items.product_id
+      AND private.is_org_member(p.organization_id)
+  )
+);
+-- Always allow cleanup of a user's own stale/cross-tenant cart row.
+CREATE POLICY cart_delete_own
+ON public.cart_items FOR DELETE TO authenticated
+USING (user_id = auth.uid());
+REVOKE ALL ON public.cart_items FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.cart_items TO authenticated;
+
+-- Wishlist rows are user-owned, but new entries must reference the user's active tenant catalog.
+ALTER TABLE public.wishlist_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS wish_select_own ON public.wishlist_items;
+DROP POLICY IF EXISTS wish_insert_own ON public.wishlist_items;
+DROP POLICY IF EXISTS wish_delete_own ON public.wishlist_items;
+CREATE POLICY wish_select_own
+ON public.wishlist_items FOR SELECT TO authenticated
+USING (user_id = auth.uid());
+CREATE POLICY wish_insert_own_active_tenant
+ON public.wishlist_items FOR INSERT TO authenticated
+WITH CHECK (
+  user_id = auth.uid()
+  AND EXISTS (
+    SELECT 1 FROM public.products p
+    WHERE p.id = wishlist_items.product_id
+      AND private.is_org_member(p.organization_id)
+  )
+);
+CREATE POLICY wish_delete_own
+ON public.wishlist_items FOR DELETE TO authenticated
+USING (user_id = auth.uid());
+REVOKE ALL ON public.wishlist_items FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, DELETE ON public.wishlist_items TO authenticated;
+
+-- Reorder templates must remain attached to both their owner and an active tenant.
+ALTER TABLE public.reorder_templates ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tmpl_select_org ON public.reorder_templates;
+DROP POLICY IF EXISTS tmpl_insert_own ON public.reorder_templates;
+DROP POLICY IF EXISTS tmpl_update_own ON public.reorder_templates;
+DROP POLICY IF EXISTS tmpl_delete_own ON public.reorder_templates;
+CREATE POLICY reorder_templates_owner_read
+ON public.reorder_templates FOR SELECT TO authenticated
+USING (user_id = auth.uid() AND private.is_org_member(organization_id));
+CREATE POLICY reorder_templates_owner_insert
+ON public.reorder_templates FOR INSERT TO authenticated
+WITH CHECK (user_id = auth.uid() AND private.is_org_member(organization_id));
+CREATE POLICY reorder_templates_owner_update
+ON public.reorder_templates FOR UPDATE TO authenticated
+USING (user_id = auth.uid() AND private.is_org_member(organization_id))
+WITH CHECK (user_id = auth.uid() AND private.is_org_member(organization_id));
+CREATE POLICY reorder_templates_owner_delete
+ON public.reorder_templates FOR DELETE TO authenticated
+USING (user_id = auth.uid() AND private.is_org_member(organization_id));
+REVOKE ALL ON public.reorder_templates FROM PUBLIC, anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.reorder_templates TO authenticated;
+
+-- Order-status history is append-only via trusted transaction RPCs, never browser-authored.
+ALTER TABLE public.order_status_history ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ordhist_select_org ON public.order_status_history;
+DROP POLICY IF EXISTS ordhist_insert_org ON public.order_status_history;
+CREATE POLICY order_status_history_active_tenant_read
+ON public.order_status_history FOR SELECT TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.orders o
+  WHERE o.id = order_status_history.order_id
+    AND (
+      (o.user_id = auth.uid())
+      OR EXISTS (
+        SELECT 1 FROM public.organization_members om
+        WHERE om.organization_id = o.organization_id
+          AND om.user_id = auth.uid()
+          AND om.status = 'active'
+          AND om.role IN ('owner','admin','manager','warehouse','accountant','sales','developer','system_admin','customer_manager')
+      )
+    )
+));
+REVOKE ALL ON public.order_status_history FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.order_status_history TO authenticated;
+
+-- Price tiers are visible only when the member is in the same tenant as both the tier and product.
+ALTER TABLE public.price_tiers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tier_select_org ON public.price_tiers;
+CREATE POLICY price_tiers_same_tenant_read
+ON public.price_tiers FOR SELECT TO authenticated
+USING (
+  private.is_org_member(organization_id)
+  AND EXISTS (
+    SELECT 1 FROM public.products p
+    WHERE p.id = price_tiers.product_id
+      AND p.organization_id = price_tiers.organization_id
+  )
+);
+REVOKE ALL ON public.price_tiers FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.price_tiers TO authenticated;
+
 -- Catalog and organization-scoped master data.
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS categories_member_read ON public.categories;
@@ -514,8 +659,19 @@ USING (
           WHERE p.id = notifications.profile_id AND p.auth_user_id = auth.uid())
   OR (organization_id IS NOT NULL AND private.is_org_admin(organization_id))
 );
+DROP POLICY IF EXISTS notifications_owner_mark_read ON public.notifications;
+CREATE POLICY notifications_owner_mark_read
+ON public.notifications FOR UPDATE TO authenticated
+USING (
+  EXISTS (SELECT 1 FROM public.profiles p
+          WHERE p.id = notifications.profile_id AND p.auth_user_id = auth.uid())
+)
+WITH CHECK (
+  EXISTS (SELECT 1 FROM public.profiles p
+          WHERE p.id = notifications.profile_id AND p.auth_user_id = auth.uid())
+);
 REVOKE ALL ON public.notifications FROM PUBLIC, anon, authenticated;
-GRANT SELECT ON public.notifications TO authenticated;
+GRANT SELECT, UPDATE (is_read) ON public.notifications TO authenticated;
 
 -- Import logs are not consistently organization-tagged in older installations; restrict them
 -- to the authenticated actor until an organization key is present in the canonical schema.
@@ -531,4 +687,5 @@ GRANT SELECT ON public.import_logs TO authenticated;
 DROP POLICY IF EXISTS brand_insert_all ON public.brands;
 DROP POLICY IF EXISTS brand_update_all ON public.brands;
 DROP POLICY IF EXISTS brand_delete_all ON public.brands;
-REVOKE INSERT, UPDATE, DELETE ON public.brands FROM PUBLIC, anon;
+REVOKE INSERT, UPDATE, DELETE ON public.brands FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.brands TO anon, authenticated;
