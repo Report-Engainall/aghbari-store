@@ -180,6 +180,8 @@ assert.ok(!safeProductSelect.includes('reserved_stock'), 'Customer product proje
 assert.ok(!safeProductSelect.includes('base_price') && !safeProductSelect.includes('cost_price'), 'Customer product projection must never select financial values.')
 assert.ok(securityMigration.includes("left(policyname, 5) = 'anon_'"), 'Security migration must remove permissive bootstrap anon_* policies.')
 assert.ok(securityMigration.includes('DROP POLICY IF EXISTS "orgmem_insert_self"'), 'Users must not be allowed to self-assign organization roles.')
+assert.ok(securityMigration.includes('DROP POLICY IF EXISTS "org_select_authenticated"'), 'Authenticated users must not read every organization.')
+assert.ok(securityMigration.includes('CREATE OR REPLACE FUNCTION public.can_read_organization'), 'Organization reads must be membership-scoped.')
 assert.ok(securityMigration.includes('DROP POLICY IF EXISTS "audit_select_auth"'), 'Cross-tenant authenticated-wide audit read policy must be removed.')
 assert.ok(securityMigration.includes('CREATE POLICY ai_tasks_member_read'), 'AI task reads must be tenant-scoped.')
 assert.ok(securityMigration.includes('CREATE POLICY import_logs_member_read'), 'Import log reads must be tenant-scoped.')
