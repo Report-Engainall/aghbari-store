@@ -30,7 +30,7 @@ The sole product identity is **الأغبري | Aghbari Commerce**. The strings 
 - Backfill preserves all existing upload rows and selects a canonical pointer per duplicate key.
 - New upload creation, initial status and audit event happen in an authorized PostgreSQL RPC; direct browser upload INSERT/DELETE and upload identity mutation are blocked.
 - Failed retry uses compare-and-swap; PostgreSQL CI concurrently exercises claim/retry races and staged-claim recovery after tenant change.
-- This work is implemented on `fix/import-upload-idempotency` and requires the branch’s exact-SHA Build/SQL/backup gates before it can be called proven.
+- PR #6 merged on main via `b940e3a8b5581b63b72589b4354687781574ece5`. Exact PR head `e68403226836040dbfe5d4b77c0a9b0d22b02acc` passed Build, PostgreSQL 17 concurrent claim/retry and migration checks, and Backup Tool Safety Checks. Production restore and browser E2E remain unproven.
 
 ## Implementation additions recorded on 2026-10-10
 
