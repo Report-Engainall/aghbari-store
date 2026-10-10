@@ -286,5 +286,66 @@ $$;
 
 REVOKE ALL ON FUNCTION public.claim_import_upload(uuid, uuid, text, text, bigint, text, date, date, timestamptz, text, text, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.claim_import_upload(uuid, uuid, text, text, bigint, text, date, date, timestamptz, text, text, text) TO authenticated;
+CREATE OR REPLACE FUNCTION public.abandon_staged_import_claim(
+  p_organization_id uuid,
+  p_upload_id uuid
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_actor_profile_id uuid;
+  v_abandoned_id uuid;
+BEGIN
+  IF v_user_id IS NULL THEN RAISE EXCEPTION 'authentication_required'; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = p_organization_id
+      AND om.user_id = v_user_id
+      AND om.status = 'active'
+      AND om.role IN ('owner','admin')
+  ) THEN RAISE EXCEPTION 'import_upload_forbidden'; END IF;
+
+  SELECT p.id INTO v_actor_profile_id
+  FROM public.profiles p
+  WHERE p.auth_user_id = v_user_id
+  LIMIT 1;
+
+  UPDATE public.import_uploads u
+  SET status = 'failed',
+      error_code = 'IMPORT_CONTEXT_CHANGED',
+      error_message = 'CSV processing did not start because the active organization context changed.'
+  WHERE u.id = p_upload_id
+    AND u.organization_id = p_organization_id
+    AND u.status = 'staged'
+    AND EXISTS (
+      SELECT 1 FROM public.import_upload_claims c
+      WHERE c.organization_id = u.organization_id
+        AND c.profile_id = u.profile_id
+        AND c.file_hash = lower(u.file_hash)
+        AND c.upload_id = u.id
+    )
+  RETURNING u.id INTO v_abandoned_id;
+
+  IF v_abandoned_id IS NOT NULL THEN
+    INSERT INTO public.audit_logs (
+      organization_id, actor_id, action, entity_type, entity_id, new_value
+    ) VALUES (
+      p_organization_id, v_actor_profile_id, 'import_upload_staged_abandoned',
+      'import_upload', v_abandoned_id, jsonb_build_object('reason','active_organization_changed')
+    );
+  END IF;
+
+  RETURN v_abandoned_id IS NOT NULL;
+END;
+$;
+
+REVOKE ALL ON FUNCTION public.claim_import_upload(uuid, uuid, text, text, bigint, text, date, date, timestamptz, text, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.claim_import_upload(uuid, uuid, text, text, bigint, text, date, date, timestamptz, text, text, text) TO authenticated;
 REVOKE ALL ON FUNCTION public.claim_failed_import_retry(uuid, uuid, timestamptz) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.claim_failed_import_retry(uuid, uuid, timestamptz) TO authenticated;
+REVOKE ALL ON FUNCTION public.abandon_staged_import_claim(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.abandon_staged_import_claim(uuid, uuid) TO authenticated;
