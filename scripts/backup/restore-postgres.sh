@@ -8,9 +8,16 @@ if [[ $# -ne 1 ]]; then
 fi
 
 : "${RESTORE_DB_URL:?Set RESTORE_DB_URL to the explicitly selected restore target}"
+: "${RESTORE_EXPECTED_HOST:?Set RESTORE_EXPECTED_HOST independently to the approved target hostname}"
 : "${RESTORE_TARGET_LABEL:?Set RESTORE_TARGET_LABEL so the operator identifies the destination}"
 : "${AGE_IDENTITY_FILE:?Set AGE_IDENTITY_FILE to a private key kept outside the repository}"
 : "${RESTORE_CONFIRM:?Set RESTORE_CONFIRM=I_HAVE_VERIFIED_THE_TARGET after checking the destination}"
+
+actual_target_host="$(printf '%s' "$RESTORE_DB_URL" | sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://([^@/]+@)?([^:/?]+).*#\2#')"
+if [[ -z "$actual_target_host" || "$actual_target_host" != "$RESTORE_EXPECTED_HOST" ]]; then
+  printf 'Restore blocked: URL hostname does not match the independently configured expected target host.\n' >&2
+  exit 1
+fi
 
 case "$RESTORE_DB_URL" in
   *sslmode=disable*|*sslmode=allow*|*sslmode=prefer*)
