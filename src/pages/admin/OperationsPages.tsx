@@ -196,9 +196,90 @@ export function Suppliers() {
 export function AdminInvoices() {
   return <OperationalWorkspace config={{ title: 'الفواتير', description: 'فواتير المؤسسة وحالات إصدارها وسدادها.', table: 'invoices', icon: FileText, tenantScoped: true, columns: [{key:'invoice_number',label:'رقم الفاتورة'},{key:'organization_id',label:'المؤسسة'},{key:'status',label:'الحالة',kind:'status'},{key:'total',label:'الإجمالي',kind:'currency'},{key:'currency',label:'العملة'},{key:'created_at',label:'التاريخ',kind:'date'}] }} />
 }
-export function AdminPayments() {
-  return <OperationalWorkspace config={{ title: 'المدفوعات', description: 'طلبات السداد والتحقق من نتائجها.', table: 'payments', icon: CreditCard, tenantScoped: true, columns: [{key:'id',label:'مرجع الدفع'},{key:'status',label:'الحالة',kind:'status'},{key:'amount',label:'المبلغ',kind:'currency'},{key:'payment_method',label:'الوسيلة'},{key:'created_at',label:'التاريخ',kind:'date'}], readOnlyNote:'المراجعة وتأكيد الدفع عمليات مالية حساسة؛ لا يتم تغيير الحالة مباشرة من هذه القائمة.' }} />
+type AdminPaymentRow = {
+  id: string
+  invoice_id: string
+  amount: number
+  method: string | null
+  status: string
+  reference: string | null
+  notes: string | null
+  created_at: string
+  paid_date: string | null
 }
+
+export function AdminPayments() {
+  const { organization } = useAuth()
+  const { show } = useToast()
+  const [rows, setRows] = useState<AdminPaymentRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState('')
+  const [pending, setPending] = useState<{ payment: AdminPaymentRow; approve: boolean } | null>(null)
+  const [notes, setNotes] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const load = useCallback(async (refresh = false) => {
+    if (!organization?.id) { setRows([]); setLoading(false); return }
+    if (refresh) setRefreshing(true); else setLoading(true)
+    setError('')
+    try {
+      const { data, error: queryError } = await supabase.from('payments')
+        .select('id,invoice_id,amount,method,status,reference,notes,created_at,paid_date')
+        .eq('organization_id', organization.id)
+        .order('created_at', { ascending: false }).limit(500)
+      if (queryError) throw queryError
+      setRows((data || []) as AdminPaymentRow[])
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'تعذر تحميل المدفوعات')
+      setRows([])
+    } finally { setLoading(false); setRefreshing(false) }
+  }, [organization?.id])
+
+  useEffect(() => { void load() }, [load])
+
+  const openReview = (payment: AdminPaymentRow, approve: boolean) => {
+    setNotes(approve ? 'تم التحقق من إثبات السداد.' : 'لم يثبت السداد.')
+    setPending({ payment, approve })
+  }
+
+  const submitReview = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!pending || !organization?.id) return
+    if (!notes.trim()) { show('error', 'سبب المراجعة مطلوب', 'أدخل ملاحظة موجزة تدعم قرار المراجعة.'); return }
+    setSubmitting(true)
+    const { data, error: rpcError } = await supabase.rpc('confirm_order_payment', {
+      p_payment_id: pending.payment.id,
+      p_confirm: pending.approve,
+      p_admin_notes: notes.trim(),
+    })
+    setSubmitting(false)
+    if (rpcError) { show('error', pending.approve ? 'تعذر تأكيد الدفع' : 'تعذر رفض الدفع', rpcError.message); return }
+    const result = data as { status?: string; result?: string } | null
+    show('success', pending.approve ? 'تم قبول مراجعة الدفع' : 'تم رفض طلب الدفع', `نتيجة العملية المسجلة: ${result?.result || result?.status || 'تم التحديث'}`)
+    setPending(null); setNotes('')
+    await load(true)
+  }
+
+  const statusLabel = (status: string) => ({
+    pending: 'بانتظار المراجعة', confirmed: 'مؤكد', rejected: 'مرفوض',
+    failed: 'فشل', refunded: 'مسترد',
+  } as Record<string,string>)[status] || status
+
+  return <div className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6 lg:p-8" dir="rtl">
+    <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+      <div className="flex items-start gap-3"><div className="rounded-xl bg-primary-50 p-3 text-primary-700"><CreditCard className="h-5 w-5"/></div><div><h1 className="text-2xl font-bold text-neutral-900">مراجعة المدفوعات</h1><p className="mt-1 text-sm text-neutral-500">قبول أو رفض إثبات السداد عبر RPC خادمية تتحقق من المؤسسة والطلب والفاتورة وتحدّث سجل التدقيق وصندوق الأحداث.</p></div></div>
+      <button type="button" onClick={()=>void load(true)} disabled={refreshing} className="btn-secondary inline-flex items-center justify-center gap-2"><RefreshCw className={`h-4 w-4 ${refreshing?'animate-spin':''}`}/>تحديث</button>
+    </div>
+    {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p>{error}</p><button type="button" onClick={()=>void load(true)} className="mt-2 font-bold underline">إعادة المحاولة</button></div>}
+    <div className="grid gap-3 sm:grid-cols-3"><div className="card p-4"><p className="text-sm text-neutral-500">كل الطلبات</p><p className="mt-1 text-2xl font-bold">{loading?'—':rows.length}</p></div><div className="card p-4"><p className="text-sm text-neutral-500">بانتظار المراجعة</p><p className="mt-1 text-2xl font-bold">{loading?'—':rows.filter(row=>row.status==='pending').length}</p></div><div className="card p-4"><p className="text-sm text-neutral-500">مؤكدة</p><p className="mt-1 text-2xl font-bold">{loading?'—':rows.filter(row=>row.status==='confirmed').length}</p></div></div>
+    {loading ? <div className="card p-10 text-center text-sm text-neutral-500">جارٍ تحميل المدفوعات…</div>
+      : rows.length===0 ? <div className="card p-10 text-center text-sm text-neutral-500">لا توجد طلبات دفع مسجلة للمؤسسة الحالية.</div>
+      : <div className="card overflow-x-auto"><table className="w-full text-right text-sm"><thead className="bg-neutral-50"><tr>{['مرجع الدفع','الفاتورة','المبلغ','الوسيلة','مرجع التحويل','الحالة','تاريخ الإرسال','الإجراء'].map(label=><th key={label} className="whitespace-nowrap px-4 py-3 font-semibold text-neutral-600">{label}</th>)}</tr></thead><tbody>{rows.map(row=><tr key={row.id} className="border-t border-neutral-100"><td className="px-4 py-3 font-mono text-xs">{row.id.slice(0,12)}</td><td className="px-4 py-3 font-mono text-xs">{row.invoice_id.slice(0,12)}</td><td className="px-4 py-3 font-semibold">{formatCurrency(Number(row.amount)||0)}</td><td className="px-4 py-3">{row.method||'—'}</td><td className="px-4 py-3">{row.reference||'—'}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${row.status==='confirmed'?'bg-emerald-50 text-emerald-700':row.status==='pending'?'bg-amber-50 text-amber-800':'bg-neutral-100 text-neutral-600'}`}>{statusLabel(row.status)}</span></td><td className="px-4 py-3">{formatDate(row.created_at)}</td><td className="px-4 py-3">{row.status==='pending'?<div className="flex gap-2"><button type="button" onClick={()=>openReview(row,true)} className="btn-primary whitespace-nowrap">تأكيد</button><button type="button" onClick={()=>openReview(row,false)} className="btn-secondary whitespace-nowrap">رفض</button></div>:'—'}</td></tr>)}</tbody></table></div>}
+    {pending && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><form onSubmit={submitReview} role="dialog" aria-modal="true" aria-labelledby="payment-review-title" className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl"><h2 id="payment-review-title" className="text-lg font-bold">{pending.approve?'تأكيد استلام الدفعة':'رفض طلب الدفع'}</h2><p className="mt-1 text-sm leading-6 text-neutral-500">سيُراجع الخادم أن الدفعة ما زالت معلّقة، وأن الفاتورة والطلب قابلان لهذا الانتقال. لا يُغيَّر الرصيد أو حالة الطلب مباشرة من المتصفح.</p><div className="mt-4 rounded-xl bg-neutral-50 p-3 text-sm"><p>الدفعة: <span className="font-mono">{pending.payment.id}</span></p><p className="mt-1">المبلغ: <strong>{formatCurrency(Number(pending.payment.amount)||0)}</strong></p></div><label className="mt-4 block text-sm font-semibold">ملاحظة المراجعة *<textarea className="input mt-1.5 min-h-24" value={notes} onChange={e=>setNotes(e.target.value)} required maxLength={2000}/></label><div className="mt-5 flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={()=>setPending(null)} disabled={submitting}>إلغاء</button><button type="submit" disabled={submitting} className={pending.approve?'btn-primary':'btn-secondary'}>{submitting?'جارٍ إرسال القرار…':pending.approve?'تأكيد الدفع':'رفض الدفع'}</button></div></form></div>}
+  </div>
+}
+
 export function AdminStatements() {
   return <OperationalWorkspace config={{ title: 'كشوف الحساب', description: 'ملخصات حساب المؤسسة المسموح بعرضها.', table: 'statements', icon: Wallet, tenantScoped: true, columns: [{key:'id',label:'مرجع الكشف'},{key:'period_start',label:'من',kind:'date'},{key:'period_end',label:'إلى',kind:'date'},{key:'opening_balance',label:'الرصيد الافتتاحي',kind:'currency'},{key:'closing_balance',label:'الرصيد الختامي',kind:'currency'},{key:'created_at',label:'التاريخ',kind:'date'}] }} />
 }
