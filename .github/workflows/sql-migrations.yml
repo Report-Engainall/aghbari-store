@@ -587,7 +587,7 @@ jobs:
           )::text;
           SQL
           )"
-          [[ "$browser_write_privileges" == "f" ]] || {
+          [[ "$browser_write_privileges" == "false" ]] || {
             printf 'FAIL: browser role can bypass the database upload claim with direct INSERT/DELETE.\\n' >&2
             exit 1
           }
