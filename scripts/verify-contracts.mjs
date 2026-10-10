@@ -75,6 +75,8 @@ assert.ok(!pricingMigration.includes('GRANT EXECUTE ON FUNCTION public.calculate
 required(pricingMigration, /AFTER INSERT OR UPDATE OR DELETE ON pricing_rules/, 'Price recalculation must respond to rule activation, update and deletion.')
 required(pricingMigration, /LIMIT 1\s*\),\s*p\.base_price,\s*0\)/, 'Pricing must fall back to base price when no matching active rule exists.')
 required(pricingMigration, /CREATE OR REPLACE FUNCTION public\.approve_order_quantities/, 'Atomic quantity approval RPC is missing.')
+assert.ok(pricingMigration.includes('SELECT count(*) FROM jsonb_object_keys(p_quantities)'), 'Quantity approval must count submitted JSON keys using supported PostgreSQL JSONB functions.')
+assert.ok(!pricingMigration.includes('jsonb_object_length'), 'Do not use an unsupported JSONB object-length function.')
 required(pricingMigration, /CREATE OR REPLACE FUNCTION public\.submit_order_payment/, 'Server-side payment submission RPC is missing.')
 required(pricingMigration, /'submit_payment'/, 'Payment idempotency operation key is missing.')
 const dollarCount = (pricingMigration.match(/\$\$/g) || []).length
