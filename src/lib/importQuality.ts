@@ -138,6 +138,8 @@ export function evaluateImportDqs(
     || metrics.consistentRows > metrics.totalRows
     || metrics.nonEmptyKeys > metrics.totalRows
     || metrics.temporalValid > metrics.temporalTotal
+    || (!metrics.temporalApplicable && metrics.temporalTotal > 0)
+    || metrics.acceptedRows + metrics.duplicateRows > metrics.validRows
     || typeof metrics.temporalApplicable !== 'boolean'
     || metrics.acceptedRows + metrics.duplicateRows + metrics.rejectedRows !== metrics.totalRows) {
     throw new Error('DQS_METRICS_INVALID')
