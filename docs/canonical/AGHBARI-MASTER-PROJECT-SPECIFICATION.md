@@ -321,6 +321,18 @@ Treat these as requirements to evaluate and implement incrementally with real ba
 
 # K. Backup, restore and disaster recovery
 
+## Current repository implementation path (partial until configured and exercised)
+
+- Scheduled workflow: `.github/workflows/encrypted-postgres-backup.yml` (daily, plus manual dispatch).
+- Encrypted backup writer: `scripts/backup/create-encrypted-backup.sh`.
+- Integrity/decryption/archive verifier: `scripts/backup/verify-encrypted-backup.sh`.
+- Guarded restore utility: `scripts/backup/restore-postgres.sh`.
+- Operator setup and recovery runbook: `scripts/backup/README.md`.
+- Shell syntax/ShellCheck gate: `.github/workflows/backup-tools-validation.yml`.
+- The workflow requires repository secrets `SUPABASE_DB_URL` and `BACKUP_AGE_RECIPIENT`; the private age key remains offline. Artifact retention is 14 days. Missing secrets cause an explicit failed/blocked run; they never produce a fake-success backup.
+- Scope limitation: the encrypted logical PostgreSQL dump does not include Supabase Storage object bytes, Edge Function source/secrets, or project-level settings. No backup is proven until an actual artifact/manifest is generated; no restore is proven until decryption, archive validation, isolated restore and application smoke tests succeed.
+
+
 Build backup operations with a zero-cost-first policy, explicit control plane, configurable schedule/retention, status, audit records and failure alerting where provider capability and authorization allow. Distinguish database backup, app source, schema/migrations, uploaded-file metadata/snapshots, configuration and secret material. Never put privileged secrets in export bundles.
 - A backup is proven only by actual artifact + scope manifest + integrity/hash verification + timestamp.
 - Restore includes preflight checks, authz, schema/version compatibility, dry-run where feasible, explicit confirmation, pre-restore recovery point, rollback strategy and recorded result.
