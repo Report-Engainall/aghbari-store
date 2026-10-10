@@ -485,6 +485,7 @@ jobs:
           DECLARE
             v_same_org_customers integer;
             v_other_org_customers integer;
+            v_other_org_readable integer;
             v_admin_catalog_own integer;
             v_admin_catalog_other integer;
             v_role_change_guard boolean := false;
@@ -502,6 +503,13 @@ jobs:
             WHERE organization_id = 'a1000000-0000-4000-8000-000000000002';
             IF v_other_org_customers <> 0 THEN
               RAISE EXCEPTION 'customer RLS exposes another tenant''s customer records';
+            END IF;
+
+            SELECT count(*) INTO v_other_org_readable
+            FROM public.organizations
+            WHERE id = 'a1000000-0000-4000-8000-000000000002';
+            IF v_other_org_readable <> 0 THEN
+              RAISE EXCEPTION 'organization RLS exposes another tenant';
             END IF;
 
             IF has_column_privilege('anon', 'public.products', 'base_price', 'SELECT')
@@ -540,7 +548,7 @@ jobs:
             IF EXISTS (
               SELECT 1 FROM pg_catalog.pg_policies
               WHERE schemaname = 'public'
-                AND policyname IN ('orgmem_insert_self','orgmem_update_self','orgmem_delete_self',
+                AND policyname IN ('orgmem_insert_self','orgmem_update_self','orgmem_delete_self','org_select_authenticated',
                                    'audit_select_auth','ai_select_auth','aialert_select_auth','implog_select_auth')
             ) THEN
               RAISE EXCEPTION 'legacy self-escalation or cross-tenant authenticated-wide policy remains';
