@@ -30,7 +30,7 @@ const [readme, index, pricingMigration, safeProductSelect, storefront, store, ca
 for (const imageName of imageNames) {
   assert.ok(index.includes(`[${imageName}](./${imageName})`), `Reference index is missing ${imageName}`)
 }
-const indexedCount = Number(index.match(/images[^\n]*\*\*(\d+)/i)?.[1] || index.match(/\*\*(\d+)\s*صور/i)?.[1])
+const indexedCount = Number(index.match(/الصور الموجودة[^\\n]*\\*\\*(\\d+)\\*\\*/)?.[1])
 const readmeCount = Number(readme.match(/\*\*(\d+)\s*صورة/)?.[1])
 assert.equal(indexedCount, imageNames.length, 'Reference index image count is stale.')
 assert.equal(readmeCount, imageNames.length, 'Reference README image count is stale.')
@@ -71,7 +71,7 @@ for (const formula of ['markup_percent', 'margin_percent', 'fixed_price', 'amoun
 }
 required(pricingMigration, /CREATE OR REPLACE FUNCTION public\.recalculate_organization_product_prices/, 'Server-side pricing recalculation function is missing.')
 required(pricingMigration, /AFTER INSERT OR UPDATE OR DELETE ON pricing_rules/, 'Price recalculation must respond to rule activation, update and deletion.')
-required(pricingMigration, /COALESCE\(r\.calculation_method[\s\S]{0,800}p\.base_price/, 'Pricing must fall back to base price when no matching active rule exists.')
+required(pricingMigration, /LIMIT 1\\s*\\),\\s*p\\.base_price,\\s*0\\)/, 'Pricing must fall back to base price when no matching active rule exists.')
 required(pricingMigration, /CREATE OR REPLACE FUNCTION public\.approve_order_quantities/, 'Atomic quantity approval RPC is missing.')
 required(pricingMigration, /CREATE OR REPLACE FUNCTION public\.submit_order_payment/, 'Server-side payment submission RPC is missing.')
 required(pricingMigration, /'submit_payment'/, 'Payment idempotency operation key is missing.')
