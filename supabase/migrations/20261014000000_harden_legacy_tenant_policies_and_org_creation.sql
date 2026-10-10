@@ -329,8 +329,7 @@ WITH CHECK (
 REVOKE INSERT, DELETE ON public.organizations FROM PUBLIC, anon, authenticated;
 REVOKE UPDATE ON public.organizations FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.organizations TO authenticated;
-GRANT UPDATE (name, legal_name, tax_number, phone, email, address, logo_url)
-  ON public.organizations TO authenticated;
+GRANT UPDATE (name) ON public.organizations TO authenticated;
 
 -- Atomically create a pending company and its first owner membership. No client-supplied
 -- user ID or organization ID is accepted; retries for the same signed-in user are idempotent.
@@ -574,16 +573,7 @@ ON public.order_status_history FOR SELECT TO authenticated
 USING (EXISTS (
   SELECT 1 FROM public.orders o
   WHERE o.id = order_status_history.order_id
-    AND (
-      (o.user_id = auth.uid())
-      OR EXISTS (
-        SELECT 1 FROM public.organization_members om
-        WHERE om.organization_id = o.organization_id
-          AND om.user_id = auth.uid()
-          AND om.status = 'active'
-          AND om.role IN ('owner','admin','manager','warehouse','accountant','sales','developer','system_admin','customer_manager')
-      )
-    )
+    AND private.is_org_member(o.organization_id)
 ));
 REVOKE ALL ON public.order_status_history FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.order_status_history TO authenticated;
