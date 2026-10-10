@@ -10,7 +10,7 @@ interface AuthContextValue {
   organization: Organization | null
   membership: OrganizationMember | null
   isAdmin: boolean
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>
+  signIn: (email: string, password: string) => Promise<{ error: string | null; redirectTo?: string }>
   signUp: (email: string, password: string, fullName: string, companyName: string, phone: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
   refreshOrganization: () => Promise<void>
@@ -103,6 +103,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return setup
     }
     await loadOrganization(data.user.id)
+
+    const { data: membershipData, error: membershipError } = await supabase
+      .from('organization_members')
+      .select('organization:organizations(status, is_active)')
+      .eq('user_id', data.user.id)
+      .eq('status', 'active')
+      .maybeSingle()
+
+    if (membershipError) {
+      return { error: 'تعذّر التحقق من اعتماد الشركة. حاول مرة أخرى.' }
+    }
+
+    const linkedOrganization = membershipData?.organization as { status?: string; is_active?: boolean } | null
+    if (!linkedOrganization) return { error: null, redirectTo: '/onboarding/company' }
+    if (linkedOrganization.status !== 'active' || linkedOrganization.is_active === false) {
+      return { error: null, redirectTo: '/account/pending' }
+    }
+
     return { error: null }
   }
 
