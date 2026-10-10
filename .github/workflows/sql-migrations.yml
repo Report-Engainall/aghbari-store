@@ -566,6 +566,45 @@ jobs:
             exit 1
           }
 
+          browser_write_privileges="$(psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align <<'SQL'
+          SELECT (
+            has_table_privilege('authenticated', 'public.import_uploads', 'INSERT')
+            OR has_table_privilege('authenticated', 'public.import_uploads', 'DELETE')
+          )::text;
+          SQL
+          )"
+          [[ "$browser_write_privileges" == "f" ]] || {
+            printf 'FAIL: browser role can bypass the database upload claim with direct INSERT/DELETE.\\n' >&2
+            exit 1
+          }
+
+          psql --set ON_ERROR_STOP=1 <<SQL
+          SELECT set_config('request.jwt.claim.sub', '$user_id', false);
+          SET ROLE authenticated;
+          DO $ci_import_upload_identity$
+          DECLARE
+            v_guard_hit boolean := false;
+          BEGIN
+            BEGIN
+              UPDATE public.import_uploads
+              SET file_hash = repeat('b', 64)
+              WHERE id = '$claim_one_id'::uuid;
+              RAISE EXCEPTION 'expected_import_upload_identity_guard_not_triggered';
+            EXCEPTION WHEN OTHERS THEN
+              IF SQLERRM = 'import_upload_identity_immutable' THEN
+                v_guard_hit := true;
+              ELSE
+                RAISE;
+              END IF;
+            END;
+            IF NOT v_guard_hit THEN
+              RAISE EXCEPTION 'upload identity trigger did not reject a file-hash mutation';
+            END IF;
+          END;
+          $ci_import_upload_identity$;
+          RESET ROLE;
+          SQL
+
           printf 'PASS: two concurrent same-hash import claims reused one upload; two concurrent failed retries produced one winner.\\n'
 
       - name: Verify tenant isolation and product-price column privileges
