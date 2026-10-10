@@ -174,6 +174,8 @@ assert.ok(adminScreens.includes("supabase.from('customers')"), 'Admin customer s
 assert.ok(adminScreens.includes("useCount('customers'"), 'The dashboard customer KPI must count actual customer records.')
 assert.ok(adminScreens.includes("value: 'غير متحقق'"), 'The dashboard must not claim system health without checking services.')
 assert.ok(adminScreens.includes('if (queryError)'), 'AI lists must surface database read errors instead of showing an empty state as success.')
+assert.ok(adminScreens.includes('requestId.current !== requestNumber'), 'AI list pages must ignore stale responses across organization changes.')
+assert.ok(!adminScreens.includes("value: 'سليم'"), 'The dashboard must not contain an unverified hard-coded healthy status.')
 assert.ok(adminScreens.includes("supabase.from('audit_logs')"), 'Audit screen must read the persisted audit log.')
 assert.ok(adminScreens.includes('supabase.auth.getUser()'), 'Health screen must verify the real authentication session.')
 assert.ok(adminScreens.includes(".eq('organization_id', organization.id)"), 'Admin business reads must be organization-scoped.')
