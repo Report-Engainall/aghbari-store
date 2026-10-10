@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { AlertTriangle, Brain, CheckCircle2, FileText, RefreshCw, Send, ShieldCheck, Sparkles } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
@@ -94,8 +94,10 @@ export default function AIAssistant() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [warnings, setWarnings] = useState<string[]>([])
+  const requestId = useRef(0)
 
   const loadSnapshot = useCallback(async (isRefresh = false) => {
+    const requestNumber = ++requestId.current
     const organizationId = organization?.id
     if (!organizationId) {
       setSnapshot(emptySnapshot)
@@ -116,6 +118,8 @@ export default function AIAssistant() {
         supabase.from('ai_tasks').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(50),
       ])
 
+      if (requestId.current !== requestNumber) return
+
       const nextWarnings: string[] = []
       if (reportsResult.error) nextWarnings.push(`تعذر تحميل التقارير: ${reportsResult.error.message}`)
       if (alertsResult.error) nextWarnings.push(`تعذر تحميل التنبيهات: ${alertsResult.error.message}`)
@@ -128,19 +132,24 @@ export default function AIAssistant() {
       })
       setWarnings(nextWarnings)
     } catch (cause) {
-      setWarnings([cause instanceof Error ? cause.message : 'حدث خطأ غير متوقع أثناء تحميل سجلات المساعد.'])
+      if (requestId.current === requestNumber) {
+        setWarnings([cause instanceof Error ? cause.message : 'حدث خطأ غير متوقع أثناء تحميل سجلات المساعد.'])
+      }
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      if (requestId.current === requestNumber) {
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
   }, [organization?.id])
 
   useEffect(() => {
-    // Clear in-memory chat context whenever the active organization changes.
+    // Clear both data and in-memory chat context when the active organization changes.
     setSnapshot(emptySnapshot)
     setMessages([welcomeMessage])
     setQuestion('')
     void loadSnapshot()
+    return () => { requestId.current += 1 }
   }, [loadSnapshot])
 
   const submitQuestion = (event: FormEvent<HTMLFormElement>) => {
