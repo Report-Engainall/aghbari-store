@@ -19,7 +19,6 @@ type ActivityRecord = {
   id: string
   action?: string | null
   entity_type?: string | null
-  entity_id?: string | null
   created_at?: string | null
 }
 
@@ -151,7 +150,7 @@ export default function AIAssistant() {
         supabase.from('ai_reports').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(50),
         supabase.from('ai_alerts').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(50),
         supabase.from('ai_tasks').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(50),
-        supabase.from('audit_logs').select('id,action,entity_type,entity_id,created_at').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(50),
+        supabase.from('audit_logs').select('id,action,entity_type,created_at').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(50),
       ])
 
       if (requestId.current !== requestNumber) return
