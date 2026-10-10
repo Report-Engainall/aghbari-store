@@ -52,8 +52,7 @@ REVOKE SELECT ON public.products FROM PUBLIC, anon, authenticated;
 GRANT SELECT (
   id, organization_id, category_id, brand_id, item_code, sku,
   name, name_ar, slug, description, unit, box_quantity, carton_quantity,
-  min_order_qty, stock_quantity, reserved_stock, min_stock, max_stock,
-  barcode, image_url, is_active, is_featured, is_new, tags,
+  min_order_qty, stock_quantity, barcode, image_url, is_active, is_featured, is_new, tags,
   status, created_at, updated_at
 ) ON public.products TO anon, authenticated;
 
