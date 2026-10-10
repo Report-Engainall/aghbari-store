@@ -61,6 +61,7 @@ const [backupWorkflow, backupCheckWorkflow, backupCreate, backupVerify, backupRe
   read('scripts/backup/restore-postgres.sh'),
   read('scripts/backup/README.md'),
 ])
+const commercialAuditMigration = await read('supabase/migrations/20261014000000_audit_commercial_draft_creation.sql')
 
 for (const imageName of imageNames) {
   assert.ok(index.includes(`[${imageName}](./${imageName})`), `Reference index is missing ${imageName}`)
@@ -246,6 +247,12 @@ assert.ok(aiAssistant.includes('dead_letter') && aiAssistant.includes('failed'),
 assert.ok(aiAssistant.includes('${sourceLabel(row)}${activityStatusLabel(row)}'), 'Review results must show where each candidate came from and its saved status.')
 assert.ok(aiAssistant.includes("label: 'الأحداث التشغيلية المسجلة'"), 'Unified audit/outbox activity must be labelled as operational events, not only audit rows.')
 assert.ok(aiAssistant.includes('تعذر تحميل الأحداث التشغيلية'), 'Outbox read errors must be surfaced rather than represented as an empty timeline.')
+assert.ok(commercialAuditMigration.includes("CREATE OR REPLACE FUNCTION public.audit_commercial_draft_creation()"), 'Commercial draft creation must use one shared audit trigger function.')
+assert.ok(commercialAuditMigration.includes("SET search_path = ''") && commercialAuditMigration.includes('auth.uid()'), 'Commercial audit trigger must pin a safe search path and derive its actor from the authenticated context.')
+assert.ok(commercialAuditMigration.includes('AFTER INSERT ON public.purchase_orders') && commercialAuditMigration.includes('AFTER INSERT ON public.inventory_transfers') && commercialAuditMigration.includes('AFTER INSERT ON public.stock_counts'), 'New purchase orders, inventory-transfer drafts and stock-count drafts must be recorded atomically.')
+assert.ok(commercialAuditMigration.includes("'purchase_order_created'") && commercialAuditMigration.includes("'inventory_transfer_created'") && commercialAuditMigration.includes("'stock_count_created'"), 'Commercial creation audit events must have distinct semantic action names.')
+assert.ok(commercialAuditMigration.includes('REVOKE ALL ON FUNCTION public.audit_commercial_draft_creation() FROM PUBLIC, anon, authenticated'), 'Commercial audit trigger helper must not be directly callable by browser roles.')
+assert.ok(!commercialAuditMigration.includes("v_row->>'notes'") && !commercialAuditMigration.includes("'payload'"), 'Commercial draft audit must not copy free-form notes or event payloads.')
 assert.ok(aiAssistant.includes("select('id,action,entity_type,created_at')"), 'Operational activity must use a minimal audit projection instead of reading event payloads or unnecessary identifiers.')
 assert.ok(aiAssistant.includes('reviewCandidates') && aiAssistant.includes('لا يثبت شمول الأحداث'), 'Activity review flags must be deterministic and explicitly disclose incomplete audit coverage.')
 assert.ok(aiAssistant.indexOf("q.includes('تستحق')") < aiAssistant.indexOf("q.includes('حركة')"), 'Explicit risk/review questions must reach review-candidate rules before the generic activity summary handler.')
