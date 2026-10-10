@@ -52,6 +52,14 @@ const [projectMemory, canonicalSpec, sourceIndex, executionState, progressLedger
   read('ops/AGHBARI-LATEST-EXECUTION-STATE.md'),
   read('ops/AGHBARI-DEVELOPMENT-PROGRESS.md'),
 ])
+const [backupWorkflow, backupCheckWorkflow, backupCreate, backupVerify, backupRestore, backupGuide] = await Promise.all([
+  read('.github/workflows/encrypted-postgres-backup.yml'),
+  read('.github/workflows/backup-tools-validation.yml'),
+  read('scripts/backup/create-encrypted-backup.sh'),
+  read('scripts/backup/verify-encrypted-backup.sh'),
+  read('scripts/backup/restore-postgres.sh'),
+  read('scripts/backup/README.md'),
+])
 
 for (const imageName of imageNames) {
   assert.ok(index.includes(`[${imageName}](./${imageName})`), `Reference index is missing ${imageName}`)
@@ -239,6 +247,19 @@ assert.ok(canonicalSpec.includes('REQ-IMP-001') && canonicalSpec.includes('REQ-A
 assert.ok(sourceIndex.includes('Legacy product identity') || sourceIndex.includes('Legacy'), 'Source index must preserve product-identity history and instruction provenance.')
 assert.ok(executionState.includes('Next executable action'), 'Execution state must preserve a durable resume pointer.')
 assert.ok(progressLedger.includes('Status vocabulary'), 'Progress ledger must preserve evidence-based status semantics.')
+assert.ok(backupWorkflow.includes("cron: '17 2 * * *'"), 'Encrypted database backup must have a daily schedule.')
+assert.ok(backupWorkflow.includes('secrets.SUPABASE_DB_URL') && backupWorkflow.includes('secrets.BACKUP_AGE_RECIPIENT'), 'Scheduled backup must require explicit database and public encryption-recipient secrets.')
+assert.ok(backupWorkflow.includes('retention-days: 14'), 'Encrypted artifact retention must be explicit.')
+assert.ok(backupWorkflow.includes('age public recipient') && backupWorkflow.includes('exit 1'), 'Backup workflow must fail closed with an explicit blocked result when prerequisites are absent.')
+assert.ok(backupCreate.includes('pg_dump') && backupCreate.includes('--format=custom'), 'Backup tool must create a PostgreSQL logical archive, not a fake CSV backup.')
+assert.ok(backupCreate.includes('age --encrypt') && backupCreate.includes('ciphertext_sha256'), 'Backup tool must encrypt the archive and create an integrity manifest.')
+assert.ok(backupCreate.includes('SUPABASE_DB_URL') && !backupCreate.includes('echo "$SUPABASE_DB_URL"'), 'Database connection material must not be printed by the backup tool.')
+assert.ok(backupVerify.includes('ciphertext_sha256') && backupVerify.includes('pg_restore --list'), 'Backup verification must check the hash and recognize the decrypted archive format.')
+assert.ok(backupRestore.includes('RESTORE_CONFIRM') && backupRestore.includes('I_HAVE_VERIFIED_THE_TARGET'), 'Restore must require explicit destination confirmation.')
+assert.ok(backupRestore.includes('I_ACCEPT_PRODUCTION_DATA_OVERWRITE') && backupRestore.includes('--clean'), 'Production overwrite must need a separate explicit acknowledgment.')
+assert.ok(backupRestore.includes('PGSSLMODE=require'), 'Restore must request TLS for PostgreSQL connections.')
+assert.ok(backupGuide.includes('not a complete Supabase-project backup') && backupGuide.includes('isolated target first'), 'Backup documentation must disclose scope and require isolated restore before claiming recovery.');
+assert.ok(backupCheckWorkflow.includes('bash -n') && backupCheckWorkflow.includes('shellcheck'), 'Backup shell tools must have a syntax/ShellCheck workflow gate.')
 
 console.log(`Static contract checks passed: ${imageNames.length} indexed UI images, ${duplicateFiles} duplicate files, price-free customer projections, centralized policy controls, pricing/order/payment safeguards, and connected inventory/procurement/finance workflows.`)
 console.log('These checks are static guardrails only; they do not replace SQL migration execution, RLS tests, or browser end-to-end verification.')
