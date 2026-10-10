@@ -803,10 +803,18 @@ export function Import() {
         if (wasCreated && ext === 'csv' && claimedUploadId) {
           // The upload claim committed, but the page context changed before parsing began.
           // Transition the unstarted row to failed so the next attempt can retry it safely.
-          await supabase.rpc('abandon_staged_import_claim', {
+          const { error: abandonError } = await supabase.rpc('abandon_staged_import_claim', {
             p_organization_id: organizationId,
             p_upload_id: claimedUploadId,
           })
+          if (abandonError) {
+            // Best-effort status recovery if the audited RPC itself is temporarily unavailable.
+            await supabase.from('import_uploads').update({
+              status: 'failed',
+              error_code: 'IMPORT_CONTEXT_CHANGED',
+              error_message: 'CSV processing did not start because the active organization context changed.',
+            }).eq('id', claimedUploadId).eq('organization_id', organizationId).eq('status', 'staged')
+          }
         }
         return
       }
