@@ -17,6 +17,13 @@ import {
   AdminOutbox as AdminOutbox,
   AdminIdempotency as AdminIdempotency,
 } from '@/pages/admin/OperationsPages'
+import {
+  Purchasing as AdminPurchasing,
+  Receiving as AdminReceiving,
+  Transfers as AdminTransfers,
+  StockCounts as AdminStockCounts,
+  Expenses as AdminExpenses,
+} from '@/pages/admin/TransactionsPages'
 
 // Storefront pages
 import Landing from '@/pages/storefront/Landing'
@@ -127,6 +134,11 @@ export default function App() {
             <Route path="inventory" element={<AdminInventory />} />
             <Route path="warehouses" element={<AdminWarehouses />} />
             <Route path="inventory/movements" element={<AdminStockMovements />} />
+            <Route path="purchasing" element={<AdminPurchasing />} />
+            <Route path="receiving" element={<AdminReceiving />} />
+            <Route path="transfers" element={<AdminTransfers />} />
+            <Route path="stock-counts" element={<AdminStockCounts />} />
+            <Route path="expenses" element={<AdminExpenses />} />
             <Route path="suppliers" element={<AdminSuppliers />} />
             <Route path="invoices" element={<AdminFinanceInvoices />} />
             <Route path="payments" element={<AdminFinancePayments />} />
