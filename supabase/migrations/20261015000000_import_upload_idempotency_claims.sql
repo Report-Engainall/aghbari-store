@@ -99,7 +99,7 @@ BEGIN
   IF NULLIF(trim(COALESCE(p_file_name, '')), '') IS NULL OR length(p_file_name) > 512 THEN
     RAISE EXCEPTION 'invalid_import_file_name';
   END IF;
-  IF lower(COALESCE(p_file_type, '')) NOT IN ('csv','xlsx','xls','pdf') THEN
+  IF p_file_type IS NULL OR lower(p_file_type) NOT IN ('csv','xlsx','xls','pdf') THEN
     RAISE EXCEPTION 'invalid_import_file_type';
   END IF;
   IF p_file_size IS NULL OR p_file_size <= 0 OR p_file_size > 104857600 THEN
@@ -112,7 +112,7 @@ BEGIN
   IF p_period_start IS NOT NULL AND p_period_end < p_period_start THEN
     RAISE EXCEPTION 'invalid_import_period';
   END IF;
-  IF p_initial_status NOT IN ('staged','manual_review') THEN
+  IF p_initial_status IS NULL OR p_initial_status NOT IN ('staged','manual_review') THEN
     RAISE EXCEPTION 'invalid_initial_import_status';
   END IF;
   IF p_initial_status = 'manual_review'
