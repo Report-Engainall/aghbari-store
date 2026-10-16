@@ -1,0 +1,32 @@
+name: Temporary Bolt archive identity audit
+
+on:
+  push:
+    branches:
+      - audit/bolt-archive-match-xgpah6kz-20261016
+    paths:
+      - "scripts/audit-bolt-archive-identity.py"
+      - ".github/workflows/audit-bolt-archive-identity.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: Extract seven projects and compare Git blob identities
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout temporary audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: audit/bolt-archive-match-xgpah6kz-20261016
+          fetch-depth: 1
+      - name: Install RAR-capable extractors
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y unar p7zip-full
+      - name: Download, extract and compare all seven project snapshots
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python3 scripts/audit-bolt-archive-identity.py
