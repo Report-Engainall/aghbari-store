@@ -1,0 +1,19 @@
+project_id = "tfdwtuwkdddnzgyhcoyy"
+
+[db]
+major_version = 17
+
+[functions.outbox-worker]
+verify_jwt = false
+
+[functions.ai-gateway]
+verify_jwt = true
+
+[functions.async-export-download]
+verify_jwt = true
+
+[functions.async-export-worker]
+verify_jwt = false
+
+[functions.product-image-upload]
+verify_jwt = true

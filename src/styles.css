@@ -1,0 +1,1549 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+@import "./aghbari.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design system definition.
+ *
+ * The @theme inline block maps CSS custom properties to Tailwind utility
+ * classes (e.g. --color-primary -> bg-primary, text-primary).
+ *
+ * The :root and .dark blocks define the actual color values using oklch.
+ * All colors MUST use oklch format.
+ *
+ * To add a new semantic color:
+ * 1. Add the variable to :root (light value) and .dark (dark value)
+ * 2. Register it in @theme inline as --color-<name>: var(--<name>)
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.625rem;
+  /* Aghbari Commerce: warm ivory surfaces, forest-green actions, and restrained gold accents. */
+  --background: oklch(0.99 0.012 96);
+  --foreground: oklch(0.23 0.035 155);
+  --card: oklch(0.997 0.006 96);
+  --card-foreground: oklch(0.23 0.035 155);
+  --popover: oklch(0.997 0.006 96);
+  --popover-foreground: oklch(0.23 0.035 155);
+  --primary: oklch(0.34 0.075 155);
+  --primary-foreground: oklch(0.99 0.008 96);
+  --secondary: oklch(0.94 0.035 150);
+  --secondary-foreground: oklch(0.25 0.045 155);
+  --muted: oklch(0.96 0.015 95);
+  --muted-foreground: oklch(0.49 0.035 155);
+  --accent: oklch(0.92 0.07 88);
+  --accent-foreground: oklch(0.27 0.05 80);
+  --destructive: oklch(0.52 0.2 28);
+  --destructive-foreground: oklch(0.99 0.008 96);
+  --border: oklch(0.89 0.025 145);
+  --input: oklch(0.89 0.025 145);
+  --ring: oklch(0.56 0.1 150);
+  --chart-1: oklch(0.4 0.09 152);
+  --chart-2: oklch(0.62 0.11 150);
+  --chart-3: oklch(0.72 0.13 85);
+  --chart-4: oklch(0.48 0.08 130);
+  --chart-5: oklch(0.62 0.1 70);
+  --sidebar: oklch(0.985 0.012 96);
+  --sidebar-foreground: oklch(0.23 0.035 155);
+  --sidebar-primary: oklch(0.34 0.075 155);
+  --sidebar-primary-foreground: oklch(0.99 0.008 96);
+  --sidebar-accent: oklch(0.92 0.07 88);
+  --sidebar-accent-foreground: oklch(0.27 0.05 80);
+  --sidebar-border: oklch(0.89 0.025 145);
+  --sidebar-ring: oklch(0.56 0.1 150);
+}
+
+.dark {
+  --background: oklch(0.18 0.025 155);
+  --foreground: oklch(0.96 0.012 96);
+  --card: oklch(0.22 0.03 155);
+  --card-foreground: oklch(0.96 0.012 96);
+  --popover: oklch(0.22 0.03 155);
+  --popover-foreground: oklch(0.96 0.012 96);
+  --primary: oklch(0.68 0.12 150);
+  --primary-foreground: oklch(0.18 0.025 155);
+  --secondary: oklch(0.28 0.035 150);
+  --secondary-foreground: oklch(0.96 0.012 96);
+  --muted: oklch(0.28 0.035 150);
+  --muted-foreground: oklch(0.72 0.025 145);
+  --accent: oklch(0.32 0.05 82);
+  --accent-foreground: oklch(0.94 0.07 88);
+  --destructive: oklch(0.62 0.18 28);
+  --destructive-foreground: oklch(0.98 0.01 96);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.65 0.1 150);
+  --chart-1: oklch(0.68 0.12 150);
+  --chart-2: oklch(0.73 0.12 145);
+  --chart-3: oklch(0.78 0.1 85);
+  --chart-4: oklch(0.61 0.09 130);
+  --chart-5: oklch(0.73 0.1 70);
+  --sidebar: oklch(0.21 0.03 155);
+  --sidebar-foreground: oklch(0.96 0.012 96);
+  --sidebar-primary: oklch(0.68 0.12 150);
+  --sidebar-primary-foreground: oklch(0.18 0.025 155);
+  --sidebar-accent: oklch(0.32 0.05 82);
+  --sidebar-accent-foreground: oklch(0.94 0.07 88);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.65 0.1 150);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+}
+
+
+/* Aghbari reduced-motion policy: respect system accessibility preferences across all screens. */
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within { scroll-behavior: auto !important; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+
+/* Operational task center */
+.task-center{display:grid;gap:16px;color:var(--foreground)}
+.task-center-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap}
+.task-center-hero h1{margin:8px 0 6px;font-size:clamp(23px,3vw,30px);font-weight:800;letter-spacing:-.02em}
+.task-center-hero p{margin:0;max-width:740px;color:var(--muted-foreground);line-height:1.8;font-size:14px}
+.task-center-eyebrow{display:inline-flex;align-items:center;gap:7px;color:var(--primary);font-size:12px;font-weight:800}
+.task-center-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.task-center-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.task-center-metrics article{display:grid;gap:10px;padding:16px;border:1px solid var(--border);background:var(--card);border-radius:13px}
+.task-center-metrics article span{display:flex;align-items:center;gap:7px;color:var(--muted-foreground);font-size:12px}
+.task-center-metrics article strong{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums}
+.task-create-form{display:grid;gap:13px;padding:18px}
+.task-create-form label,.task-filters label{display:grid;gap:6px;color:var(--foreground);font-size:13px;font-weight:650}
+.task-create-form input,.task-create-form textarea,.task-create-form select,.task-filters input,.task-filters select{width:100%;min-width:0;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--background);color:var(--foreground);font:inherit}
+.task-create-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.task-form-actions{display:flex;gap:8px;flex-wrap:wrap}
+.task-filters{display:grid;grid-template-columns:minmax(220px,2fr) repeat(2,minmax(150px,1fr));gap:12px;padding:14px}
+.task-filters label span{display:flex;align-items:center;gap:6px;color:var(--muted-foreground)}
+.task-center-list{display:grid;gap:10px}
+.task-card{display:grid;grid-template-columns:4px minmax(0,1fr) auto;gap:14px;align-items:stretch;padding:14px}
+.task-priority-line{border-radius:99px;background:var(--muted)}
+.task-priority-line.low{background:oklch(0.68 0.08 190)}.task-priority-line.medium{background:oklch(0.72 0.08 80)}.task-priority-line.high{background:oklch(0.67 0.15 60)}.task-priority-line.critical{background:oklch(0.58 0.2 25)}
+.task-card-main{min-width:0}.task-card-top{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.task-select-toggle{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--border);border-radius:7px;background:var(--background);color:var(--muted-foreground);font-size:11px;font-weight:700;cursor:pointer}
+.task-select-toggle input{width:15px;height:15px;margin:0;accent-color:var(--primary)}
+.task-overdue-filter{display:flex!important;align-items:center;gap:8px!important;align-self:end;padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:var(--background)}
+.task-overdue-filter input{width:16px;height:16px;margin:0;accent-color:var(--primary)}
+.task-role-badge,.task-status-badge,.task-priority-badge,.task-late-badge{display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:750;background:var(--muted);color:var(--muted-foreground)}
+.task-status-badge.completed{background:oklch(0.94 0.04 155);color:oklch(0.34 0.1 155)}.task-status-badge.in_progress{background:oklch(0.94 0.04 250);color:oklch(0.38 0.1 250)}
+.task-status-badge.cancelled{text-decoration:line-through}.task-priority-badge.critical,.task-priority-badge.high,.task-late-badge{background:oklch(0.95 0.04 35);color:oklch(0.4 0.15 35)}
+.task-card h2{margin:9px 0 4px;font-size:16px;font-weight:800}.task-card p{margin:0;color:var(--muted-foreground);font-size:13px;line-height:1.7;white-space:pre-wrap}
+.task-card-metadata{display:flex;gap:8px 14px;flex-wrap:wrap;margin-top:12px;color:var(--muted-foreground);font-size:11px}
+.task-card-metadata span{display:inline-flex;align-items:center;gap:5px;overflow-wrap:anywhere}.task-card-metadata .task-resolution{flex-basis:100%;color:var(--foreground)}
+.task-card-actions{display:flex;align-items:flex-start;justify-content:flex-end;gap:7px;flex-wrap:wrap}
+.task-center-error{display:flex;gap:8px;align-items:center;padding:12px;border-radius:9px;border:1px solid oklch(0.75 0.13 30);color:oklch(0.4 0.15 30);background:oklch(0.98 0.02 30);font-size:13px}
+.task-center-empty{display:flex;min-height:120px;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:25px;color:var(--muted-foreground);text-align:center}.task-center-empty strong{color:var(--foreground)}
+.operational-task-print{display:none}
+@media(max-width:860px){.task-center-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.task-filters,.task-create-grid{grid-template-columns:1fr}.task-card{grid-template-columns:4px minmax(0,1fr)}.task-card-actions{grid-column:2}}
+@media print{
+  @page{size:A4 landscape;margin:10mm}
+  body *{visibility:hidden!important}
+  .operational-task-print,.operational-task-print *{visibility:visible!important}
+  .receivables-aging-report,.receivables-aging-report *{visibility:visible!important}
+  .operational-task-print{display:block!important;position:absolute!important;inset:0!important;width:100%!important;padding:0!important;direction:rtl!important;background:#fff!important;color:#111!important;font-family:Arial,sans-serif!important;font-size:10pt!important}
+  .receivables-aging-report{display:block!important;position:absolute!important;inset:0!important;width:100%!important;max-width:none!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;direction:rtl!important;background:#fff!important;color:#111!important;font:10pt Arial,sans-serif!important}
+  .receivables-aging-report .receivables-aging-print-controls{display:none!important}
+  .receivables-aging-report h2,.receivables-aging-report h3{color:#111!important;font-size:14pt!important}
+  .receivables-aging-report p{color:#222!important}
+  .receivables-aging-report table{width:100%!important;border-collapse:collapse!important;table-layout:auto!important;font-size:8pt!important}
+  .receivables-aging-report th,.receivables-aging-report td{border:1px solid #888!important;padding:4px!important;vertical-align:top!important;text-align:right!important;overflow-wrap:anywhere!important;color:#111!important}
+  .receivables-aging-report th{background:#efefef!important}
+  .receivables-aging-report tr{break-inside:avoid!important;page-break-inside:avoid!important}
+  .operational-task-print header{margin-bottom:12px;border-bottom:2px solid #222;padding-bottom:8px}.operational-task-print h1{margin:0 0 8px;font-size:18pt}
+  .operational-task-print .task-print-summary{margin:10px 0 14px;break-inside:avoid;page-break-inside:avoid}
+  .operational-task-print .task-print-summary h2{margin:0 0 7px;font-size:12pt}
+  .task-print-summary-cards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px;margin-bottom:8px}
+  .task-print-summary-cards>div{display:grid;gap:3px;padding:7px;border:1px solid #888;border-radius:4px}
+  .task-print-summary-cards span{font-size:8pt;color:#333}
+  .task-print-summary-cards strong{font-size:15pt;font-variant-numeric:tabular-nums}
+  .operational-task-print .task-print-role-summary{margin:7px 0 10px;font-size:8pt}
+  .operational-task-print .task-print-role-summary th,.operational-task-print .task-print-role-summary td{padding:4px 6px}
+  .operational-task-print p{margin:3px 0}.operational-task-print table{width:100%;border-collapse:collapse;table-layout:fixed}
+  .operational-task-print th,.operational-task-print td{border:1px solid #888;padding:6px;vertical-align:top;text-align:right;overflow-wrap:anywhere}
+  .operational-task-print th{background:#efefef!important;color:#111!important}.operational-task-print tr{break-inside:avoid;page-break-inside:avoid}
+  .operational-task-print footer{margin-top:12px;font-size:9pt;color:#333}
+}
+
+
+/* Target-native Onyx snapshot and read-only inventory-reconciliation UI. */
+.onyx-center{display:grid;gap:16px;color:var(--foreground);min-width:0}
+.onyx-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.onyx-header h1{margin:7px 0;font-size:clamp(22px,3vw,30px);font-weight:800}
+.onyx-header p,.onyx-center .panel>p{margin:0;color:var(--muted-foreground);font-size:13px;line-height:1.8;max-width:900px}
+.onyx-eyebrow{display:inline-flex;align-items:center;gap:6px;color:var(--primary);font-size:12px;font-weight:800}
+.onyx-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.onyx-empty{display:flex;gap:10px;align-items:center;justify-content:center;flex-direction:column;min-height:150px;text-align:center;padding:22px}
+.onyx-empty h2{margin:0;font-size:18px}.onyx-empty p{margin:0;color:var(--muted-foreground);line-height:1.8}
+.onyx-alert{display:flex;align-items:flex-start;gap:8px;padding:12px;border:1px solid oklch(0.75 0.13 30);background:oklch(0.98 0.02 30);color:oklch(0.4 0.15 30);border-radius:10px;font-size:13px;line-height:1.7;overflow-wrap:anywhere}
+.onyx-alert.compact{margin-top:10px}
+.onyx-snapshot-picker{display:grid;gap:10px}
+.onyx-snapshot-picker>label{font-size:13px;font-weight:750}
+.onyx-snapshot-picker select{min-width:0;width:100%;padding:10px 12px;background:var(--background);color:var(--foreground);border:1px solid var(--border);border-radius:9px}
+.onyx-source-metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:9px;color:var(--muted-foreground);font-size:12px;line-height:1.7}
+.onyx-source-metadata strong{color:var(--foreground)}
+.onyx-source-metadata .onyx-hash{grid-column:1/-1;overflow-wrap:anywhere}
+.onyx-hash code{font-size:11px;overflow-wrap:anywhere}
+.onyx-metric-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.onyx-metric{display:grid;gap:8px;padding:15px}
+.onyx-metric>span{display:flex;align-items:center;gap:7px;color:var(--muted-foreground);font-size:12px}
+.onyx-metric>strong{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.onyx-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.onyx-detail-grid>.panel,.onyx-center> .panel{padding:16px;min-width:0}
+.onyx-center h2{font-size:17px;font-weight:800;margin:0 0 10px}
+.onyx-status-list{display:grid;gap:7px}
+.onyx-status-list>div,.onyx-reconciliation-result>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px}
+.onyx-status-list>div:last-child,.onyx-reconciliation-result>div:last-child{border-bottom:0}
+.onyx-reconciliation{align-content:start}
+.onyx-reconciliation p{font-size:13px;line-height:1.8;color:var(--muted-foreground);margin:0 0 12px}
+.onyx-reconciliation-result{margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:10px;display:grid;gap:4px}
+.onyx-reconciliation-result>strong{font-size:12px;overflow-wrap:anywhere;margin-bottom:5px}
+.onyx-section-heading{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.onyx-section-heading p{font-size:12px;line-height:1.8;color:var(--muted-foreground);margin:0}
+.onyx-table-wrap{overflow:auto;max-width:100%;margin-top:10px}
+.onyx-table-wrap table{width:100%;border-collapse:collapse;min-width:650px;font-size:12px}
+.onyx-table-wrap th,.onyx-table-wrap td{padding:10px;text-align:right;vertical-align:top;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+.onyx-table-wrap th{font-weight:800;background:var(--muted)}
+.onyx-table-wrap td code{overflow-wrap:anywhere}
+.onyx-forecast{border-inline-start:4px solid var(--primary)}
+.onyx-forecast p{font-size:13px;line-height:1.8;margin:6px 0}
+.onyx-analytics-print{display:none}
+@media(max-width:780px){.onyx-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.onyx-detail-grid{grid-template-columns:1fr}.onyx-source-metadata{grid-template-columns:1fr}}
+@media(max-width:440px){.onyx-metric-grid{grid-template-columns:1fr}.onyx-actions{width:100%}.onyx-actions .btn{flex:1;justify-content:center}}
+@media print{
+  .onyx-analytics-print,.onyx-analytics-print *{visibility:visible!important}
+  .onyx-analytics-print{display:block!important;position:absolute!important;inset:0!important;width:100%!important;padding:0!important;background:#fff!important;color:#111!important;font:9pt Arial,sans-serif!important;direction:rtl!important}
+  .onyx-analytics-print header{margin-bottom:12px;border-bottom:2px solid #222;padding-bottom:8px}
+  .onyx-analytics-print h1{font-size:16pt;margin:0 0 8px}
+  .onyx-analytics-print p{margin:3px 0}
+  .onyx-analytics-print table{width:100%;border-collapse:collapse;table-layout:fixed;margin:10px 0}
+  .onyx-analytics-print th,.onyx-analytics-print td{border:1px solid #888;padding:5px;text-align:right;vertical-align:top;overflow-wrap:anywhere;color:#111}
+  .onyx-analytics-print th{background:#efefef!important}
+  .onyx-analytics-print tr{break-inside:avoid;page-break-inside:avoid}
+  .onyx-analytics-print footer{margin-top:10px;color:#333}
+}
+
+.task-print-scope{display:grid;gap:4px;min-width:150px}
+.task-print-scope>span{font-size:11px;color:var(--muted-foreground);font-weight:700}
+.task-print-scope>select{max-width:100%;min-height:38px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--foreground);font:inherit}
+@media(max-width:700px){.task-print-scope{flex:1;min-width:180px}}
+
+
+/* Storefront announcement slider and manager. */
+.sf-announcement-slider {
+  --sf-announcement-color: #B99347; display: flex; align-items: center; justify-content: space-between;
+  gap: 18px; margin: 16px 24px; padding: 16px 20px; border: 1px solid #d7e2dc;
+  border-inline-start: 5px solid var(--sf-announcement-color); border-radius: 16px;
+  background: linear-gradient(120deg, #fffdf7, #f0f7f3); color: #173b31;
+  box-shadow: 0 6px 18px rgba(20, 61, 48, .07);
+}
+.sf-announcement-copy { display: grid; gap: 5px; min-width: 0; }
+.sf-announcement-eyebrow { color: #8b6a28; font-size: 11px; font-weight: 800; }
+.sf-announcement-copy h2 { margin: 0; font-size: 17px; line-height: 1.5; }
+.sf-announcement-copy p { margin: 0; color: #426357; font-size: 13px; line-height: 1.8; }
+.sf-announcement-link { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; color: #164e3a; font-size: 12px; font-weight: 800; text-decoration: none; }
+.sf-announcement-link:hover { text-decoration: underline; }
+.sf-announcement-controls { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; color: #385a4d; font-size: 11px; font-weight: 700; }
+.sf-announcement-controls button { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid #c7d7ce; border-radius: 50%; background: #fff; color: #1d4e3d; cursor: pointer; }
+.sf-announcement-controls button:focus-visible, .sf-announcement-link:focus-visible { outline: 3px solid #b99347; outline-offset: 3px; }
+.login-form :is(input, button, a):focus-visible { outline: 3px solid #14532d; outline-offset: 3px; }
+.sf-announcement-error { margin: 10px 24px 0; border: 1px solid #efd6a7; border-radius: 10px; padding: 9px 12px; color: #754b13; background: #fff8e8; font-size: 12px; }
+.sf-announcement-manager { display: grid; gap: 16px; }
+.sf-announcement-manager-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.sf-announcement-manager-head h2 { margin: 0 0 5px; font-size: 18px; }
+.sf-announcement-manager-head p { margin: 0; color: var(--muted-foreground, #64748b); font-size: 12px; line-height: 1.8; max-width: 820px; }
+.sf-announcement-manager-actions, .sf-announcement-card-actions, .sf-announcement-form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sf-announcement-form { display: grid; gap: 13px; padding: 16px; border: 1px solid var(--border, #dbe3df); border-radius: 14px; background: var(--card, #fff); }
+.sf-announcement-form-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sf-announcement-form-heading h3 { margin: 0; font-size: 16px; }
+.sf-announcement-form label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; color: var(--foreground, #243a32); }
+.sf-announcement-form input:not([type="checkbox"]):not([type="color"]), .sf-announcement-form textarea, .sf-announcement-form select { width: 100%; min-width: 0; border: 1px solid var(--border, #cbd5e1); border-radius: 8px; padding: 9px 10px; background: var(--background, #fff); color: var(--foreground, #172e25); font: inherit; }
+.sf-announcement-form input[type="color"] { width: 100%; min-height: 38px; border: 1px solid var(--border, #cbd5e1); border-radius: 8px; padding: 3px; background: #fff; }
+.sf-announcement-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.sf-announcement-active-control { display: flex !important; align-items: center; gap: 9px !important; min-height: 38px; }
+.sf-announcement-active-control input { width: 18px; height: 18px; }
+.sf-announcement-form-error { margin: 0; color: #a32323; font-size: 12px; }
+.sf-announcement-admin-list { display: grid; gap: 12px; }
+.sf-announcement-admin-card { display: grid; gap: 12px; padding: 15px; border: 1px solid var(--border, #dbe3df); border-radius: 13px; background: var(--card, #fff); }
+.sf-announcement-admin-title { display: flex; align-items: flex-start; gap: 10px; }
+.sf-announcement-admin-title h3 { margin: 0; font-size: 15px; }
+.sf-announcement-admin-title p { margin: 4px 0 0; color: var(--muted-foreground, #64748b); font-size: 12px; line-height: 1.8; }
+.sf-announcement-admin-title > div { flex: 1; min-width: 0; }
+.sf-announcement-color-mark { display: inline-block; flex: 0 0 5px; align-self: stretch; min-height: 36px; border-inline-start: 5px solid; border-radius: 4px; }
+.sf-announcement-metadata { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 0; }
+.sf-announcement-metadata > div { min-width: 0; padding: 8px; border-radius: 8px; background: var(--muted, #f5f7f5); }
+.sf-announcement-metadata dt { margin-bottom: 3px; color: var(--muted-foreground, #64748b); font-size: 10px; }
+.sf-announcement-metadata dd { margin: 0; overflow-wrap: anywhere; font-size: 11px; font-weight: 700; }
+.sf-announcement-empty { padding: 18px; border: 1px dashed var(--border, #cbd5e1); border-radius: 12px; color: var(--muted-foreground, #64748b); font-size: 13px; line-height: 1.8; }
+@media (max-width: 720px) {
+  .sf-announcement-slider { align-items: flex-start; flex-wrap: wrap; margin: 12px 10px; padding: 13px; gap: 12px; }
+  .sf-announcement-copy { flex: 1 1 100%; }
+  .sf-announcement-link { margin-inline-end: auto; }
+  .sf-announcement-manager-head { display: grid; }
+  .sf-announcement-form-grid, .sf-announcement-metadata { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sf-announcement-slider, .sf-announcement-slider * { animation: none !important; scroll-behavior: auto !important; transition: none !important; }
+  .sf-ticker-track { animation: none !important; white-space: normal; justify-content: center; flex-wrap: wrap; }
+}
+
+
+/* Editable price grid — explicit accessible controls and responsive table layout. */
+.price-grid-panel { margin-top: 18px; overflow: hidden; }
+.price-grid-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.price-grid-head h2 { margin: 0 0 6px; font-size: 18px; }
+.price-grid-head p { margin: 0; max-width: 820px; line-height: 1.8; color: var(--muted-foreground, #64748b); font-size: 12px; }
+.price-grid-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.price-grid-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 8px 12px; border: 1px solid #b9c9c1; border-radius: 9px; background: #fff; color: #224e3b; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.price-grid-actions button.primary { border-color: #1d6048; background: #1d6048; color: #fff; }
+.price-grid-actions button:disabled { cursor: not-allowed; opacity: .48; }
+.price-grid-table-scroll { max-width: 100%; overflow-x: auto; margin-top: 14px; border: 1px solid var(--border, #dce5e0); border-radius: 11px; }
+.price-grid-table { width: 100%; min-width: 980px; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.price-grid-table th, .price-grid-table td { border-bottom: 1px solid var(--border, #e5ebe7); padding: 9px 10px; text-align: start; vertical-align: middle; white-space: nowrap; }
+.price-grid-table thead th { position: sticky; top: 0; z-index: 1; background: #eff5f1; color: #274e3d; font-size: 11px; font-weight: 800; }
+.price-grid-table tbody th { font-weight: 700; color: var(--foreground, #25392f); }
+.price-grid-table tbody tr:last-child th, .price-grid-table tbody tr:last-child td { border-bottom: 0; }
+.price-grid-table tbody tr:hover { background: #fbfdfb; }
+.price-grid-table tbody th small { display: block; margin-top: 3px; color: var(--muted-foreground, #64748b); font-size: 10px; font-weight: 500; }
+.price-grid-stock { font-variant-numeric: tabular-nums; }
+.price-grid-input { width: 122px; min-height: 34px; padding: 6px 8px; border: 1px solid #cad8d0; border-radius: 7px; background: #fff; color: #17382b; font: inherit; font-variant-numeric: tabular-nums; }
+.price-grid-input:focus { border-color: #1d6048; outline: 3px solid rgba(29, 96, 72, .13); }
+.price-grid-input.is-dirty { border-color: #b58b31; background: #fff9e7; }
+.price-grid-input:disabled { opacity: .8; background: #f2f5f3; }
+.price-grid-status { display: inline-flex; align-items: center; padding: 4px 8px; border-radius: 99px; font-size: 10px; font-weight: 800; }
+.price-grid-status.active { color: #176045; background: #e3f4e9; }
+.price-grid-status.inactive { color: #7d4a17; background: #fff0d9; }
+.price-grid-muted { margin: 12px 0 0; color: var(--muted-foreground, #64748b); font-size: 11px; line-height: 1.8; }
+.price-grid-error { margin: 12px 0 0; padding: 10px 12px; border: 1px solid #f0c7c7; border-radius: 9px; color: #9b2424; background: #fff6f6; font-size: 12px; line-height: 1.8; }
+.price-grid-preview { margin-top: 14px; padding: 12px; border: 1px solid #d6c38f; border-radius: 12px; background: #fffdf4; }
+.price-grid-preview-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: #745621; font-size: 12px; }
+.price-grid-preview-title span { color: #796c4e; font-size: 11px; }
+.price-grid-review { min-width: 850px; }
+.price-grid-review td strong { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
+.price-grid-old { color: #9b4b36; text-decoration: line-through; font-weight: 500; }
+.price-grid-new { color: #176045; }
+.price-grid-unchanged { color: #78867f; }
+@media (max-width: 760px) {
+  .price-grid-head { display: grid; }
+  .price-grid-actions { align-items: stretch; }
+  .price-grid-actions button { flex: 1 1 auto; }
+  .price-grid-table-scroll { margin-inline: -2px; }
+  .price-grid-table th, .price-grid-table td { padding: 8px; }
+}
+.price-grid-file-input { display: none; }
+
+
+/* Legacy dashboard/storefront CSS follows the canonical green, gold and ivory theme. */
+:root {
+  --aghbari-brand: var(--primary);
+  --aghbari-brand-medium: var(--chart-2);
+  --aghbari-brand-hover: var(--primary);
+  --aghbari-brand-surface: var(--primary);
+  --aghbari-brand-medium-surface: var(--chart-2);
+  --aghbari-brand-hover-surface: var(--primary);
+  --aghbari-brand-soft: var(--secondary);
+  --aghbari-surface: var(--card);
+  --aghbari-surface-soft: var(--muted);
+  --aghbari-text: var(--foreground);
+  --aghbari-text-muted: var(--muted-foreground);
+  --aghbari-border: var(--border);
+  --aghbari-deep-surface: var(--primary);
+  --aghbari-on-brand-surface: var(--primary-foreground);
+  --aghbari-accent: var(--accent);
+}
+.dark {
+  --aghbari-brand-surface: var(--primary-foreground);
+  --aghbari-brand-medium-surface: var(--secondary);
+  --aghbari-brand-hover-surface: var(--primary-foreground);
+  --aghbari-deep-surface: var(--primary-foreground);
+  --aghbari-on-brand-surface: var(--primary);
+}
+
+
+/* Executive management print sheet — browser print / Save as PDF, A4 and Arabic RTL. */
+.executive-analytics-print-sheet { display: none; page: aghbariExecutiveAnalytics; }
+@page aghbariExecutiveAnalytics { size: A4 portrait; margin: 12mm; }
+@media print {
+  body[data-print-mode="executive-analytics"] { background: #fff !important; }
+  body[data-print-mode="executive-analytics"] > :not(.executive-analytics-print-sheet) { display: none !important; }
+  body[data-print-mode="executive-analytics"] * { visibility: hidden !important; }
+  body[data-print-mode="executive-analytics"] .executive-analytics-print-sheet,
+  body[data-print-mode="executive-analytics"] .executive-analytics-print-sheet * { visibility: visible !important; }
+  body[data-print-mode="executive-analytics"] .executive-analytics-print-sheet {
+    display: block !important;
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    color: #18231d !important;
+    background: #fff !important;
+    direction: rtl !important;
+    text-align: right !important;
+    font-family: "Noto Sans Arabic", sans-serif !important;
+    font-size: 9pt !important;
+    line-height: 1.65 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .executive-analytics-print-sheet h1 { margin: 0 0 4px; color: #174a37 !important; font-size: 17pt; }
+  .executive-analytics-print-sheet h2 { margin: 12px 0 6px; color: #174a37 !important; font-size: 11pt; break-after: avoid; }
+  .executive-analytics-print-header { display: flex; justify-content: space-between; gap: 12px; align-items: start; padding-bottom: 10px; border-bottom: 2px solid #b58b31; }
+  .executive-analytics-print-header p { margin: 0; color: #56645c; }
+  .executive-analytics-print-date { display: grid; gap: 2px; text-align: left; font-size: 8pt; }
+  .executive-analytics-print-sheet table { width: 100%; border-collapse: collapse; table-layout: auto; font-size: 8pt; }
+  .executive-analytics-print-sheet thead { display: table-header-group; }
+  .executive-analytics-print-sheet th,
+  .executive-analytics-print-sheet td { padding: 4px 6px; border: 1px solid #cbd5cf; text-align: right; vertical-align: top; }
+  .executive-analytics-print-sheet thead th { color: #174a37 !important; background: #edf4ef !important; font-weight: 800; }
+  .executive-analytics-print-section { margin-top: 8px; break-inside: auto; }
+  .executive-analytics-print-section tr { break-inside: avoid; }
+  .executive-analytics-print-note { margin: 6px 0 0; color: #526057; font-size: 8pt; }
+  .executive-analytics-print-footer { margin-top: 12px; padding-top: 6px; border-top: 1px solid #cbd5cf; color: #526057; font-size: 8pt; }
+}
+
+
+/* Staff Customer 360 print output — explicit DTO allowlist, Arabic RTL, scoped A4. */
+.customer-360-print-sheet { display: none; page: aghbariCustomer360; }
+@page aghbariCustomer360 { size: A4 portrait; margin: 10mm; }
+@media print {
+  body[data-print-mode="customer-360"] { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+  body[data-print-mode="customer-360"] > :not(.customer-360-print-sheet) { display: none !important; }
+  body[data-print-mode="customer-360"] * { visibility: hidden !important; }
+  body[data-print-mode="customer-360"] .customer-360-print-sheet,
+  body[data-print-mode="customer-360"] .customer-360-print-sheet * { visibility: visible !important; }
+  body[data-print-mode="customer-360"] .customer-360-print-sheet {
+    display: block !important;
+    position: static !important;
+    inset: auto !important;
+    width: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    direction: rtl !important;
+    text-align: right !important;
+    background: #fff !important;
+    color: #17221c !important;
+    font-family: "Noto Sans Arabic", Arial, sans-serif !important;
+    font-size: 8pt !important;
+    line-height: 1.55 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .customer-360-print-header { display: flex; justify-content: space-between; gap: 12px; align-items: start; padding-bottom: 8px; border-bottom: 2px solid #b58b31; }
+  .customer-360-print-header h1 { margin: 0 0 3px; color: #174a37 !important; font-size: 16pt; }
+  .customer-360-print-header p { margin: 2px 0; }
+  .customer-360-print-generated { display: grid; gap: 2px; text-align: left; font-size: 7.5pt; }
+  .customer-360-print-section { margin-top: 9px; break-inside: auto; }
+  .customer-360-print-section h2 { margin: 8px 0 4px; color: #174a37 !important; font-size: 10pt; break-after: avoid; }
+  .customer-360-print-section h3 { margin: 7px 0 3px; font-size: 9pt; break-after: avoid; }
+  .customer-360-print-sheet table { width: 100%; border-collapse: collapse; table-layout: auto; font-size: 7pt; }
+  .customer-360-print-sheet thead { display: table-header-group; }
+  .customer-360-print-sheet th, .customer-360-print-sheet td { padding: 3px 4px; border: 1px solid #cbd5cf; text-align: right; vertical-align: top; overflow-wrap: anywhere; }
+  .customer-360-print-sheet thead th { background: #edf4ef !important; color: #174a37 !important; font-weight: 800; }
+  .customer-360-print-sheet tr { break-inside: avoid; page-break-inside: avoid; }
+  .customer-360-print-note { margin: 4px 0; color: #526057 !important; font-size: 7pt; }
+  .customer-360-print-footer { margin-top: 10px; padding-top: 6px; border-top: 1px solid #cbd5cf; color: #526057 !important; font-size: 7pt; }
+}
+
+
+/* Product activity full-report print mode. A body mode excludes simultaneously-mounted report sheets. */
+.product-activity-print-sheet { display: none; page: aghbariProductActivity; }
+@page aghbariProductActivity { size: A4 landscape; margin: 9mm; }
+@media print {
+  body[data-print-mode="product-activity"] > :not(.product-activity-print-sheet) { display: none !important; }
+  body[data-print-mode="product-activity"] * { visibility: hidden !important; }
+  body[data-print-mode="product-activity"] .product-activity-print-sheet,
+  body[data-print-mode="product-activity"] .product-activity-print-sheet * { visibility: visible !important; }
+  body[data-print-mode="product-activity"] .executive-analytics-print-sheet,
+  body[data-print-mode="product-activity"] .customer-360-print-sheet { display: none !important; visibility: hidden !important; }
+  body[data-print-mode="product-activity"] .product-activity-print-sheet {
+    display: block !important;
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    direction: rtl !important;
+    text-align: right !important;
+    background: #fff !important;
+    color: #17221c !important;
+    font-family: "Noto Sans Arabic", Arial, sans-serif !important;
+    font-size: 7pt !important;
+    line-height: 1.45 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .product-activity-print-header { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 7px; border-bottom: 2px solid #b58b31; align-items: start; }
+  .product-activity-print-header h1 { margin: 0 0 3px; color: #174a37 !important; font-size: 16pt; }
+  .product-activity-print-header h2 { margin: 2px 0; font-size: 10pt; color: #174a37 !important; }
+  .product-activity-print-header p { margin: 2px 0; color: #526057 !important; }
+  .product-activity-print-generated { display: grid; gap: 1px; text-align: left; font-size: 7pt; }
+  .product-activity-print-summary, .product-activity-print-details { margin-top: 8px; }
+  .product-activity-print-summary h3, .product-activity-print-details h3 { margin: 5px 0; color: #174a37 !important; font-size: 9pt; }
+  .product-activity-print-sheet table { width: 100%; border-collapse: collapse; table-layout: auto; font-size: 6.5pt; }
+  .product-activity-print-sheet thead { display: table-header-group; }
+  .product-activity-print-sheet th, .product-activity-print-sheet td { padding: 3px 4px; border: 1px solid #cbd5cf; text-align: right; vertical-align: top; overflow-wrap: anywhere; }
+  .product-activity-print-sheet thead th { background: #edf4ef !important; color: #174a37 !important; font-weight: 800; }
+  .product-activity-print-sheet tr { break-inside: avoid; page-break-inside: avoid; }
+  .product-activity-print-footer { margin-top: 8px; padding-top: 5px; border-top: 1px solid #cbd5cf; color: #526057 !important; font-size: 6.5pt; }
+}
+
+
+/* General journal and complete financial statements print output. */
+.general-ledger-print-sheet { display: none; page: aghbariGeneralLedger; }
+@page aghbariGeneralLedger { size: A4 portrait; margin: 12mm; }
+@media print {
+  body[data-print-mode="general-ledger"] > :not(.general-ledger-print-sheet) { display: none !important; }
+  body[data-print-mode="general-ledger"] * { visibility: hidden !important; }
+  body[data-print-mode="general-ledger"] .general-ledger-print-sheet,
+  body[data-print-mode="general-ledger"] .general-ledger-print-sheet * { visibility: visible !important; }
+  body[data-print-mode="general-ledger"] .general-ledger-print-sheet {
+    display: block !important;
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    color: #18231d !important;
+    background: #fff !important;
+    direction: rtl !important;
+    text-align: right !important;
+    font-family: Arial, sans-serif !important;
+    font-size: 9pt !important;
+    line-height: 1.65 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .general-ledger-print-header { display: flex; justify-content: space-between; align-items: start; gap: 12px; padding-bottom: 9px; border-bottom: 2px solid #b58b31; }
+  .general-ledger-print-header h1 { margin: 0 0 4px; color: #174a37 !important; font-size: 16pt; }
+  .general-ledger-print-header h2 { margin: 4px 0; color: #174a37 !important; font-size: 11pt; }
+  .general-ledger-print-header p { margin: 3px 0; color: #333 !important; }
+  .general-ledger-print-generated { display: grid; gap: 2px; text-align: left; font-size: 8pt; white-space: nowrap; }
+  .general-ledger-print-section { margin-top: 12px; break-inside: auto; }
+  .general-ledger-print-section h3 { margin: 7px 0 5px; color: #174a37 !important; font-size: 10pt; break-after: avoid; }
+  .general-ledger-print-sheet table { width: 100%; border-collapse: collapse; table-layout: auto; font-size: 8pt; }
+  .general-ledger-print-sheet thead { display: table-header-group; }
+  .general-ledger-print-sheet th,
+  .general-ledger-print-sheet td { padding: 5px 6px; border: 1px solid #cbd5cf; text-align: right; vertical-align: top; overflow-wrap: anywhere; }
+  .general-ledger-print-sheet thead th { color: #174a37 !important; background: #edf4ef !important; font-weight: 800; }
+  .general-ledger-print-sheet tfoot th { background: #f2f4f3 !important; }
+  .general-ledger-print-sheet tr { break-inside: avoid; page-break-inside: avoid; }
+  .general-ledger-print-note { margin: 7px 0; color: #526057 !important; font-size: 8pt; }
+  .general-ledger-print-footer { margin-top: 14px; padding-top: 7px; border-top: 1px solid #cbd5cf; color: #526057 !important; font-size: 7.5pt; }
+}
+
+
+/* Customer quote print output — body portal cooperates with shared print isolation. */
+.customer-quote-print-sheet { display: none; page: aghbariCustomerQuote; }
+@page aghbariCustomerQuote { size: A4 portrait; margin: 14mm; }
+@media print {
+  .customer-quote-print-sheet,
+  .customer-quote-print-sheet * { visibility: visible !important; }
+  .customer-quote-print-sheet {
+    display: block !important; position: static !important; width: auto !important;
+    margin: 0 !important; padding: 0 !important; box-sizing: border-box !important;
+    background: #fff !important; color: #111 !important; direction: rtl !important;
+    text-align: right !important; font-family: Tahoma, Arial, sans-serif !important;
+  }
+  .customer-quote-print-sheet header {
+    display: flex; justify-content: space-between; gap: 16px;
+    border-bottom: 2px solid #176b55; padding-bottom: 12px; margin-bottom: 14px;
+  }
+  .customer-quote-print-sheet table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 14px; }
+  .customer-quote-print-sheet th, .customer-quote-print-sheet td {
+    border: 1px solid #999 !important; padding: 7px; text-align: right; color: #111 !important;
+  }
+  .customer-quote-print-sheet thead { display: table-header-group; }
+  .customer-quote-print-sheet tr { break-inside: avoid; page-break-inside: avoid; }
+}
+
+
+/* Manager task reassignment controls — only open tasks expose this audited action. */
+.task-card-assignment{display:grid;gap:6px;min-width:190px;max-width:240px;color:var(--foreground);font-size:12px;font-weight:700}
+.task-card-assignment select{width:100%;min-width:0;padding:8px 9px;border:1px solid var(--border);border-radius:8px;background:var(--background);color:var(--foreground);font:inherit;font-weight:500}
+.task-card-assignment button{justify-self:start}
+.task-card-assignment small{color:var(--muted-foreground);font-weight:500;line-height:1.5}
+@media(max-width:860px){.task-card-assignment{width:100%;max-width:none;min-width:0}.task-card-actions{align-items:stretch}}
+
+
+/* Manager editing of task urgency and due date. */
+.task-card-detail-editor{display:grid;gap:7px;min-width:190px;max-width:240px;padding-inline-end:10px;border-inline-end:1px solid var(--border)}
+.task-card-detail-editor label{display:grid;gap:4px;color:var(--muted-foreground);font-size:11px;font-weight:700}
+.task-card-detail-editor select,.task-card-detail-editor input{width:100%;min-width:0;padding:7px 8px;border:1px solid var(--border);border-radius:8px;background:var(--background);color:var(--foreground);font:inherit;font-weight:500}
+.task-card-detail-editor button{justify-self:start}
+@media(max-width:860px){.task-card-detail-editor{width:100%;max-width:none;min-width:0;padding:0 0 10px;border-inline-end:0;border-bottom:1px solid var(--border)}}
+
+
+/* Inline editing is available only for manager-owned manual task text. */
+.task-card-text-editor{display:grid;gap:9px;margin-top:10px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--background)}
+.task-card-text-editor label{display:grid;gap:5px;color:var(--muted-foreground);font-size:12px;font-weight:700}
+.task-card-text-editor input,.task-card-text-editor textarea{width:100%;min-width:0;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--foreground);font:inherit;font-weight:500}
+.task-card-text-editor textarea{resize:vertical;line-height:1.6}
+.task-card-text-actions{display:flex;gap:7px;flex-wrap:wrap}
+
+
+/* Explicit manager cancellation requires a persisted explanation. */
+.task-card-cancel-editor{display:grid;gap:7px;min-width:190px;max-width:240px;padding:10px;border:1px solid var(--border);border-radius:9px;background:var(--background)}
+.task-card-cancel-editor label{display:grid;gap:5px;color:var(--foreground);font-size:11px;font-weight:750}
+.task-card-cancel-editor textarea{width:100%;min-width:0;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--foreground);font:inherit;font-size:12px;line-height:1.6;resize:vertical}
+.task-card-cancel-editor button{justify-self:start}
+@media(max-width:860px){.task-card-cancel-editor{width:100%;max-width:none;min-width:0}}
+
+
+/* Manager batch assignment panel for selected operational tasks. */
+.task-bulk-assignment{display:flex;align-items:end;gap:8px;flex-wrap:wrap;padding:9px 10px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
+.task-bulk-assignment label{display:grid;gap:5px;min-width:190px;color:var(--foreground);font-size:11px;font-weight:750}
+.task-bulk-assignment select{width:100%;min-width:0;padding:8px 9px;border:1px solid var(--border);border-radius:8px;background:var(--background);color:var(--foreground);font:inherit;font-weight:500}
+.task-bulk-assignment small{flex-basis:100%;color:var(--muted-foreground);font-size:11px}
+@media(max-width:860px){.task-bulk-assignment{width:100%;align-items:stretch}.task-bulk-assignment label,.task-bulk-assignment button{width:100%}}
+
+
+/* A task must carry a human-recorded outcome before it can be closed. */
+.task-card-completion-editor{display:grid;gap:7px;min-width:210px;max-width:280px;padding:10px;border:1px solid var(--border);border-radius:9px;background:var(--background)}
+.task-card-completion-editor label{display:grid;gap:5px;color:var(--foreground);font-size:11px;font-weight:750}
+.task-card-completion-editor textarea{width:100%;min-width:0;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--foreground);font:inherit;font-size:12px;line-height:1.6;resize:vertical}
+.task-card-completion-editor button{justify-self:start}
+@media(max-width:860px){.task-card-completion-editor{width:100%;max-width:none;min-width:0}}
+
+
+/* Shared priority/deadline update for selected open tasks. */
+.task-bulk-details{display:flex;align-items:end;gap:8px;flex-wrap:wrap;padding:9px 10px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
+.task-bulk-details label{display:grid;gap:5px;min-width:170px;color:var(--foreground);font-size:11px;font-weight:750}
+.task-bulk-details select,.task-bulk-details input{width:100%;min-width:0;padding:8px 9px;border:1px solid var(--border);border-radius:8px;background:var(--background);color:var(--foreground);font:inherit;font-weight:500}
+.task-bulk-details small{flex-basis:100%;color:var(--muted-foreground);font-size:11px}
+@media(max-width:860px){.task-bulk-details{width:100%;align-items:stretch}.task-bulk-details label,.task-bulk-details button{width:100%}}
+
+
+/* Customer 360 — append-only interaction capture and history. */
+.customer-360-interactions{display:grid;gap:12px}
+.customer-360-interactions-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.customer-360-interactions-heading h3{display:flex;align-items:center;gap:8px;margin:0 0 5px}
+.customer-360-interaction-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:13px;border:1px solid var(--border);border-radius:10px;background:var(--background)}
+.customer-360-interaction-form label{display:grid;gap:5px;color:var(--foreground);font-size:12px;font-weight:700}
+.customer-360-interaction-form input,.customer-360-interaction-form select,.customer-360-interaction-form textarea{width:100%;min-width:0;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--foreground);font:inherit;font-weight:500}
+.customer-360-interaction-form textarea{resize:vertical;line-height:1.65}
+.customer-360-interaction-details{grid-column:1/-1}
+.customer-360-interaction-submit{display:flex;align-items:end}
+.customer-360-interaction-notice{margin:0;color:var(--aghbari-brand,var(--primary));font-size:12px;font-weight:700}
+.customer-360-interaction-list{display:grid;gap:8px}
+.customer-360-interaction-item{display:grid;gap:7px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
+.customer-360-interaction-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.customer-360-interaction-meta strong{font-size:13px}
+.customer-360-interaction-meta span{padding:3px 8px;border-radius:999px;background:var(--aghbari-brand-soft,var(--muted));color:var(--aghbari-brand,var(--foreground));font-size:10px;font-weight:700}
+.customer-360-interaction-meta time{margin-inline-start:auto;color:var(--muted-foreground);font-size:11px}
+.customer-360-interaction-item p{margin:0;color:var(--foreground);font-size:12px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere}
+.customer-360-interaction-footer{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;color:var(--muted-foreground);font-size:10px}
+.customer-360-follow-up-controls{display:grid;gap:9px;padding:10px;border:1px dashed var(--border);border-radius:9px;background:var(--background)}
+.customer-360-follow-up-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--muted-foreground);font-size:11px}
+.customer-360-follow-up-summary strong{padding:3px 8px;border-radius:999px;background:var(--aghbari-brand-soft,var(--muted));color:var(--aghbari-brand,var(--foreground));font-size:10px}
+.customer-360-follow-up-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.customer-360-follow-up-form label{display:grid;gap:5px;color:var(--foreground);font-size:11px;font-weight:700}
+.customer-360-follow-up-form input{width:100%;min-width:0;padding:8px 9px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--foreground);font:inherit}
+.customer-360-follow-up-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;grid-column:1/-1}
+.customer-360-follow-up-updated{color:var(--muted-foreground);font-size:10px}
+@media(max-width:680px){.customer-360-follow-up-form{grid-template-columns:1fr}.customer-360-follow-up-actions{grid-column:auto}.customer-360-follow-up-actions button{flex:1}}
+@media(max-width:680px){.customer-360-interaction-form{grid-template-columns:1fr}.customer-360-interaction-details{grid-column:auto}.customer-360-interaction-submit{width:100%}.customer-360-interaction-submit button{width:100%}.customer-360-interaction-meta time{width:100%;margin-inline-start:0}}
+
+
+/* Customer 360 evidence-backed retention intelligence */
+.customer-360-retention{display:grid;gap:13px}
+.customer-360-retention-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.customer-360-retention-heading h3{margin:0 0 5px}
+.customer-360-retention-period{display:grid;gap:5px;min-width:160px;color:var(--foreground);font-size:11px;font-weight:700}
+.customer-360-retention-period select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--foreground);font:inherit}
+.customer-360-retention-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.customer-360-retention-kpis article{display:grid;gap:7px;min-width:0;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--background)}
+.customer-360-retention-kpis article span{color:var(--muted-foreground);font-size:11px;line-height:1.6}
+.customer-360-retention-kpis article strong{font-size:21px;font-weight:900;color:var(--foreground);font-variant-numeric:tabular-nums}
+.customer-360-retention-activity{display:grid;gap:9px;padding:13px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
+.customer-360-retention-customer{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.customer-360-retention-customer>div{display:grid;gap:3px}
+.customer-360-retention-customer>div strong{font-size:16px}
+.customer-360-retention-verified{padding:4px 8px;border-radius:999px;background:var(--aghbari-brand-soft,var(--muted));color:var(--aghbari-brand,var(--foreground));font-size:10px;font-weight:800}
+.customer-360-retention-activity>p{margin:0;color:var(--foreground);font-size:12px;line-height:1.8}
+.customer-360-retention-facts{display:flex;gap:8px;flex-wrap:wrap}
+.customer-360-retention-facts span{padding:5px 8px;border:1px solid var(--border);border-radius:7px;color:var(--muted-foreground);font-size:10px}
+.customer-360-retention-action{padding:8px 10px;border-inline-start:3px solid var(--aghbari-brand,var(--primary));background:var(--background)}
+.customer-360-retention-state{display:grid;gap:8px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--background)}
+.customer-360-retention-state strong{font-size:13px}
+.customer-360-retention-state p{margin:0;color:var(--muted-foreground);font-size:12px;line-height:1.8}
+.customer-360-retention-state small{color:var(--muted-foreground);font-size:10px;overflow-wrap:anywhere}
+@media(max-width:760px){.customer-360-retention-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:420px){.customer-360-retention-kpis article strong{font-size:18px}}
+
+
+/* Customer service case management */
+.customer-service-cases{display:grid;gap:13px}
+.customer-service-cases-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.customer-service-cases-heading h3{margin:0 0 5px}
+.customer-service-case-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:13px;border:1px solid var(--border);border-radius:10px;background:var(--background)}
+.customer-service-case-form label,.customer-service-case-update label{display:grid;gap:5px;color:var(--foreground);font-size:11px;font-weight:700}
+.customer-service-case-form input,.customer-service-case-form select,.customer-service-case-form textarea,.customer-service-case-update input,.customer-service-case-update select{width:100%;min-width:0;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--foreground);font:inherit;font-weight:500}
+.customer-service-case-form textarea{resize:vertical;line-height:1.65}
+.customer-service-case-form-subject,.customer-service-case-form-description{grid-column:1/-1}
+.customer-service-case-form-submit{display:flex;align-items:center;grid-column:1/-1}
+.customer-service-case-list{display:grid;gap:10px}
+.customer-service-case{display:grid;gap:10px;padding:13px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
+.customer-service-case-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.customer-service-case-heading>div{display:grid;gap:6px;min-width:0}
+.customer-service-case-heading strong{font-size:13px;overflow-wrap:anywhere}
+.customer-service-case-meta{display:flex;gap:8px;flex-wrap:wrap;color:var(--muted-foreground);font-size:10px}
+.customer-service-case-status{padding:4px 8px;border-radius:999px;background:var(--aghbari-brand-soft,var(--muted));color:var(--aghbari-brand,var(--foreground));font-size:10px;font-weight:800;white-space:nowrap}
+.customer-service-case-status.status-resolved,.customer-service-case-status.status-closed{background:var(--muted);color:var(--muted-foreground)}
+.customer-service-case-description{margin:0;color:var(--foreground);font-size:12px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere}
+.customer-service-case-resolution{margin:0;padding:8px 10px;border-inline-start:3px solid var(--aghbari-brand,var(--primary));background:var(--background);font-size:11px;line-height:1.7}
+.customer-service-case-update{display:grid;grid-template-columns:minmax(145px,.55fr) minmax(220px,1.45fr) auto;align-items:end;gap:9px;padding-top:9px;border-top:1px solid var(--border)}
+.customer-service-case-update button{white-space:nowrap}
+.customer-service-case-notice{margin:0;color:var(--aghbari-brand,var(--primary));font-size:11px;font-weight:700}
+.customer-service-case-history{padding-top:6px;border-top:1px dashed var(--border);color:var(--foreground);font-size:11px}
+.customer-service-case-history summary{cursor:pointer;font-weight:800}
+.customer-service-case-history ol{display:grid;gap:8px;padding-inline-start:22px}
+.customer-service-case-history li{display:grid;gap:3px}
+.customer-service-case-history li strong{font-size:11px}
+.customer-service-case-history li span,.customer-service-case-history>small{color:var(--muted-foreground);font-size:10px}
+.customer-service-case-history li p{margin:0;font-size:11px;line-height:1.7;white-space:pre-wrap}
+@media(max-width:680px){.customer-service-case-form{grid-template-columns:1fr}.customer-service-case-form-subject,.customer-service-case-form-description,.customer-service-case-form-submit{grid-column:auto}.customer-service-case-update{grid-template-columns:1fr}.customer-service-case-update button{width:100%}}
+
+
+/* Customer service SLA, assignment and escalation */
+.customer-service-case-sla{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.customer-service-case-sla>div{display:grid;gap:4px;padding:10px 11px;border:1px solid var(--border);border-radius:9px;background:var(--background)}
+.customer-service-case-sla span,.customer-service-case-sla small{color:var(--muted-foreground);font-size:10px}
+.customer-service-case-sla strong{font-size:12px;font-variant-numeric:tabular-nums}
+.customer-service-case-sla .is-overdue{border-color:var(--destructive,var(--border));background:color-mix(in srgb,var(--destructive,var(--aghbari-brand)) 7%,var(--background))}
+.customer-service-case-sla .is-overdue small,.customer-service-case-escalation{color:var(--destructive,var(--aghbari-brand));font-weight:800}
+.customer-service-case-manager{display:grid;gap:10px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--background)}
+.customer-service-case-manager-heading{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center}
+.customer-service-case-manager-heading strong{font-size:12px}
+.customer-service-case-manager-heading span{color:var(--muted-foreground);font-size:10px}
+.customer-service-case-manager-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.customer-service-case-manager label,.customer-service-case-escalate label{display:grid;gap:5px;color:var(--foreground);font-size:10px;font-weight:700;min-width:0}
+.customer-service-case-manager input,.customer-service-case-manager select,.customer-service-case-escalate input{width:100%;min-width:0;padding:9px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--foreground);font:inherit;font-weight:500}
+.customer-service-case-manager-actions{display:flex;justify-content:flex-start}
+.customer-service-case-escalate{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:9px;padding-top:9px;border-top:1px dashed var(--border)}
+.customer-service-case-escalate button{white-space:nowrap}
+.customer-service-sla-settings{padding:11px 12px;border:1px solid var(--border);border-radius:10px;background:var(--background)}
+.customer-service-sla-settings summary{cursor:pointer;color:var(--foreground);font-size:12px;font-weight:800}
+.customer-service-sla-settings>.report-note{margin:7px 0 10px}
+.customer-service-sla-policy-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.customer-service-sla-policy-grid form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:10px;border:1px solid var(--border);border-radius:9px;background:var(--card)}
+.customer-service-sla-policy-grid form>strong,.customer-service-sla-policy-grid form>small{grid-column:1/-1}
+.customer-service-sla-policy-grid form>strong{font-size:11px}
+.customer-service-sla-policy-grid label{display:grid;gap:4px;color:var(--muted-foreground);font-size:10px;font-weight:700}
+.customer-service-sla-policy-grid input{width:100%;min-width:0;padding:8px;border:1px solid var(--border);border-radius:7px;background:var(--background);color:var(--foreground);font:inherit}
+.customer-service-sla-policy-grid button{grid-column:1/-1}
+.customer-service-sla-policy-grid small{color:var(--muted-foreground);font-size:9px}
+@media(max-width:680px){
+  .customer-service-case-sla,.customer-service-case-manager-grid,.customer-service-sla-policy-grid{grid-template-columns:1fr}
+  .customer-service-case-escalate{grid-template-columns:1fr}
+  .customer-service-case-escalate button{width:100%}
+}
+
+
+/* Organization-wide Customer Service Desk */
+.customer-service-desk{display:grid;gap:16px;min-width:0}
+.customer-service-desk-hero{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;padding:18px;border:1px solid var(--border);border-radius:13px;background:var(--card)}
+.customer-service-desk-hero>div:first-child>span{display:inline-flex;align-items:center;gap:7px;color:var(--aghbari-brand,var(--primary));font-size:11px;font-weight:800}
+.customer-service-desk-hero h1{margin:7px 0 5px;font-size:clamp(19px,2.3vw,25px)}
+.customer-service-desk-hero p{max-width:760px;margin:0;color:var(--muted-foreground);font-size:12px;line-height:1.8}
+.customer-service-desk-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.customer-service-desk-metric{display:grid;gap:10px;min-width:0;padding:13px;border:1px solid var(--border);border-radius:11px;background:var(--card)}
+.customer-service-desk-metric>span{display:flex;align-items:center;gap:7px;color:var(--muted-foreground);font-size:10px;font-weight:700}
+.customer-service-desk-metric>strong{font-size:22px;font-variant-numeric:tabular-nums}
+.customer-service-desk-metric.tone-warning>strong{color:var(--aghbari-gold,var(--foreground))}
+.customer-service-desk-metric.tone-danger>strong{color:var(--destructive,var(--foreground))}
+.customer-service-desk-filters{display:grid;gap:11px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--card)}
+.customer-service-desk-filter-heading{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px}
+.customer-service-desk-filter-heading>span{margin-inline-start:auto;color:var(--muted-foreground);font-size:10px}
+.customer-service-desk-search{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.customer-service-desk-search>label{display:flex;align-items:center;gap:8px;min-width:0;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--background);color:var(--muted-foreground)}
+.customer-service-desk-search input{width:100%;min-width:0;padding:10px 0;border:0;outline:none;background:transparent;color:var(--foreground);font:inherit;font-size:12px}
+.customer-service-desk-filter-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.customer-service-desk-filter-grid label:not(.customer-service-desk-overdue-filter){display:grid;gap:5px;color:var(--muted-foreground);font-size:10px;font-weight:700}
+.customer-service-desk-filter-grid select,.customer-service-desk-status-form select,.customer-service-desk-status-form input,.customer-service-desk-management select,.customer-service-desk-management input{width:100%;min-width:0;padding:9px;border:1px solid var(--border);border-radius:8px;background:var(--background);color:var(--foreground);font:inherit;font-size:11px}
+.customer-service-desk-overdue-filter{display:flex;align-items:center;gap:8px;align-self:end;min-height:36px;color:var(--foreground);font-size:11px;font-weight:700}
+.customer-service-desk-overdue-filter input{width:16px;height:16px;accent-color:var(--aghbari-brand,var(--primary))}
+.customer-service-desk-results-heading{display:flex;justify-content:space-between;align-items:end;gap:10px;flex-wrap:wrap}
+.customer-service-desk-results-heading>div{display:grid;gap:3px}
+.customer-service-desk-results-heading h2{margin:0;font-size:17px}
+.customer-service-desk-results-heading span{color:var(--muted-foreground);font-size:10px}
+.customer-service-desk-results-heading>span{display:flex;align-items:center;gap:6px}
+.customer-service-desk-list{display:grid;gap:12px}
+.customer-service-desk-card{display:grid;gap:11px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--card)}
+.customer-service-desk-card-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.customer-service-desk-case-title{display:grid;gap:6px;min-width:0}
+.customer-service-desk-case-title>strong{font-size:13px;overflow-wrap:anywhere}
+.customer-service-desk-meta{display:flex;gap:7px;flex-wrap:wrap;color:var(--muted-foreground);font-size:10px}
+.customer-service-desk-escalation{color:var(--destructive,var(--aghbari-brand));font-weight:800}
+.customer-service-desk-status{flex:0 0 auto;padding:4px 8px;border-radius:999px;background:var(--aghbari-brand-soft,var(--muted));color:var(--aghbari-brand,var(--foreground));font-size:10px;font-weight:800}
+.customer-service-desk-status.status-resolved,.customer-service-desk-status.status-closed{background:var(--muted);color:var(--muted-foreground)}
+.customer-service-desk-description{margin:0;color:var(--foreground);font-size:12px;line-height:1.75;white-space:pre-wrap;overflow-wrap:anywhere}
+.customer-service-desk-deadlines{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.customer-service-desk-deadlines>div{display:grid;gap:4px;min-width:0;padding:9px;border:1px solid var(--border);border-radius:9px;background:var(--background)}
+.customer-service-desk-deadlines span,.customer-service-desk-deadlines small{color:var(--muted-foreground);font-size:9px;overflow-wrap:anywhere}
+.customer-service-desk-deadlines strong{font-size:11px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.customer-service-desk-deadlines .is-overdue{border-color:var(--destructive,var(--border));background:color-mix(in srgb,var(--destructive,var(--aghbari-brand)) 7%,var(--background))}
+.customer-service-desk-deadlines .is-overdue small{color:var(--destructive,var(--aghbari-brand));font-weight:800}
+.customer-service-desk-status-form{display:grid;grid-template-columns:minmax(130px,.7fr) minmax(180px,1.5fr) auto auto;align-items:end;gap:8px;padding-top:9px;border-top:1px solid var(--border)}
+.customer-service-desk-status-form label{display:grid;gap:4px;color:var(--muted-foreground);font-size:10px;font-weight:700;min-width:0}
+.customer-service-desk-management{display:grid;gap:10px;padding:11px;border:1px dashed var(--border);border-radius:9px;background:var(--background)}
+.customer-service-desk-management summary{display:flex;align-items:center;gap:7px;cursor:pointer;color:var(--foreground);font-size:11px;font-weight:800}
+.customer-service-desk-management-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.customer-service-desk-management-grid label,.customer-service-desk-escalation-reason{display:grid;gap:4px;min-width:0;color:var(--muted-foreground);font-size:10px;font-weight:700}
+.customer-service-desk-management-actions{display:grid;grid-template-columns:auto minmax(160px,1fr) auto;align-items:end;gap:8px}
+.customer-service-desk-more{display:flex;justify-content:center;padding:7px}
+.customer-service-desk-footnote{margin:0;color:var(--muted-foreground);font-size:10px;line-height:1.7}
+@media(max-width:850px){
+  .customer-service-desk-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .customer-service-desk-deadlines{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .customer-service-desk-status-form{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .customer-service-desk-management-actions{grid-template-columns:1fr 1fr}
+  .customer-service-desk-escalation-reason{grid-column:1/-1;grid-row:1}
+}
+@media(max-width:580px){
+  .customer-service-desk-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .customer-service-desk-filter-grid,.customer-service-desk-management-grid{grid-template-columns:1fr}
+  .customer-service-desk-search{grid-template-columns:1fr}
+  .customer-service-desk-search>button{width:100%}
+  .customer-service-desk-card-heading{align-items:flex-start}
+  .customer-service-desk-deadlines{grid-template-columns:1fr 1fr}
+  .customer-service-desk-status-form{grid-template-columns:1fr}
+  .customer-service-desk-status-form>button{width:100%}
+  .customer-service-desk-management-actions{grid-template-columns:1fr}
+  .customer-service-desk-management-actions>button{width:100%}
+}
+
+/* Customer service portal and shared public correspondence */
+.customer-service-portal{max-width:1120px;margin:0 auto;padding:26px 18px 56px;display:grid;gap:16px;color:var(--foreground)}
+.customer-service-portal-hero,.customer-service-portal-create,.customer-service-portal-case,.customer-service-portal-list-section{border:1px solid var(--border);border-radius:15px;background:var(--card);padding:17px}
+.customer-service-portal-hero{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.customer-service-portal-hero>div>span{display:inline-flex;align-items:center;gap:7px;color:var(--aghbari-brand,var(--primary));font-size:11px;font-weight:800}
+.customer-service-portal-hero h1{font-size:clamp(21px,3vw,28px);margin:7px 0 5px}
+.customer-service-portal-hero p,.customer-service-portal-section-heading p{color:var(--muted-foreground);font-size:12px;line-height:1.8;margin:0}
+.customer-service-portal-create,.customer-service-portal-list-section{display:grid;gap:14px}
+.customer-service-portal-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.customer-service-portal-section-heading h2{display:flex;align-items:center;gap:7px;margin:0 0 4px;font-size:16px}
+.customer-service-portal-section-heading>span{font-size:12px;color:var(--muted-foreground)}
+.customer-service-portal-create form{display:grid;gap:12px}
+.customer-service-portal-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+.customer-service-portal-form-grid label,.customer-service-portal-reply label{display:grid;gap:6px;color:var(--muted-foreground);font-size:11px;font-weight:700}
+.customer-service-portal-form-grid label.wide{grid-column:1/-1}
+.customer-service-portal-form-grid input,.customer-service-portal-form-grid select,.customer-service-portal-form-grid textarea,.customer-service-portal-reply textarea{width:100%;min-width:0;padding:10px 11px;border:1px solid var(--border);border-radius:9px;background:var(--background);color:var(--foreground);font:inherit;font-size:12px;line-height:1.65}
+.customer-service-portal-form-grid textarea,.customer-service-portal-reply textarea{resize:vertical}
+.customer-service-portal-form-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.customer-service-portal-form-footer small,.customer-service-portal-footnote{font-size:10px;color:var(--muted-foreground);line-height:1.8}
+.customer-service-portal-cases{display:grid;gap:12px}
+.customer-service-portal-case{display:grid;gap:12px}
+.customer-service-portal-case-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.customer-service-portal-case-head h2{margin:5px 0;font-size:15px;overflow-wrap:anywhere}
+.customer-service-portal-case-head p{margin:0;color:var(--muted-foreground);font-size:10px}
+.customer-service-portal-code{color:var(--aghbari-brand,var(--primary));font-size:10px;font-weight:900}
+.customer-service-portal-status{flex:0 0 auto;padding:5px 9px;border-radius:999px;background:var(--aghbari-brand-soft,var(--muted));font-size:10px;font-weight:800}
+.customer-service-portal-status.status-closed,.customer-service-portal-status.status-resolved{background:var(--muted);color:var(--muted-foreground)}
+.customer-service-portal-description{margin:0;white-space:pre-wrap;line-height:1.8;font-size:12px;overflow-wrap:anywhere}
+.customer-service-portal-dates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.customer-service-portal-dates>div{display:grid;gap:5px;padding:10px;border:1px solid var(--border);border-radius:9px;background:var(--background);min-width:0}
+.customer-service-portal-dates span{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:10px}
+.customer-service-portal-dates strong{font-size:11px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.customer-service-portal-dates small{font-size:9px;color:var(--muted-foreground)}
+.customer-service-portal-thread{border-top:1px solid var(--border);padding-top:10px}
+.customer-service-portal-thread summary{display:flex;align-items:center;gap:7px;cursor:pointer;font-size:11px;font-weight:800}
+.customer-service-portal-messages,.customer-service-conversation-list{display:grid;gap:8px;list-style:none;padding:0;margin:10px 0}
+.customer-service-portal-message,.customer-service-conversation-list li{display:grid;gap:5px;padding:10px;border-radius:10px;background:var(--background);border:1px solid var(--border)}
+.customer-service-portal-message.from-staff,.customer-service-conversation-list li.from-staff{border-inline-start:3px solid var(--aghbari-brand,var(--primary))}
+.customer-service-portal-message.from-customer,.customer-service-conversation-list li.from-customer{border-inline-start:3px solid var(--aghbari-gold,var(--border))}
+.customer-service-portal-message>div,.customer-service-conversation-list li>div{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.customer-service-portal-message strong,.customer-service-conversation-list strong{font-size:10px}
+.customer-service-portal-message time,.customer-service-conversation-list time{color:var(--muted-foreground);font-size:9px}
+.customer-service-portal-message p,.customer-service-conversation-list li p{margin:0;font-size:12px;line-height:1.75;white-space:pre-wrap;overflow-wrap:anywhere}
+.customer-service-portal-reply,.customer-service-conversation-reply{display:grid;gap:8px;padding-top:10px}
+.customer-service-portal-reply button,.customer-service-conversation-reply button{justify-self:start}
+.customer-service-portal-notice,.customer-service-portal-error,.customer-service-portal-readonly{display:flex;align-items:flex-start;gap:8px;padding:11px 13px;border-radius:9px;font-size:11px;line-height:1.8;margin:0}
+.customer-service-portal-notice{background:var(--aghbari-brand-soft,var(--muted));color:var(--foreground)}
+.customer-service-portal-error{background:color-mix(in srgb,var(--destructive,var(--aghbari-brand)) 8%,var(--card));color:var(--destructive,var(--foreground))}
+.customer-service-portal-readonly,.customer-service-portal-muted,.customer-service-portal-empty{color:var(--muted-foreground);font-size:11px;line-height:1.8}
+.customer-service-portal-empty{padding:24px;text-align:center;border:1px dashed var(--border);border-radius:11px}
+
+.customer-service-portal-case-filters{display:grid;grid-template-columns:minmax(220px,2fr) repeat(2,minmax(145px,1fr));gap:10px;align-items:end;padding:13px;border:1px solid var(--border);border-radius:11px;background:var(--background)}
+.customer-service-portal-case-filters label{display:grid;gap:6px;min-width:0;color:var(--muted-foreground);font-size:10px;font-weight:750}
+.customer-service-portal-case-filters input,.customer-service-portal-case-filters select{width:100%;min-width:0;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--foreground);font:inherit;font-size:12px}
+.customer-service-portal-filter-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;grid-column:1/-1}
+.customer-service-portal-case-filters>.customer-service-portal-muted{grid-column:1/-1;margin:0}
+.customer-service-portal-pagination{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
+.customer-service-portal-pagination>span{font-size:10px;color:var(--muted-foreground)}
+.customer-service-portal-pagination>div{display:flex;gap:8px}
+.customer-service-conversation{display:grid;gap:8px;border-top:1px solid var(--border);padding-top:9px}
+.customer-service-conversation-toggle{display:flex;align-items:center;gap:7px;width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--background);color:var(--foreground);font:inherit;font-size:10px;font-weight:800;text-align:start;cursor:pointer}
+.customer-service-conversation-count{margin-inline-start:auto;color:var(--muted-foreground);font-size:9px}
+.customer-service-conversation-body{display:grid;gap:9px;padding:10px;border:1px solid var(--border);border-radius:9px;background:var(--background)}
+.customer-service-conversation-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.customer-service-conversation-toolbar>span,.customer-service-conversation-muted{color:var(--muted-foreground);font-size:9px;line-height:1.8;margin:0}
+.customer-service-conversation-reply label{font-size:10px;font-weight:800;color:var(--muted-foreground)}
+.customer-service-conversation-reply textarea{width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--foreground);font:inherit;font-size:11px;resize:vertical}
+.customer-service-conversation-error{margin:0;color:var(--destructive,var(--foreground));font-size:10px}
+@media(max-width:620px){.customer-service-portal{padding:16px 12px 36px}.customer-service-portal-form-grid,.customer-service-portal-dates{grid-template-columns:1fr}.customer-service-portal-case-head{flex-direction:column}.customer-service-portal-form-footer{align-items:stretch}.customer-service-portal-form-footer button,.customer-service-portal-reply button,.customer-service-conversation-reply button{width:100%}}
+
+
+/* Supplier invoice reconciliation voucher — scoped Arabic RTL A4 print / Save as PDF. */
+.supplier-invoice-accounting-print-sheet { display: none; page: aghbariSupplierInvoiceAccounting; }
+@page aghbariSupplierInvoiceAccounting { size: A4 portrait; margin: 10mm; }
+@media print {
+  body[data-print-mode="supplier-invoice-accounting"] {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  body[data-print-mode="supplier-invoice-accounting"] > :not(.supplier-invoice-accounting-print-sheet) {
+    display: none !important;
+  }
+  body[data-print-mode="supplier-invoice-accounting"] * { visibility: hidden !important; }
+  body[data-print-mode="supplier-invoice-accounting"] .supplier-invoice-accounting-print-sheet,
+  body[data-print-mode="supplier-invoice-accounting"] .supplier-invoice-accounting-print-sheet * {
+    visibility: visible !important;
+  }
+  body[data-print-mode="supplier-invoice-accounting"] .supplier-invoice-accounting-print-sheet {
+    display: block !important;
+    position: static !important;
+    width: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    direction: rtl !important;
+    text-align: right !important;
+    color: #17221c !important;
+    background: #fff !important;
+    font-family: "Noto Sans Arabic", Arial, sans-serif !important;
+    font-size: 8pt !important;
+    line-height: 1.55 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .supplier-invoice-accounting-print-header {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    gap: 12px;
+    align-items: start;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #174a37;
+  }
+  .supplier-invoice-accounting-print-sheet h1 {
+    margin: 0 0 5px;
+    color: #174a37 !important;
+    font-size: 15pt;
+  }
+  .supplier-invoice-accounting-print-sheet h2 {
+    margin: 3px 0 6px;
+    color: #174a37 !important;
+    font-size: 12pt;
+  }
+  .supplier-invoice-accounting-print-sheet h3 {
+    margin: 0 0 5px;
+    color: #174a37 !important;
+    font-size: 9pt;
+  }
+  .supplier-invoice-accounting-print-sheet p { margin: 2px 0; }
+  .supplier-invoice-accounting-print-generated {
+    display: grid;
+    gap: 3px;
+    text-align: left;
+    font-size: 7pt;
+    white-space: nowrap;
+  }
+  .supplier-invoice-accounting-print-section {
+    margin-top: 9px;
+    break-inside: auto;
+  }
+  .supplier-invoice-accounting-print-grid {
+    display: grid;
+    grid-template-columns: repeat(2,minmax(0,1fr));
+    gap: 5px 10px;
+  }
+  .supplier-invoice-accounting-print-grid > div {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1px;
+    padding: 4px 6px;
+    border: 1px solid #cbd5cf;
+    break-inside: avoid;
+  }
+  .supplier-invoice-accounting-print-grid span {
+    color: #526057 !important;
+    font-size: 7pt;
+  }
+  .supplier-invoice-accounting-print-sheet table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+    font-size: 7pt;
+  }
+  .supplier-invoice-accounting-print-sheet thead { display: table-header-group; }
+  .supplier-invoice-accounting-print-sheet th,
+  .supplier-invoice-accounting-print-sheet td {
+    padding: 3px 4px;
+    border: 1px solid #cbd5cf;
+    text-align: right;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+  .supplier-invoice-accounting-print-sheet thead th {
+    color: #174a37 !important;
+    background: #edf4ef !important;
+    font-weight: 800;
+  }
+  .supplier-invoice-accounting-print-sheet tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .supplier-invoice-accounting-print-sheet small {
+    display: block;
+    color: #526057 !important;
+    font-size: 6.5pt;
+  }
+  .supplier-invoice-accounting-print-signatures {
+    display: grid;
+    grid-template-columns: repeat(2,minmax(0,1fr));
+    gap: 18px;
+    margin-top: 18px;
+    break-inside: avoid;
+  }
+  .supplier-invoice-accounting-print-signatures > div {
+    display: grid;
+    gap: 12px;
+    padding-top: 5px;
+    border-top: 1px solid #64746b;
+  }
+  .supplier-invoice-accounting-print-footer {
+    margin-top: 10px;
+    padding-top: 6px;
+    border-top: 1px solid #cbd5cf;
+    color: #526057 !important;
+    font-size: 7pt;
+  }
+}
+
+
+.supplier-account-activity-print-sheet { display: none; page: aghbariSupplierAccountActivity; }
+@page aghbariSupplierAccountActivity { size: A4 landscape; margin: 9mm; }
+@media print {
+  body[data-print-mode="supplier-account-activity"] {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  body[data-print-mode="supplier-account-activity"] > :not(.supplier-account-activity-print-sheet) {
+    display: none !important;
+  }
+  body[data-print-mode="supplier-account-activity"] * { visibility: hidden !important; }
+  body[data-print-mode="supplier-account-activity"] .supplier-account-activity-print-sheet,
+  body[data-print-mode="supplier-account-activity"] .supplier-account-activity-print-sheet * {
+    visibility: visible !important;
+  }
+  body[data-print-mode="supplier-account-activity"] .supplier-account-activity-print-sheet {
+    display: block !important;
+    position: static !important;
+    width: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    direction: rtl !important;
+    text-align: right !important;
+    color: #17221c !important;
+    background: #fff !important;
+    font-family: "Noto Sans Arabic", Arial, sans-serif !important;
+    font-size: 7.5pt !important;
+    line-height: 1.5 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .supplier-account-activity-print-header {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    gap: 12px;
+    align-items: start;
+    padding-bottom: 7px;
+    border-bottom: 2px solid #174a37;
+  }
+  .supplier-account-activity-print-sheet h1 {
+    margin: 0 0 4px;
+    color: #174a37 !important;
+    font-size: 14pt;
+  }
+  .supplier-account-activity-print-sheet h2 {
+    margin: 2px 0 5px;
+    color: #174a37 !important;
+    font-size: 11pt;
+  }
+  .supplier-account-activity-print-sheet h3 {
+    margin: 0 0 5px;
+    color: #174a37 !important;
+    font-size: 8.5pt;
+  }
+  .supplier-account-activity-print-sheet p { margin: 2px 0 5px; }
+  .supplier-account-activity-print-generated {
+    display: grid;
+    gap: 2px;
+    text-align: left;
+    font-size: 6.5pt;
+    white-space: nowrap;
+  }
+  .supplier-account-activity-print-section {
+    margin-top: 8px;
+    break-inside: auto;
+  }
+  .supplier-account-activity-print-sheet table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+    font-size: 6.5pt;
+  }
+  .supplier-account-activity-print-sheet thead { display: table-header-group; }
+  .supplier-account-activity-print-sheet th,
+  .supplier-account-activity-print-sheet td {
+    padding: 2px 3px;
+    border: 1px solid #cbd5cf;
+    text-align: right;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+  .supplier-account-activity-print-sheet thead th {
+    color: #174a37 !important;
+    background: #edf4ef !important;
+    font-weight: 800;
+  }
+  .supplier-account-activity-print-sheet tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .supplier-account-activity-print-sheet small {
+    display: block;
+    color: #526057 !important;
+    font-size: 6pt;
+  }
+  .supplier-account-activity-print-footer {
+    margin-top: 8px;
+    padding-top: 5px;
+    border-top: 1px solid #cbd5cf;
+    color: #526057 !important;
+    font-size: 6.5pt;
+  }
+}
+
+
+.supplier-payment-voucher-print-sheet { display: none; page: aghbariSupplierPaymentVoucher; }
+@page aghbariSupplierPaymentVoucher { size: A4 portrait; margin: 12mm; }
+@media print {
+  body[data-print-mode="supplier-payment-voucher"] {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  body[data-print-mode="supplier-payment-voucher"] > :not(.supplier-payment-voucher-print-sheet) {
+    display: none !important;
+  }
+  body[data-print-mode="supplier-payment-voucher"] * { visibility: hidden !important; }
+  body[data-print-mode="supplier-payment-voucher"] .supplier-payment-voucher-print-sheet,
+  body[data-print-mode="supplier-payment-voucher"] .supplier-payment-voucher-print-sheet * {
+    visibility: visible !important;
+  }
+  body[data-print-mode="supplier-payment-voucher"] .supplier-payment-voucher-print-sheet {
+    display: block !important;
+    position: static !important;
+    width: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    direction: rtl !important;
+    text-align: right !important;
+    color: #17221c !important;
+    background: #fff !important;
+    font-family: "Noto Sans Arabic", Arial, sans-serif !important;
+    font-size: 9pt !important;
+    line-height: 1.6 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .supplier-payment-voucher-print-header {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    gap: 12px;
+    align-items: start;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #174a37;
+  }
+  .supplier-payment-voucher-print-sheet h1 {
+    margin: 0 0 6px;
+    color: #174a37 !important;
+    font-size: 17pt;
+  }
+  .supplier-payment-voucher-print-sheet h2 {
+    margin: 3px 0 7px;
+    color: #174a37 !important;
+    font-size: 13pt;
+  }
+  .supplier-payment-voucher-print-sheet h3 {
+    margin: 0 0 8px;
+    color: #174a37 !important;
+    font-size: 10pt;
+  }
+  .supplier-payment-voucher-print-sheet p { margin: 3px 0; }
+  .supplier-payment-voucher-print-generated {
+    display: grid;
+    gap: 3px;
+    text-align: left;
+    font-size: 7pt;
+    white-space: nowrap;
+  }
+  .supplier-payment-voucher-print-section {
+    margin-top: 14px;
+    break-inside: avoid;
+  }
+  .supplier-payment-voucher-print-grid {
+    display: grid;
+    grid-template-columns: repeat(2,minmax(0,1fr));
+    gap: 7px 12px;
+  }
+  .supplier-payment-voucher-print-grid > div {
+    display: grid;
+    gap: 3px;
+    padding: 7px 9px;
+    border: 1px solid #cbd5cf;
+    break-inside: avoid;
+  }
+  .supplier-payment-voucher-print-grid span {
+    color: #526057 !important;
+    font-size: 7pt;
+  }
+  .supplier-payment-voucher-print-sheet table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+    font-size: 8pt;
+  }
+  .supplier-payment-voucher-print-sheet th,
+  .supplier-payment-voucher-print-sheet td {
+    padding: 7px 9px;
+    border: 1px solid #cbd5cf;
+    text-align: right;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+  .supplier-payment-voucher-print-sheet th {
+    width: 32%;
+    color: #174a37 !important;
+    background: #edf4ef !important;
+    font-weight: 800;
+  }
+  .supplier-payment-voucher-print-signatures {
+    display: grid;
+    grid-template-columns: repeat(2,minmax(0,1fr));
+    gap: 22px;
+    margin-top: 34px;
+    break-inside: avoid;
+  }
+  .supplier-payment-voucher-print-signatures > div {
+    display: grid;
+    gap: 15px;
+    padding-top: 7px;
+    border-top: 1px solid #64746b;
+  }
+  .supplier-payment-voucher-print-footer {
+    margin-top: 20px;
+    padding-top: 8px;
+    border-top: 1px solid #cbd5cf;
+    color: #526057 !important;
+    font-size: 7pt;
+  }
+}
+
+
+.customer-service-desk-print-sheet { display: none; page: aghbariCustomerServiceDesk; }
+@page aghbariCustomerServiceDesk { size: A4 landscape; margin: 9mm; }
+@media print {
+  body[data-print-mode="customer-service-desk-report"] {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  body[data-print-mode="customer-service-desk-report"] > :not(.customer-service-desk-print-sheet) {
+    display: none !important;
+  }
+  body[data-print-mode="customer-service-desk-report"] * { visibility: hidden !important; }
+  body[data-print-mode="customer-service-desk-report"] .customer-service-desk-print-sheet,
+  body[data-print-mode="customer-service-desk-report"] .customer-service-desk-print-sheet * {
+    visibility: visible !important;
+  }
+  body[data-print-mode="customer-service-desk-report"] .customer-service-desk-print-sheet {
+    display: block !important;
+    position: static !important;
+    width: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    direction: rtl !important;
+    text-align: right !important;
+    color: #17221c !important;
+    background: #fff !important;
+    font-family: "Noto Sans Arabic", Arial, sans-serif !important;
+    font-size: 7.5pt !important;
+    line-height: 1.45 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .customer-service-desk-print-header {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    gap: 12px;
+    align-items: start;
+    padding-bottom: 7px;
+    border-bottom: 2px solid #174a37;
+  }
+  .customer-service-desk-print-sheet h1 {
+    margin: 0 0 4px;
+    color: #174a37 !important;
+    font-size: 14pt;
+  }
+  .customer-service-desk-print-sheet h2 {
+    margin: 2px 0 5px;
+    color: #174a37 !important;
+    font-size: 10pt;
+  }
+  .customer-service-desk-print-sheet h3 {
+    margin: 0 0 5px;
+    color: #174a37 !important;
+    font-size: 8pt;
+  }
+  .customer-service-desk-print-sheet p { margin: 2px 0 5px; }
+  .customer-service-desk-print-scope {
+    display: grid;
+    gap: 2px;
+    text-align: left;
+    font-size: 6.5pt;
+  }
+  .customer-service-desk-print-scope strong { color: #9a3412 !important; }
+  .customer-service-desk-print-metrics {
+    margin-top: 7px;
+    break-inside: avoid;
+  }
+  .customer-service-desk-print-metrics > div {
+    display: grid;
+    grid-template-columns: repeat(6,minmax(0,1fr));
+    gap: 5px;
+  }
+  .customer-service-desk-print-metrics article {
+    display: grid;
+    gap: 3px;
+    padding: 5px;
+    border: 1px solid #cbd5cf;
+  }
+  .customer-service-desk-print-metrics article span { font-size: 6pt; color: #526057 !important; }
+  .customer-service-desk-print-metrics article strong { font-size: 11pt; color: #174a37 !important; }
+  .customer-service-desk-print-cases {
+    margin-top: 8px;
+  }
+  .customer-service-desk-print-sheet table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+    font-size: 6.2pt;
+  }
+  .customer-service-desk-print-sheet thead { display: table-header-group; }
+  .customer-service-desk-print-sheet th,
+  .customer-service-desk-print-sheet td {
+    padding: 3px 4px;
+    border: 1px solid #cbd5cf;
+    text-align: right;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+  .customer-service-desk-print-sheet th {
+    color: #174a37 !important;
+    background: #edf4ef !important;
+    font-weight: 800;
+  }
+  .customer-service-desk-print-sheet tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .customer-service-desk-print-sheet small {
+    display: block;
+    color: #526057 !important;
+    font-size: 5.7pt;
+  }
+  .customer-service-desk-print-footer {
+    margin-top: 7px;
+    padding-top: 5px;
+    border-top: 1px solid #cbd5cf;
+    color: #526057 !important;
+    font-size: 6pt;
+  }
+}
+
+
+.supplier-quote-comparison-print-sheet { display: none; page: aghbariSupplierQuoteComparison; }
+@page aghbariSupplierQuoteComparison { size: A4 landscape; margin: 8mm; }
+@media print {
+  body[data-print-mode="supplier-quote-comparison"] {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  body[data-print-mode="supplier-quote-comparison"] > :not(.supplier-quote-comparison-print-sheet) {
+    display: none !important;
+  }
+  body[data-print-mode="supplier-quote-comparison"] * { visibility: hidden !important; }
+  body[data-print-mode="supplier-quote-comparison"] .supplier-quote-comparison-print-sheet,
+  body[data-print-mode="supplier-quote-comparison"] .supplier-quote-comparison-print-sheet * {
+    visibility: visible !important;
+  }
+  body[data-print-mode="supplier-quote-comparison"] .supplier-quote-comparison-print-sheet {
+    display: block !important;
+    position: static !important;
+    width: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    direction: rtl !important;
+    text-align: right !important;
+    color: #17221c !important;
+    background: #fff !important;
+    font-family: "Noto Sans Arabic", Arial, sans-serif !important;
+    font-size: 7pt !important;
+    line-height: 1.4 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .supplier-quote-comparison-print-header {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    gap: 12px;
+    align-items: start;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #174a37;
+  }
+  .supplier-quote-comparison-print-sheet h1 {
+    margin: 0 0 3px;
+    color: #174a37 !important;
+    font-size: 13pt;
+  }
+  .supplier-quote-comparison-print-sheet h2 {
+    margin: 2px 0 4px;
+    color: #174a37 !important;
+    font-size: 10pt;
+  }
+  .supplier-quote-comparison-print-sheet h3 {
+    margin: 0 0 4px;
+    color: #174a37 !important;
+    font-size: 7.8pt;
+  }
+  .supplier-quote-comparison-print-sheet p { margin: 2px 0 4px; }
+  .supplier-quote-comparison-print-scope {
+    display: grid;
+    gap: 2px;
+    text-align: left;
+    font-size: 6pt;
+    white-space: nowrap;
+  }
+  .supplier-quote-comparison-print-section {
+    margin-top: 7px;
+    break-inside: auto;
+  }
+  .supplier-quote-comparison-print-sheet table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+    font-size: 5.7pt;
+  }
+  .supplier-quote-comparison-print-sheet thead { display: table-header-group; }
+  .supplier-quote-comparison-print-sheet th,
+  .supplier-quote-comparison-print-sheet td {
+    padding: 2px 3px;
+    border: 1px solid #cbd5cf;
+    text-align: right;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+  .supplier-quote-comparison-print-sheet thead th {
+    color: #174a37 !important;
+    background: #edf4ef !important;
+    font-weight: 800;
+  }
+  .supplier-quote-comparison-print-sheet tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .supplier-quote-comparison-print-sheet small {
+    display: block;
+    color: #526057 !important;
+    font-size: 5.2pt;
+  }
+  .supplier-quote-comparison-print-footer {
+    margin-top: 6px;
+    padding-top: 4px;
+    border-top: 1px solid #cbd5cf;
+    color: #526057 !important;
+    font-size: 5.8pt;
+  }
+}

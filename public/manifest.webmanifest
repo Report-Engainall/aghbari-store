@@ -1,0 +1,32 @@
+{
+  "name": "متجر الأغبري | Aghbari Commerce",
+  "short_name": "متجر الأغبري",
+  "description": "متجر الأغبري للتجارة بالجملة وإدارة الطلبات التجارية",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fffdf5",
+  "theme_color": "#14532d",
+  "icons": [
+    {
+      "src": "/icons/aghbari-icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/aghbari-icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon",
+      "purpose": "any"
+    }
+  ]
+}

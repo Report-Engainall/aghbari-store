@@ -1,0 +1,50 @@
+# Exact historical Gitleaks fingerprints reviewed on 2026-11-01.
+# All entries are commit:path:rule:line scoped; no broad rule/path suppression is used.
+# Context: synthetic negative-test JWT/API key, test-only idempotency/request keys,
+# UUID test identities, CI fixture keys, and non-secret Git blob/commit identifiers
+# in source integration/provenance records. The findings were confirmed as test or
+# provenance data, not service credentials. Re-scan new commits normally.
+2f4cf466aa9800a7fb03f99caeb6b856d83ceb33:src/test/ai-gateway-logic.test.ts:jwt:59
+2f4cf466aa9800a7fb03f99caeb6b856d83ceb33:src/test/ai-gateway-logic.test.ts:generic-api-key:56
+12496925453ea8656177de36e064d0998346f126:docs/bolt-source-reconciliation/SOURCE_INTEGRATION_LEDGER.csv:generic-api-key:29
+12496925453ea8656177de36e064d0998346f126:docs/bolt-source-reconciliation/SOURCE_INTEGRATION_LEDGER.csv:generic-api-key:124
+12496925453ea8656177de36e064d0998346f126:docs/bolt-source-reconciliation/SOURCE_INTEGRATION_LEDGER.csv:generic-api-key:161
+77b3f22d735b9ec674f7ec74ac137f7f94ac1e2f:scripts/test-import-finalizer-tenant-scope.mjs:generic-api-key:118
+ff8863555d2f4fe194c5a24f346c8bbb4f242f2a:scripts/test-database-migrations.mjs:generic-api-key:2508
+ff8863555d2f4fe194c5a24f346c8bbb4f242f2a:scripts/test-database-migrations.mjs:generic-api-key:3672
+afa4840c137d9da853c8486b005adb1ffd5fdd0a:scripts/test-database-migrations.mjs:generic-api-key:287
+c5596c51bc253ff330948556b2969178c0672722:scripts/test-database-migrations.mjs:generic-api-key:287
+c5596c51bc253ff330948556b2969178c0672722:scripts/test-database-migrations.mjs:generic-api-key:2420
+c5596c51bc253ff330948556b2969178c0672722:scripts/test-database-migrations.mjs:generic-api-key:2422
+4faf7934512aded52bbc4a3488747ae6521f11cd:scripts/test-admin-catalog-commands.mjs:generic-api-key:21
+e167624a7ba93f885e43782d94ce3b515990b4ef:docs/bolt-source-reconciliation/READY_TO_REUSE_FILE_AUDIT.csv:generic-api-key:8
+dd29948b6f067663c682d3f1fb8933cb7da048a1:scripts/test-database-migrations.mjs:generic-api-key:1101
+73e3bbbd328789f25e21f279b971e958a924b04d:scripts/test-database-migrations.mjs:generic-api-key:1084
+3b8c573a7e268317477a0dc5921643e55fd932a7:docs/bolt-source-reconciliation/PROGRAMMER_2_CURRENT_REPORT.md:generic-api-key:236
+13a9dcb080e311cabb03939544fb76178d550cf5:docs/bolt-source-reconciliation/PROGRAMMER_2_CURRENT_REPORT.md:generic-api-key:224
+b9cb246b1778ab48b7aee2ad717d4e3c5ed651ca:scripts/test-import-job-idempotency.mjs:generic-api-key:81
+b98303772f5194d6728d8d10b92bb56d91e414b0:src/test/onyx-inventory-reconciliation.test.ts:generic-api-key:50
+b98303772f5194d6728d8d10b92bb56d91e414b0:src/test/onyx-inventory-reconciliation.test.ts:generic-api-key:57
+b98303772f5194d6728d8d10b92bb56d91e414b0:src/test/onyx-inventory-reconciliation.test.ts:generic-api-key:66
+d56e08dc2fc71c4414b6e9619b336a2858436a25:docs/bolt-source-reconciliation/SOURCE_INTEGRATION_LEDGER.csv:generic-api-key:29
+e3019d4181093ca1cf29b58fe2a5171fa8058749:docs/bolt-source-reconciliation/READY_TO_REUSE_FILE_AUDIT.csv:generic-api-key:8
+a1ff5fc9a4c2486bc9cb51e8370d3bde35eccccd:docs/bolt-source-reconciliation/SOURCE_INTEGRATION_LEDGER.csv:generic-api-key:29
+2c2fe9dcdf05dd16c87c90ebba056051ba0412bd:docs/bolt-source-reconciliation/SOURCE_INTEGRATION_LEDGER.csv:generic-api-key:29
+4eaadebb709fb0f0c3bb6e695dc738afbb9e30ba:docs/bolt-source-reconciliation/SOURCE_INTEGRATION_LEDGER.csv:generic-api-key:29
+f9dd35d198c50336ee88b03f272210bbf98770f4:docs/bolt-source-reconciliation/SOURCE_INTEGRATION_LEDGER.csv:generic-api-key:29
+5e62ad9c4be45a2c85d9539f768e4bbb04d20722:docs/bolt-source-reconciliation/SOURCE_INTEGRATION_LEDGER.csv:generic-api-key:29
+29ebc500cb73467449304962070c45c4a814d65f:docs/bolt-source-reconciliation/SOURCE_INTEGRATION_LEDGER.csv:generic-api-key:29
+29ebc500cb73467449304962070c45c4a814d65f:docs/bolt-source-reconciliation/READY_TO_REUSE_FILE_AUDIT.csv:generic-api-key:8
+2dc06d4bf7b586d698747dff2d66fb3c29c24578:docs/bolt-source-reconciliation/READY_TO_REUSE_FILE_AUDIT.csv:generic-api-key:8
+dfe1964fc6b28036e51563a7d29c04cacad1ec7a:docs/bolt-source-reconciliation/READY_TO_REUSE/PROVENANCE_MANIFEST.csv:generic-api-key:8
+3030fa0637b45b6cf43150d69c561275b9a4f1e7:docs/bolt-source-reconciliation/READY_TO_REUSE/Report-Engainall--aghbari-commerce/src/services/inventory.input.test.ts:generic-api-key:8
+0e0462db2bbca340c5db9160421bc05a5012d49b:docs/bolt-source-reconciliation/READY_TO_REUSE/Report-Engainall--aghbari-commerce/src/domain/order.test.ts:generic-api-key:7
+# Exact historical fingerprints for synthetic negative-input fixtures in the AI gateway sanitizer test.
+# The current-main test uses generated fixture values; these scoped historical occurrences are not live credentials.
+ef7d290a5ae9bd53ff035513f2c7fca700bfb875:src/test/ai-gateway-logic.test.ts:generic-api-key:66
+ef7d290a5ae9bd53ff035513f2c7fca700bfb875:src/test/ai-gateway-logic.test.ts:jwt:69
+
+# Exact Git commit hashes in P3 execution provenance misclassified by generic-api-key; independently verified against GitHub commits on 2026-11-06.
+46782db4d69a622553da3ac3efa0b3e78125f6b1:docs/execution/P3_CHECKPOINT.md:generic-api-key:4
+7e68f72602604f6d78b3f2e335aaedb564dd99da:docs/bolt-source-reconciliation/CURRENT_EXECUTION_STATE.md:generic-api-key:27
+941953e0af0d357a5a8e3a8aad01618a90056a38:docs/bolt-source-reconciliation/CURRENT_EXECUTION_STATE.md:generic-api-key:36
